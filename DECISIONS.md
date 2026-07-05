@@ -1,0 +1,69 @@
+# DECISIONS.md — Architecture Decision Records
+
+> Append-only log of decisions that shape the codebase. One entry per decision. Never delete — supersede with a new entry that links back. Format: context → decision → consequences.
+
+---
+
+## ADR-001: pnpm workspaces for the monorepo (2026-07-03)
+
+**Context:** 2 apps + 3 packages need shared types, configs, and a single install.
+**Decision:** pnpm workspaces, no Turborepo/Nx for now.
+**Consequences:** All commands use `pnpm --filter`. Strict node_modules will surface phantom deps early. If task caching becomes painful (>30 s CI rebuilds), revisit Turborepo — it layers on top without restructuring.
+
+## ADR-002: Drizzle over Prisma (2026-07-03)
+
+**Context:** ORM choice for a team that must also write recursive CTEs and pgvector queries.
+**Decision:** Drizzle ORM; raw SQL allowed in exactly two files (`queries/lineage.ts`, `queries/similarity.ts`).
+**Consequences:** SQL-shaped API keeps the team close to Postgres. No Prisma engine binary on the droplet. Migrations via drizzle-kit are plain SQL and reviewable.
+
+## ADR-003: API server and room WS server share one process in V1 (2026-07-03)
+
+**Context:** SRS requires horizontal scalability of the room server (NFR-SCALE-02) but V1 targets only 200 concurrent users on one droplet.
+**Decision:** One Fastify instance hosts REST + WS. All room broadcasts go through Redis pub/sub from day one.
+**Consequences:** One process to deploy/monitor now; splitting later is a deploy-topology change, not a code change, because no code assumes a local-only socket map.
+
+## ADR-004: Vitest + Playwright; real Postgres in integration tests (2026-07-03)
+
+**Context:** Test stack for a Vite/TS codebase where DB behavior (state machine, CTEs, constraints) is the risk center.
+**Decision:** Vitest everywhere, Playwright for 5 critical E2E journeys, Dockerized Postgres+Redis in integration tests, mock only true externals (Anthropic, Daily, GitHub, SMTP).
+**Consequences:** Slower integration suite (~minutes) but real constraint/transaction coverage. Canned Anthropic fake keeps grading UI development unblocked and free.
+
+## ADR-005: React Flow (not D3) for the lineage visualiser (2026-07-03)
+
+**Context:** SRS §6.1 allows either.
+**Decision:** React Flow — declarative, React-native, custom nodes are just components (post cards as nodes drop straight in).
+**Consequences:** Less control over exotic layouts; acceptable — lineage trees are shallow (a handful of generations). Layout via `dagre`.
+
+## ADR-006: Cover images on droplet disk, not object storage (2026-07-03)
+
+**Context:** Only user-uploaded binary in V1 is the optional post cover image (videos/demos are external links by SRS).
+**Decision:** Store under `/var/lib/foundry/uploads`, re-encoded with sharp, served by Nginx; nightly rsync backup.
+**Consequences:** Zero extra cost/complexity. Revisit (DO Spaces) only if uploads exceed disk or a second app server appears — same trigger as ADR-003's split.
+
+## ADR-007: WS auth via one-time ticket, not JWT-in-URL (2026-07-03)
+
+**Context:** Browsers can't set headers on WebSocket connects; tokens in query strings leak into logs.
+**Decision:** `POST /rooms/:id/ws-ticket` issues a 30 s single-use ticket; the WS URL carries only the ticket.
+**Consequences:** One extra round-trip on room entry; no long-lived credential ever appears in a URL.
+
+## ADR-008: Embedding generation is a separate worker job from grading (2026-07-03)
+
+**Context:** FR-GRADE-09 needs ancestor embeddings at grading time; ancestors may never be submitted for grading themselves.
+**Decision:** Embeddings are generated on **publish** (every published post), by an `embedding` queue job; the grading job only reads them.
+**Consequences:** Similarity data is ready before any descendant submits. Publish gets a small async cost. Embedding model choice is isolated in the embedding worker; vector dimension pinned in `post_embeddings` (1024) — changing models requires a re-embed migration, noted here when it happens.
+
+## ADR-009: Argon2id for password hashing (2026-07-03)
+
+**Context:** FR-AUTH requirements name no algorithm; bcrypt is the tutorial default.
+**Decision:** argon2id with OWASP-recommended parameters.
+**Consequences:** Current best practice, memory-hard. The `argon2` npm package needs a native build on the droplet (prebuilt binaries cover Ubuntu 22.04).
+
+## ADR-010: Adopt the team's Figma design as the V1 design system (2026-07-05)
+
+**Context:** Two candidate design directions existed: a standalone `foundry-design-system.html` token sheet and the team's Figma file (`YOK9jClUSuv3QVDYhNugpJ`). The user confirmed the Figma file does **not** follow the HTML sheet and the HTML file is void. Validation of all Figma frames (Feed, Idea Hub Open Ideas + Feature Requests, Compose, Notifications, Profile — each in light and dark) against the SRS found it exceptionally SRS-faithful: post cards carry upvotes/comments/fork-count/bookmark/grade badge/fork attribution; Feed implements all five SRS modes plus the seniors strip (FR-FEED-05); Compose is the §6.1 split-pane editor with a non-gating readiness checklist (FR-POST-08); Idea Hub covers the claim lifecycle (FR-IDEA-03/04) and FR scope badges (FR-IDEA-08–12); Profile shows lineage stats and derived skills (FR-PROFILE-02/03).
+**Decision:** Adopt the Figma design as the single design source of truth. Delete `foundry-design-system.html`. Because the file defines no Figma variables, extract colors/typography/spacing from the frames into the Tailwind v4 theme in `apps/web` — the Tailwind theme file becomes the canonical token record.
+**Consequences:** Frontend work styles directly against extracted tokens. Known design debt to hand back to the designer before Phases 3–4: post detail page, lineage tree view, faculty grading panel, room Workspace + Live Space, auth/onboarding, admin screens, mobile layouts. Two small post-card additions required to satisfy FR-POST-09: a domain tag and a Live Demo button.
+
+---
+
+_Add new entries below. Next number: ADR-011._
