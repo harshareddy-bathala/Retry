@@ -1,0 +1,6 @@
+# Normalize line endings — the team is on mixed Windows/Linux machines
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
