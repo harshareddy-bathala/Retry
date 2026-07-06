@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: foundry
+          POSTGRES_PASSWORD: foundry
+          POSTGRES_DB: foundry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U foundry"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://foundry:foundry@localhost:5432/foundry_test
+      DATABASE_URL_TEST: postgresql://foundry:foundry@localhost:5432/foundry_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm -r lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Migrate test database
+        run: pnpm --filter @foundry/db migrate
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm -r build
+
+      # Hard Rule 7 tripwire: raw-SQL template interpolation outside placeholders
+      - name: Guard raw SQL interpolation
+        run: |
+          if grep -rn '\${' packages/db/src/queries --include='*.ts' 2>/dev/null; then
+            echo '::error::String interpolation found in raw SQL files (SECURITY.md §3)'
+            exit 1
+          fi

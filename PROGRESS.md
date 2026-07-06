@@ -2,18 +2,18 @@
 
 > Living status tracker. Update in the same PR as the work. `ROADMAP.md` is the plan; this is reality. AI assistants: read this to know what exists before writing code that depends on it.
 
-**Last updated:** 2026-07-03
+**Last updated:** 2026-07-06
 
 ## Current State
 
-**Phase 0 — Foundations. Nothing is built yet.** Documentation and planning are complete; the monorepo has not been scaffolded.
+**Phase 0 — Foundations, code-complete locally.** Monorepo scaffolded, auth vertical slice implemented and unit-tested, frontend shell styled with the Figma design tokens (ADR-010), CI defined. Remaining before phase exit: admin endpoints (create-faculty, suspend-user), droplet provisioning, and the staging exit demo. Nothing is pushed or deployed yet.
 
 ## Phase Status
 
 | Phase | Scope | Status |
 |-------|-------|--------|
 | Docs & planning | CLAUDE.md, SRS, all context docs, skills, roadmap | ✅ Complete (2026-07-03) |
-| Phase 0 — Foundations (M1) | Scaffold, CI, auth, deploy skeleton | 🔲 Not started |
+| Phase 0 — Foundations (M1) | Scaffold, CI, auth, deploy skeleton | 🟡 In progress (code-complete locally 2026-07-06) |
 | Phase 1 — Posts & Profiles (M2) | Post CRUD, teams, profiles, Latest feed | 🔲 Not started |
 | Phase 2 — Lineage, Social & Feed (M3) | Fork, CTE traversal, social, ranked feeds | 🔲 Not started |
 | Phase 3 — Grading Pipeline (M4–5) | Submit → AI → faculty approval → release | 🔲 Not started |
@@ -24,16 +24,16 @@
 
 ## Phase 0 Checklist (current phase — next actions)
 
-- [ ] pnpm workspace scaffold (`apps/web`, `apps/api`, `packages/db|types|config`)
-- [ ] `packages/config`: shared eslint/prettier/tsconfig
-- [ ] docker-compose: postgres15+pgvector, redis7, mailpit
-- [ ] Drizzle wiring + `users`, `refresh_tokens` schema + first migration + seed script
-- [ ] Fastify bootstrap: `app.ts`/`server.ts`, env validation (`lib/env.ts`), logger, Sentry, error handler
-- [ ] Auth routes: register / verify-email / login / refresh / logout / forgot / reset / onboarding / me
-- [ ] `requireAuth` + `requireRole` middleware + RBAC test skeleton
+- [x] pnpm workspace scaffold (`apps/web`, `apps/api`, `packages/db|types|config`)
+- [x] `packages/config`: shared eslint/prettier/tsconfig
+- [x] docker-compose: postgres15+pgvector, redis7, mailpit
+- [x] Drizzle wiring + `users`, `refresh_tokens`, `email_tokens` schema + first migration + admin seed script
+- [x] Fastify bootstrap: `app.ts`/`index.ts`, env validation (`lib/env.ts`), redacting logger, error handler (Sentry wiring deferred to Phase 7 — TODO in `error-handler.ts`)
+- [x] Auth routes: register / verify-email / login / refresh / logout / forgot / reset / onboarding / me
+- [x] `requireAuth` + `requireRole` middleware + RBAC test matrix (`rbac.int.test.ts`)
 - [ ] Minimal admin: create-faculty, suspend-user
-- [ ] React shell: Vite, router, nav, auth pages, api client, TanStack Query provider
-- [ ] GitHub Actions: PR checks (lint/typecheck/test/migration/AI-grep) + staging deploy
+- [x] React shell: Vite, router, nav, auth pages, api client, TanStack Query provider — styled with Figma tokens (`apps/web/src/styles/theme.css`, dark + light)
+- [x] GitHub Actions: PR checks (lint/typecheck/migrate/test/build + raw-SQL grep) — staging deploy job deferred until droplet exists
 - [ ] Droplet provisioned: Nginx + TLS + systemd units + staging subdomain
 - [ ] **Exit demo:** teammate registers → verifies → onboards → empty feed on staging
 

@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+
+/*
+ * Canonical design tokens, extracted from the team Figma file (ADR-010).
+ * Dark is the default theme; light flips via <html data-theme="light">.
+ * Semantic names, not color names — components never hardcode hex.
+ */
+:root {
+  --bg-page: #15181c; /* app background */
+  --bg-well: #101317; /* recessed areas: inputs, code, deep panels */
+  --bg-surface: #1d2127; /* cards, modals, nav */
+  --edge: #2a2f36; /* borders, dividers */
+  --ink: #edeae6; /* primary text */
+  --ink-muted: #8c929b; /* secondary text, labels, meta */
+  --accent: #e2935e; /* copper — actions, links, focus */
+  --accent-ink: #1a1208; /* text on copper */
+  --accent-tint: rgba(226, 147, 94, 0.12);
+  --success: #7fb69b; /* patina — grades, positive states */
+  --success-tint: rgba(127, 182, 155, 0.12);
+  --danger: #d9776b;
+  --danger-tint: rgba(217, 119, 107, 0.12);
+}
+
+[data-theme='light'] {
+  --bg-page: #f1ece3;
+  --bg-well: #e6dfd2;
+  --bg-surface: #faf8f4;
+  --edge: #e6dfd2;
+  --ink: #221b12;
+  --ink-muted: #80776a;
+  --accent: #c2693c;
+  --accent-ink: #faf8f4;
+  --accent-tint: #f4ddc9;
+  --success: #4f8068;
+  --success-tint: #dceae2;
+  --danger: #b0503f;
+  --danger-tint: #f2ddd6;
+}
+
+@theme inline {
+  --color-page: var(--bg-page);
+  --color-well: var(--bg-well);
+  --color-surface: var(--bg-surface);
+  --color-edge: var(--edge);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-success: var(--success);
+  --color-success-tint: var(--success-tint);
+  --color-danger: var(--danger);
+  --color-danger-tint: var(--danger-tint);
+
+  /* Type: Space Grotesk = display/headings, IBM Plex Sans = body, Plex Mono = data/meta */
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Figma frames use 12px card radius / 18px panel radius */
+  --radius-panel: 18px;
+  --radius-card: 12px;
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
