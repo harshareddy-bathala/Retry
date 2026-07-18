@@ -2,11 +2,13 @@
 
 > Living status tracker. Update in the same PR as the work. `ROADMAP.md` is the plan; this is reality. AI assistants: read this to know what exists before writing code that depends on it.
 
-**Last updated:** 2026-07-06
+**Last updated:** 2026-07-18
 
 ## Current State
 
 **Phase 0 — Foundations, code-complete locally.** Monorepo scaffolded, auth vertical slice implemented and unit-tested, frontend shell styled with the Figma design tokens (ADR-010), CI defined. Remaining before phase exit: admin endpoints (create-faculty, suspend-user), droplet provisioning, and the staging exit demo. Nothing is pushed or deployed yet.
+
+**Rooms build plan — Phase 0 (Foundation & Contracts) complete locally (2026-07-18).** The Collaboration Rooms multiplayer track (`foundry_rooms_build_plan.md`) runs on its own phase numbering. Landed: `packages/protocol` (WS event discriminated unions + Zod validators + 32px tile/pixel coord helpers), `packages/maps` (`studio_a` Tiled map, placeholder tileset, contract validator wired into CI), `apps/room-server` (Fastify + @fastify/websocket health-check endpoint: connect → empty snapshot → clean close, unparseable frames dropped with a logged warning; leak-checked in tests). Movement protocol registered in `WEBSOCKET_EVENTS.md` §6. Rooms Phase 1 (single-player canvas) is unblocked.
 
 ## Phase Status
 

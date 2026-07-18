@@ -90,3 +90,20 @@ Server→client broadcasts include `"from": "<userId>"` where user-originated. M
 ## 5. Scaling Note
 
 All broadcasts publish to Redis pub/sub channel `room:<roomId>`; each server instance relays to its local sockets. This works identically with 1 instance (V1) or N instances — never broadcast by iterating a local-only socket map.
+
+---
+
+## 6. Movement Protocol (Rooms multiplayer — `packages/protocol`)
+
+The real-time 2D multiplayer rebuild (`foundry_rooms_build_plan.md`) carries its own wire protocol, established in rooms Phase 0. **Its authoritative definition is the Zod schemas in `packages/protocol/src/events.ts`** — client (`apps/web`) and room server (`apps/room-server`) both import shapes and validators only from there, never redefine them locally.
+
+Unlike the namespaced envelope above, these are flat messages discriminated on `t`:
+
+| Direction | Events |
+|---|---|
+| Client → server | `join`, `move`, `leave`, `chat` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `error` |
+
+Every inbound message on both sides is runtime-validated (`parseClientMessage` / `parseServerMessage`); an unparseable frame is dropped with a logged warning, never a crashed connection. Coordinates on the wire are **tile units** (server-authoritative); the client converts to pixels via `packages/protocol/src/coords.ts` (32 px tiles).
+
+As later build-plan phases land (proximity, transitions), their events are added to the discriminated unions in `packages/protocol` and mirrored here in the same PR. The `avatar:*` / `proximity:*` rows in §2–3 describe the pre-rebuild design and are superseded phase-by-phase by this protocol.

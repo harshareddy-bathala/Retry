@@ -61,6 +61,10 @@ jobs:
       - name: Migrate test database
         run: pnpm --filter @foundry/db migrate
 
+      # Rooms map contract: required layers + default spawn (packages/maps/README.md)
+      - name: Validate maps
+        run: pnpm --filter @foundry/maps validate
+
       - name: Test
         run: pnpm -r test
 
