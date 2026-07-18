@@ -26,7 +26,8 @@ const envSchema = z.object({
   JWT_SECRET_PREVIOUS: z.string().optional().default(''),
   ACCESS_TOKEN_TTL: ttlSchema.default('7d'), // FR-AUTH-03
   REFRESH_TOKEN_TTL: ttlSchema.default('30d'),
-  ALLOWED_EMAIL_DOMAIN: z.string().min(3).default('nttf.co.in'), // FR-AUTH-01
+  // FR-AUTH-01; '*' disables the domain check (local dev only)
+  ALLOWED_EMAIL_DOMAIN: z.string().min(1).default('nttf.co.in'),
 
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().default(1025),

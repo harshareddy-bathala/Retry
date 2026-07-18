@@ -22,6 +22,9 @@ describe('loadEnv', () => {
   });
 
   it('defaults the email domain to nttf.co.in (FR-AUTH-01)', () => {
-    expect(loadEnv({ ...REQUIRED }).ALLOWED_EMAIL_DOMAIN).toBe('nttf.co.in');
+    // Explicit undefined masks any value a developer's local .env sets.
+    expect(loadEnv({ ...REQUIRED, ALLOWED_EMAIL_DOMAIN: undefined }).ALLOWED_EMAIL_DOMAIN).toBe(
+      'nttf.co.in',
+    );
   });
 });

@@ -62,9 +62,10 @@ export function createAuthService({ db, env, jwt, mailer, logger }: AuthServiceD
 
   return {
     // FR-AUTH-01/02: domain-restricted signup; account inactive until the link is clicked.
+    // ALLOWED_EMAIL_DOMAIN='*' disables the restriction — local dev only, never staging/prod.
     async register(input: RegisterInput): Promise<void> {
       const domain = input.email.split('@')[1];
-      if (domain !== env.ALLOWED_EMAIL_DOMAIN) {
+      if (env.ALLOWED_EMAIL_DOMAIN !== '*' && domain !== env.ALLOWED_EMAIL_DOMAIN) {
         throw new AppError(
           'EMAIL_DOMAIN_NOT_ALLOWED',
           400,
