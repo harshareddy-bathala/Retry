@@ -26,7 +26,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   const verifyToken = createTokenVerifier(options.jwtSecret);
-  app.decorate('hub', new RoomHub());
+  const hub = new RoomHub();
+  hub.start();
+  app.addHook('onClose', async () => hub.stop());
+  app.decorate('hub', hub);
 
   app.get('/health', () => ({ status: 'ok' }));
 

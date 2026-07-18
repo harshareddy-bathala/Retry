@@ -101,8 +101,10 @@ Unlike the namespaced envelope above, these are flat messages discriminated on `
 
 | Direction | Events |
 |---|---|
-| Client → server | `join`, `move`, `leave`, `chat` |
-| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `error` |
+| Client → server | `join`, `move`, `leave`, `chat`, `media` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `error` |
+
+Proximity (rooms Phase 3): the server computes pairwise Euclidean tile distance on every accepted move — `≤ 2` close, `≤ 5` near (SRS §11.4) — with 0.5-tile exit hysteresis and a 300 ms debounce before any transition is emitted. `proximity` goes only to the two clients whose pair changed, carrying only their own pairs. `media` reports the sender's mic/camera toggles; the server broadcasts `mediaState` to the rest of the map and folds current state into `snapshot` actors.
 
 Connection (rooms Phase 2): `ws://<room-server>/ws?token=<access JWT>`. The server verifies the JWT (shared `JWT_SECRET`, HS256) and derives `userId` from `sub` — a userId appearing anywhere in a message body is never trusted. `join.displayName`/`join.sprite` are cosmetic only. Server-side guards: 20 `move`/s per connection (excess silently dropped), moves that jump >2 tiles or land in a collision tile are rejected and answered with a fresh `snapshot` resync. `actorMove` is broadcast to every connection in the map except the sender.
 

@@ -16,6 +16,7 @@ describe('parseClientMessage', () => {
       { t: 'move', x: 3, y: 4, dir: 'left', moving: true },
       { t: 'leave' },
       { t: 'chat', body: 'hello' },
+      { t: 'media', audio: false, video: true },
     ];
     for (const m of messages) {
       const result = parseClientMessage(JSON.stringify(m));
@@ -68,12 +69,16 @@ describe('parseServerMessage', () => {
       y: 7,
       dir: 'down',
       moving: false,
+      audio: true,
+      video: false,
     };
     const messages = [
       { t: 'snapshot', mapId: 'studio_a', actors: [actor] },
       { t: 'actorJoin', actor },
       { t: 'actorMove', userId: 'u1', x: 6, y: 7, dir: 'right', moving: true },
       { t: 'actorLeave', userId: 'u1' },
+      { t: 'proximity', pairs: [{ userId: 'u2', zone: 'close' }] },
+      { t: 'mediaState', userId: 'u1', audio: false, video: true },
       { t: 'error', code: 'ROOM_FULL', message: 'Room is full' },
     ];
     for (const m of messages) {

@@ -44,6 +44,23 @@ class RoomSocket {
     }
   }
 
+  /**
+   * Ask the server for a fresh snapshot (+ current zones) of the joined map.
+   * The Phaser scene calls this when it finishes booting: the original join
+   * snapshot often arrives while assets are still loading, before the scene
+   * has subscribed — without this, actors present at join never render.
+   */
+  requestResync(): void {
+    const options = this.options;
+    if (!options || this.ws?.readyState !== WebSocket.OPEN) return;
+    this.send({
+      t: 'join',
+      mapId: options.mapId,
+      displayName: options.displayName,
+      sprite: options.sprite,
+    });
+  }
+
   private teardown(): void {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
@@ -73,13 +90,15 @@ class RoomSocket {
 
     ws.onopen = () => {
       this.attempt = 0;
-      roomEvents.emit('net:status', 'open');
+      // join first, then announce open — listeners react to 'open' by sending
+      // (e.g. media state), which must never precede the join.
       this.send({
         t: 'join',
         mapId: options.mapId,
         displayName: options.displayName,
         sprite: options.sprite,
       });
+      roomEvents.emit('net:status', 'open');
     };
 
     ws.onmessage = (event) => {

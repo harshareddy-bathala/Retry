@@ -7,6 +7,10 @@ import { z } from 'zod';
 export const dirSchema = z.enum(['up', 'down', 'left', 'right']);
 export type Dir = z.infer<typeof dirSchema>;
 
+// Proximity zones, SRS Appendix 11.4: distance ≤ 2 tiles → close, ≤ 5 → near.
+export const zoneSchema = z.enum(['close', 'near', 'out']);
+export type Zone = z.infer<typeof zoneSchema>;
+
 export const actorSchema = z.object({
   userId: z.string().min(1),
   displayName: z.string().min(1),
@@ -15,6 +19,8 @@ export const actorSchema = z.object({
   y: z.number(),
   dir: dirSchema,
   moving: z.boolean(),
+  audio: z.boolean(),
+  video: z.boolean(),
 });
 export type Actor = z.infer<typeof actorSchema>;
 
@@ -52,11 +58,19 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
+export const mediaMessageSchema = z.object({
+  t: z.literal('media'),
+  audio: z.boolean(),
+  video: z.boolean(),
+});
+export type MediaMessage = z.infer<typeof mediaMessageSchema>;
+
 export const clientMessageSchema = z.discriminatedUnion('t', [
   joinMessageSchema,
   moveMessageSchema,
   leaveMessageSchema,
   chatMessageSchema,
+  mediaMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -100,11 +114,29 @@ export const errorMessageSchema = z.object({
 });
 export type ErrorMessage = z.infer<typeof errorMessageSchema>;
 
+// Sent to a client only when ITS OWN pair states change — the full adjacency
+// map is never broadcast.
+export const proximityMessageSchema = z.object({
+  t: z.literal('proximity'),
+  pairs: z.array(z.object({ userId: z.string().min(1), zone: zoneSchema })).min(1),
+});
+export type ProximityMessage = z.infer<typeof proximityMessageSchema>;
+
+export const mediaStateMessageSchema = z.object({
+  t: z.literal('mediaState'),
+  userId: z.string().min(1),
+  audio: z.boolean(),
+  video: z.boolean(),
+});
+export type MediaStateMessage = z.infer<typeof mediaStateMessageSchema>;
+
 export const serverMessageSchema = z.discriminatedUnion('t', [
   snapshotMessageSchema,
   actorJoinMessageSchema,
   actorMoveMessageSchema,
   actorLeaveMessageSchema,
+  proximityMessageSchema,
+  mediaStateMessageSchema,
   errorMessageSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

@@ -4,6 +4,7 @@ import tilesetUrl from '@foundry/maps/tilesets/placeholder.png';
 import { TILE_SIZE, pixelToTile } from '@foundry/protocol';
 import type { Actor, ActorMoveMessage, Dir, ServerMessage, SnapshotMessage } from '@foundry/protocol';
 import avatarUrl from '../assets/avatar.png';
+import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
 
@@ -142,8 +143,16 @@ export class RoomScene extends Phaser.Scene {
     this.keyE = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
 
     const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
-    this.events.once(Phaser.Scenes.Events.DESTROY, unsubscribe);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
+    const cleanup = (): void => {
+      unsubscribe();
+      avatarScreenPositions.clear();
+    };
+    this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, cleanup);
+
+    // The join snapshot may have arrived while assets were still loading —
+    // ask for a fresh one now that this scene is listening.
+    roomSocket.requestResync();
   }
 
   override update(_time: number, delta: number): void {
@@ -183,6 +192,7 @@ export class RoomScene extends Phaser.Scene {
 
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - 26);
     this.updateRemotes(this.time.now);
+    this.publishScreenPositions();
 
     const tileX = pixelToTile(this.player.x);
     const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
@@ -286,6 +296,20 @@ export class RoomScene extends Phaser.Scene {
     remote.sprite.destroy();
     remote.tag.destroy();
     this.remotes.delete(userId);
+    avatarScreenPositions.delete(userId);
+  }
+
+  /** Canvas-space avatar positions for the React bubble overlay (Phase 3). */
+  private publishScreenPositions(): void {
+    const camera = this.cameras.main;
+    const write = (userId: string, worldX: number, worldY: number): void => {
+      avatarScreenPositions.set(userId, {
+        x: (worldX - camera.worldView.x) * camera.zoom,
+        y: (worldY - camera.worldView.y) * camera.zoom,
+      });
+    };
+    write(this.userId, this.player.x, this.player.y);
+    for (const [userId, remote] of this.remotes) write(userId, remote.sprite.x, remote.sprite.y);
   }
 
   private updateRemotes(now: number): void {

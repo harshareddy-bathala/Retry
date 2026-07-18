@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Actor } from '@foundry/protocol';
 import { roomEvents, type RoomSocketStatus } from './event-bus.js';
+import { useRoomActors } from './useRoomActors.js';
 import { cn } from '../../lib/cn.js';
 
 type PresenceStripProps = {
@@ -17,36 +17,10 @@ const STATUS_LABEL: Record<RoomSocketStatus, string> = {
 // Member strip (rooms build plan Phase 2): everyone currently in the map,
 // updated live from snapshot / actorJoin / actorLeave over the EventBus.
 export function PresenceStrip({ selfUserId }: PresenceStripProps) {
-  const [actors, setActors] = useState<Map<string, Actor>>(new Map());
+  const actors = useRoomActors();
   const [status, setStatus] = useState<RoomSocketStatus>('connecting');
 
-  useEffect(() => {
-    const offMessage = roomEvents.on('net:server-message', (msg) => {
-      setActors((prev) => {
-        const next = new Map(prev);
-        switch (msg.t) {
-          case 'snapshot':
-            next.clear();
-            for (const actor of msg.actors) next.set(actor.userId, actor);
-            break;
-          case 'actorJoin':
-            next.set(msg.actor.userId, msg.actor);
-            break;
-          case 'actorLeave':
-            next.delete(msg.userId);
-            break;
-          default:
-            return prev;
-        }
-        return next;
-      });
-    });
-    const offStatus = roomEvents.on('net:status', setStatus);
-    return () => {
-      offMessage();
-      offStatus();
-    };
-  }, []);
+  useEffect(() => roomEvents.on('net:status', setStatus), []);
 
   const list = [...actors.values()].sort((a, b) =>
     a.userId === selfUserId ? -1 : b.userId === selfUserId ? 1 : a.displayName.localeCompare(b.displayName),
