@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import studioA from '@foundry/maps/studio_a.json';
 import tilesetUrl from '@foundry/maps/tilesets/placeholder.png';
 import { TILE_SIZE, pixelToTile } from '@foundry/protocol';
+import type { Actor, ActorMoveMessage, Dir, ServerMessage, SnapshotMessage } from '@foundry/protocol';
 import avatarUrl from '../assets/avatar.png';
 import { roomEvents } from '../event-bus.js';
+import { roomSocket } from '../net/room-socket.js';
 
 const MAP_KEY = 'studio_a';
 const TILES_KEY = 'tiles';
@@ -14,14 +16,38 @@ const AVATAR_KEY = 'avatar';
 const WALK_SPEED = 4 * TILE_SIZE;
 export const CAMERA_ZOOM = 2;
 
+// Wire positions are the avatar's collision anchor (feet-box centre), in TILE
+// units — the sprite centre would sit inside wall tiles when standing against
+// them, and the server validates collision on the wire position.
+const FEET_OFFSET_Y = 8;
+
+// Send cadence and remote smoothing (rooms build plan Phase 2).
+const MOVE_SEND_INTERVAL_MS = 50;
+const INTERPOLATION_MS = 100;
+const REMOTE_IDLE_TIMEOUT_MS = 200;
+
 const DIRS = ['down', 'left', 'right', 'up'] as const;
 type Facing = (typeof DIRS)[number];
 
-export type RoomSceneData = { displayName: string };
+export type RoomSceneData = { userId: string; displayName: string };
 
 type MoveKeys = Record<'W' | 'A' | 'S' | 'D', Phaser.Input.Keyboard.Key>;
 
+type Remote = {
+  sprite: Phaser.GameObjects.Sprite;
+  tag: Phaser.GameObjects.Container;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  startedAt: number;
+  dir: Dir;
+  moving: boolean;
+  lastUpdateAt: number;
+};
+
 export class RoomScene extends Phaser.Scene {
+  private userId = '';
   private displayName = 'Explorer';
   private player!: Phaser.Physics.Arcade.Sprite;
   private playerBody!: Phaser.Physics.Arcade.Body;
@@ -32,18 +58,22 @@ export class RoomScene extends Phaser.Scene {
   private nameTag!: Phaser.GameObjects.Container;
   private hint!: Phaser.GameObjects.Container;
   private whiteboardTiles: Array<{ x: number; y: number }> = [];
+  private remotes = new Map<string, Remote>();
+  private wasMoving = false;
+  private sinceLastSend = 0;
 
   constructor() {
     super('room');
   }
 
   init(data: RoomSceneData): void {
+    this.userId = data.userId;
     if (data.displayName) this.displayName = data.displayName;
   }
 
   preload(): void {
-    // The map JSON is bundled (same file the server will use in Phase 2), so
-    // it goes straight into the cache instead of through a URL load.
+    // The map JSON is bundled (same file the server validates against), so it
+    // goes straight into the cache instead of through a URL load.
     this.cache.tilemap.add(MAP_KEY, {
       format: Phaser.Tilemaps.Formats.TILED_JSON,
       data: studioA,
@@ -69,7 +99,7 @@ export class RoomScene extends Phaser.Scene {
     const spawnX = spawn?.x ?? map.widthInPixels / 2;
     const spawnY = spawn?.y ?? map.heightInPixels / 2;
 
-    this.player = this.physics.add.sprite(spawnX, spawnY, AVATAR_KEY, 0);
+    this.player = this.physics.add.sprite(spawnX, spawnY - FEET_OFFSET_Y, AVATAR_KEY, 0);
     const body = this.player.body as Phaser.Physics.Arcade.Body | null;
     if (!body) throw new Error('player has no arcade body');
     this.playerBody = body;
@@ -110,9 +140,13 @@ export class RoomScene extends Phaser.Scene {
     this.cursors = keyboard.createCursorKeys();
     this.wasd = keyboard.addKeys('W,A,S,D') as MoveKeys;
     this.keyE = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+
+    const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
+    this.events.once(Phaser.Scenes.Events.DESTROY, unsubscribe);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, unsubscribe);
   }
 
-  override update(): void {
+  override update(_time: number, delta: number): void {
     const left = this.cursors.left.isDown || this.wasd.A.isDown;
     const right = this.cursors.right.isDown || this.wasd.D.isDown;
     const up = this.cursors.up.isDown || this.wasd.W.isDown;
@@ -125,19 +159,33 @@ export class RoomScene extends Phaser.Scene {
       vx *= Math.SQRT1_2;
       vy *= Math.SQRT1_2;
     }
+    // Local avatar renders from local input immediately (client-side
+    // prediction) — never wait for server confirmation.
     this.playerBody.setVelocity(vx * WALK_SPEED, vy * WALK_SPEED);
 
-    if (vx !== 0 || vy !== 0) {
+    const moving = vx !== 0 || vy !== 0;
+    if (moving) {
       this.facing = vy < 0 ? 'up' : vy > 0 ? 'down' : vx < 0 ? 'left' : 'right';
       this.player.anims.play(`walk-${this.facing}`, true);
     } else {
       this.player.anims.play(`idle-${this.facing}`, true);
     }
 
+    // Fixed 50ms send tick while input is active, plus one final message when
+    // input stops — never one per frame.
+    this.sinceLastSend += delta;
+    if (moving && this.sinceLastSend >= MOVE_SEND_INTERVAL_MS) {
+      this.sendMove(true);
+    } else if (!moving && this.wasMoving) {
+      this.sendMove(false);
+    }
+    this.wasMoving = moving;
+
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - 26);
+    this.updateRemotes(this.time.now);
 
     const tileX = pixelToTile(this.player.x);
-    const tileY = pixelToTile(this.player.y);
+    const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
     const nearWhiteboard = this.whiteboardTiles.some(
       (t) => Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY)) <= 1,
     );
@@ -146,6 +194,123 @@ export class RoomScene extends Phaser.Scene {
       roomEvents.emit('interact:whiteboard');
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Networking
+  // ---------------------------------------------------------------------------
+
+  private sendMove(moving: boolean): void {
+    this.sinceLastSend = 0;
+    roomSocket.send({
+      t: 'move',
+      x: round3(this.player.x / TILE_SIZE),
+      y: round3((this.player.y + FEET_OFFSET_Y) / TILE_SIZE),
+      dir: this.facing,
+      moving,
+    });
+  }
+
+  private onServerMessage(msg: ServerMessage): void {
+    switch (msg.t) {
+      case 'snapshot':
+        this.onSnapshot(msg);
+        break;
+      case 'actorJoin':
+        if (msg.actor.userId !== this.userId) this.upsertRemote(msg.actor);
+        break;
+      case 'actorMove':
+        this.onActorMove(msg);
+        break;
+      case 'actorLeave':
+        this.removeRemote(msg.userId);
+        break;
+      case 'error':
+        break;
+    }
+  }
+
+  /** Full authoritative state — initial join, reconnect, or illegal-move resync. */
+  private onSnapshot(msg: SnapshotMessage): void {
+    for (const userId of [...this.remotes.keys()]) this.removeRemote(userId);
+    for (const actor of msg.actors) {
+      if (actor.userId === this.userId) {
+        this.playerBody.reset(actor.x * TILE_SIZE, actor.y * TILE_SIZE - FEET_OFFSET_Y);
+      } else {
+        this.upsertRemote(actor);
+      }
+    }
+  }
+
+  private onActorMove(msg: ActorMoveMessage): void {
+    const remote = this.remotes.get(msg.userId);
+    if (!remote) return;
+    const now = this.time.now;
+    // Interpolate from wherever the sprite currently is toward the new
+    // position over 100ms. Never snap — snapping is what makes multiplayer
+    // feel cheap.
+    remote.fromX = remote.sprite.x;
+    remote.fromY = remote.sprite.y;
+    remote.toX = msg.x * TILE_SIZE;
+    remote.toY = msg.y * TILE_SIZE - FEET_OFFSET_Y;
+    remote.startedAt = now;
+    remote.lastUpdateAt = now;
+    remote.dir = msg.dir;
+    remote.moving = msg.moving;
+  }
+
+  private upsertRemote(actor: Actor): void {
+    this.removeRemote(actor.userId);
+    const x = actor.x * TILE_SIZE;
+    const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
+    const row = DIRS.indexOf(actor.dir);
+    const sprite = this.add.sprite(x, y, AVATAR_KEY, (row < 0 ? 0 : row) * 4);
+    const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
+    tag.setPosition(x, y - 26);
+    this.remotes.set(actor.userId, {
+      sprite,
+      tag,
+      fromX: x,
+      fromY: y,
+      toX: x,
+      toY: y,
+      startedAt: 0,
+      dir: actor.dir,
+      moving: actor.moving,
+      lastUpdateAt: this.time.now,
+    });
+  }
+
+  private removeRemote(userId: string): void {
+    const remote = this.remotes.get(userId);
+    if (!remote) return;
+    remote.sprite.destroy();
+    remote.tag.destroy();
+    this.remotes.delete(userId);
+  }
+
+  private updateRemotes(now: number): void {
+    for (const remote of this.remotes.values()) {
+      const t = Phaser.Math.Clamp((now - remote.startedAt) / INTERPOLATION_MS, 0, 1);
+      const x = Phaser.Math.Linear(remote.fromX, remote.toX, t);
+      const y = Phaser.Math.Linear(remote.fromY, remote.toY, t);
+      remote.sprite.setPosition(x, y);
+      remote.tag.setPosition(Math.round(x), Math.round(y) - 26);
+
+      // Stop the walk cycle when updates dry up rather than looping in place.
+      if (remote.moving && now - remote.lastUpdateAt > REMOTE_IDLE_TIMEOUT_MS) {
+        remote.moving = false;
+      }
+      if (remote.moving) {
+        remote.sprite.anims.play(`walk-${remote.dir}`, true);
+      } else {
+        remote.sprite.anims.play(`idle-${remote.dir}`, true);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // World furniture
+  // ---------------------------------------------------------------------------
 
   /** Read objects with an `interactive` custom property from the map. */
   private collectInteractables(map: Phaser.Tilemaps.Tilemap): void {
@@ -189,4 +354,8 @@ export class RoomScene extends Phaser.Scene {
     bg.fillRoundedRect(-width / 2, -height / 2, width, height, height / 2);
     return this.add.container(0, 0, [bg, text]).setDepth(10);
   }
+}
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }

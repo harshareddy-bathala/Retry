@@ -1,14 +1,15 @@
+import { loadEnv } from './lib/env.js';
 import { buildApp } from './app.js';
 
-const port = Number(process.env.ROOM_SERVER_PORT ?? 4100);
-const host = process.env.HOST ?? '0.0.0.0';
+const env = loadEnv();
 
 const app = await buildApp({
-  pretty: process.env.NODE_ENV === 'development',
+  jwtSecret: env.JWT_SECRET,
+  pretty: env.NODE_ENV === 'development',
 });
 
 try {
-  await app.listen({ port, host });
+  await app.listen({ port: env.ROOM_SERVER_PORT, host: env.HOST });
 } catch (err) {
   app.log.error(err);
   process.exit(1);

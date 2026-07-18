@@ -6,6 +6,8 @@ import { RoomScene, type RoomSceneData } from './RoomScene.js';
 export const GAME_WIDTH = 960;
 export const GAME_HEIGHT = 704;
 
+export type { RoomSceneData };
+
 export function createRoomGame(parent: HTMLElement, data: RoomSceneData): Phaser.Game {
   const game = new Phaser.Game({
     type: Phaser.AUTO,

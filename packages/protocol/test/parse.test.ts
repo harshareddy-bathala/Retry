@@ -12,6 +12,7 @@ describe('parseClientMessage', () => {
   it('accepts every valid client message shape', () => {
     const messages = [
       { t: 'join', mapId: 'studio_a' },
+      { t: 'join', mapId: 'studio_a', displayName: 'Asha', sprite: 'default' },
       { t: 'move', x: 3, y: 4, dir: 'left', moving: true },
       { t: 'leave' },
       { t: 'chat', body: 'hello' },

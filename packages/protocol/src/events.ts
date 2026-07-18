@@ -22,9 +22,13 @@ export type Actor = z.infer<typeof actorSchema>;
 // Client → Server
 // ---------------------------------------------------------------------------
 
+// displayName/sprite are cosmetic only — identity (userId) always derives from
+// the connection's JWT, never from anything a client sends.
 export const joinMessageSchema = z.object({
   t: z.literal('join'),
   mapId: z.string().min(1),
+  displayName: z.string().min(1).max(60).optional(),
+  sprite: z.string().min(1).max(40).optional(),
 });
 export type JoinMessage = z.infer<typeof joinMessageSchema>;
 

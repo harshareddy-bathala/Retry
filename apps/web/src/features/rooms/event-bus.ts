@@ -3,13 +3,21 @@
 // both sides import only this module. Add new cross-boundary events to
 // RoomEventMap; ad-hoc channels are not allowed.
 
+import type { ServerMessage } from '@foundry/protocol';
+
+export type RoomSocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
+
 export type RoomEventMap = {
   'interact:whiteboard': undefined;
+  'net:server-message': ServerMessage;
+  'net:status': RoomSocketStatus;
 };
 
 type Handler<T> = (payload: T) => void;
 
-type EmitArgs<T> = T extends undefined ? [] : [payload: T];
+// [T] extends [undefined] keeps the conditional non-distributive so union
+// payloads (e.g. ServerMessage) stay a single tuple argument.
+type EmitArgs<T> = [T] extends [undefined] ? [] : [payload: T];
 
 class EventBus<Events extends Record<string, unknown>> {
   private handlers = new Map<keyof Events, Set<Handler<never>>>();

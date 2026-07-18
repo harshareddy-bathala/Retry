@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext.js';
+import { getAccessToken } from '../../lib/api.js';
 import { roomEvents } from './event-bus.js';
+import { roomSocket } from './net/room-socket.js';
+import { PresenceStrip } from './PresenceStrip.js';
 import { RoomCanvas } from './RoomCanvas.js';
 
-// Phase 1 sandbox: one local avatar in studio_a, no networking. The event log
-// below the canvas is the React side of the EventBus bridge — Phaser emits
-// interact:whiteboard, React records it. Nothing else happens yet by design.
+const ROOM_WS_URL =
+  (import.meta.env.VITE_ROOM_WS_URL as string | undefined) ?? 'ws://localhost:4100/ws';
+
+// Phase 2 sandbox: studio_a with live multiplayer. React owns the socket
+// lifecycle; Phaser and the presence strip both consume the same EventBus.
 export default function RoomSandboxPage() {
   const { user } = useAuth();
   const [interactions, setInteractions] = useState<string[]>([]);
@@ -21,20 +26,39 @@ export default function RoomSandboxPage() {
     [],
   );
 
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!user || !token) return;
+    roomSocket.connect({
+      url: ROOM_WS_URL,
+      token,
+      mapId: 'studio_a',
+      displayName: user.name,
+      sprite: 'default',
+    });
+    return () => {
+      roomSocket.disconnect();
+    };
+  }, [user]);
+
+  if (!user) return null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
         <h2 className="font-display text-xl font-semibold text-ink">Room sandbox</h2>
         <p className="font-mono text-xs text-ink-muted">
-          WASD / arrows to move · E to interact · phase 1 · single-player
+          WASD / arrows to move · E to interact · phase 2 · multiplayer
         </p>
       </div>
-      <RoomCanvas displayName={user?.name ?? 'Explorer'} />
+      <PresenceStrip selfUserId={user.id} />
+      <RoomCanvas userId={user.id} displayName={user.name} />
       <div className="rounded-panel border border-edge bg-surface px-4 py-3">
         <p className="font-mono text-[11px] uppercase text-ink-muted">EventBus log</p>
         {interactions.length === 0 ? (
           <p className="mt-1 text-sm text-ink-muted">
-            Walk to the whiteboard on the north wall and press E.
+            Walk to the whiteboard on the north wall and press E. Open a second browser window to
+            see multiplayer.
           </p>
         ) : (
           <ul className="mt-1 space-y-0.5">

@@ -1,59 +1,44 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
-import type { WebSocket } from 'ws';
-import { parseClientMessage, type SnapshotMessage } from '@foundry/protocol';
 import { buildLoggerOptions } from './lib/logger.js';
+import { createTokenVerifier } from './lib/auth.js';
+import { RoomHub } from './rooms/hub.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    // Open sockets, so tests (and later, shutdown) can prove nothing leaks.
-    liveConnections: Set<WebSocket>;
+    hub: RoomHub;
   }
 }
 
 export type BuildAppOptions = {
+  jwtSecret: string;
   logLevel?: string;
   pretty?: boolean;
 };
 
-// Phase 0 health-check server: accepts a WebSocket connection, sends a
-// snapshot with zero actors, validates (and ignores) inbound messages, and
-// cleans up on close. Registries, auth, and broadcast arrive in Phase 2.
-export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+// Rooms Phase 2 server: authenticated WebSocket endpoint backed by RoomHub.
+// Auth is a JWT in the connection query string (rooms build plan Phase 2);
+// unauthenticated sockets are closed with 4401 before touching the hub.
+export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: buildLoggerOptions({ level: options.logLevel, pretty: options.pretty }),
   });
 
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
-  app.decorate('liveConnections', new Set<WebSocket>());
+  const verifyToken = createTokenVerifier(options.jwtSecret);
+  app.decorate('hub', new RoomHub());
 
   app.get('/health', () => ({ status: 'ok' }));
 
-  app.get('/ws', { websocket: true }, (socket, req) => {
-    app.liveConnections.add(socket);
-    req.log.info('ws connected');
-
-    const snapshot: SnapshotMessage = { t: 'snapshot', mapId: 'studio_a', actors: [] };
-    socket.send(JSON.stringify(snapshot));
-
-    socket.on('message', (data: Buffer) => {
-      const parsed = parseClientMessage(data.toString());
-      if (!parsed.ok) {
-        // Contract: drop with a logged warning, never crash the connection.
-        req.log.warn({ reason: parsed.error }, 'dropped unparseable ws message');
-        return;
-      }
-      req.log.debug({ t: parsed.message.t }, 'ws message ignored (no gameplay in phase 0)');
-    });
-
-    socket.on('close', () => {
-      app.liveConnections.delete(socket);
-      req.log.info('ws disconnected');
-    });
-
-    socket.on('error', (err: Error) => {
-      req.log.warn({ err }, 'ws connection error');
-    });
+  app.get('/ws', { websocket: true }, async (socket, req) => {
+    const { token } = req.query as { token?: string };
+    const user = token ? await verifyToken(token) : null;
+    if (!user) {
+      req.log.warn('ws rejected: missing or invalid token');
+      socket.close(4401, 'unauthorized');
+      return;
+    }
+    app.hub.connect(socket, user, req.log);
   });
 
   return app;

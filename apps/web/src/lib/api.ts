@@ -22,6 +22,11 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
+// Room server WebSocket auth (rooms Phase 2) authenticates with the same token.
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
 export function setSessionExpiredHandler(handler: () => void): void {
   onSessionExpired = handler;
 }
