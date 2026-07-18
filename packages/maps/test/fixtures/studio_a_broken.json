@@ -347,8 +347,8 @@
         0,
         0,
         0,
-        0,
-        0,
+        4,
+        4,
         0,
         0,
         0,
@@ -652,25 +652,56 @@
       "visible": true,
       "x": 0,
       "y": 0
+    },
+    {
+      "draworder": "topdown",
+      "id": 5,
+      "name": "interactables",
+      "objects": [
+        {
+          "height": 32,
+          "id": 2,
+          "name": "whiteboard",
+          "point": false,
+          "properties": [
+            {
+              "name": "interactive",
+              "type": "string",
+              "value": "whiteboard"
+            }
+          ],
+          "rotation": 0,
+          "type": "",
+          "visible": true,
+          "width": 64,
+          "x": 288,
+          "y": 32
+        }
+      ],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
     }
   ],
-  "nextlayerid": 4,
-  "nextobjectid": 2,
+  "nextlayerid": 5,
+  "nextobjectid": 3,
   "orientation": "orthogonal",
   "renderorder": "right-down",
   "tiledversion": "1.10.2",
   "tileheight": 32,
   "tilesets": [
     {
-      "columns": 3,
+      "columns": 4,
       "firstgid": 1,
       "image": "../tilesets/placeholder.png",
       "imageheight": 32,
-      "imagewidth": 96,
+      "imagewidth": 128,
       "margin": 0,
       "name": "placeholder",
       "spacing": 0,
-      "tilecount": 3,
+      "tilecount": 4,
       "tileheight": 32,
       "tilewidth": 32
     }

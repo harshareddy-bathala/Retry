@@ -41,7 +41,7 @@ that keeps the negative path tested — do not "fix" it.
 
 | Map | Description |
 |-----|-------------|
-| `studio_a` | 20×15 stub room: bordered walls, four desk clusters, centre spawn. The default room template (`rooms.map_template`) |
+| `studio_a` | 20×15 stub room: bordered walls, four desk clusters, centre spawn, whiteboard on the north wall (`interactables` object layer, custom property `interactive: 'whiteboard'`). The default room template (`rooms.map_template`) |
 
 The `placeholder.png` tileset is 3 flat-colour tiles (floor, wall, prop) —
 enough for collision-correct rendering until real art lands.

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -18,6 +18,9 @@ import { ForgotPasswordPage, ResetPasswordPage } from './features/auth/PasswordP
 import { RegisterPage } from './features/auth/RegisterPage.js';
 import { VerifyEmailPage } from './features/auth/VerifyEmailPage.js';
 
+// Phaser is heavy; the room sandbox loads on demand so the main bundle stays lean.
+const RoomSandboxPage = lazy(() => import('./features/rooms/RoomSandboxPage.js'));
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
 });
@@ -36,7 +39,17 @@ const router = createBrowserRouter([
         <AppShell />
       </RequireAuth>
     ),
-    children: [{ index: true, element: <FeedPlaceholder /> }],
+    children: [
+      { index: true, element: <FeedPlaceholder /> },
+      {
+        path: 'rooms/sandbox',
+        element: (
+          <Suspense fallback={null}>
+            <RoomSandboxPage />
+          </Suspense>
+        ),
+      },
+    ],
   },
 ]);
 

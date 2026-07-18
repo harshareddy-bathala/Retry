@@ -7,7 +7,8 @@ import { cn } from '../lib/cn.js';
 const NAV_ITEMS = [
   { to: '/', label: 'Feed', enabled: true },
   { to: '/ideas', label: 'Idea Hub', enabled: false },
-  { to: '/rooms', label: 'Rooms', enabled: false },
+  // Points at the Phase 1 sandbox until the real Rooms tab lands.
+  { to: '/rooms/sandbox', label: 'Rooms', enabled: true },
   { to: '/notifications', label: 'Notifications', enabled: false },
 ];
 

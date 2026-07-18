@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./studio_a.json": "./maps/studio_a.json"
+    "./studio_a.json": "./maps/studio_a.json",
+    "./tilesets/placeholder.png": "./tilesets/placeholder.png"
   },
   "scripts": {
     "validate": "tsx scripts/validate-maps.ts",
