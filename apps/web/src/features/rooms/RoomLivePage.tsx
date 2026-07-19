@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { AVControls } from './AVControls.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
+import { KnockLayer } from './KnockLayer.js';
 import { roomEvents } from './event-bus.js';
 import { roomSocket } from './net/room-socket.js';
 import { PresenceStrip } from './PresenceStrip.js';
@@ -11,9 +13,14 @@ import { RoomCanvas } from './RoomCanvas.js';
 const ROOM_WS_URL =
   (import.meta.env.VITE_ROOM_WS_URL as string | undefined) ?? 'ws://localhost:4100/ws';
 
-// Phase 3 sandbox: multiplayer + proximity bubbles + AV toggle state.
-export default function RoomSandboxPage() {
+// Live Space (rooms build plan Phase 4): the multi-map world. ?map=<id> enters
+// a specific room or the Commons; without it the server resolves the spawn
+// (last-active room, else Commons). Walk onto a door and press E to move —
+// the WebSocket survives every transition.
+export default function RoomLivePage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const mapId = searchParams.get('map') ?? undefined;
   const [interactions, setInteractions] = useState<string[]>([]);
   const [av, setAv] = useState<AvState>(loadAvState);
   const avRef = useRef(av);
@@ -45,14 +52,14 @@ export default function RoomSandboxPage() {
     roomSocket.connect({
       url: ROOM_WS_URL,
       token,
-      mapId: 'studio_a',
+      mapId,
       displayName: user.name,
       sprite: 'default',
     });
     return () => {
       roomSocket.disconnect();
     };
-  }, [user]);
+  }, [user, mapId]);
 
   const onToggleAv = (next: AvState): void => {
     setAv(next);
@@ -65,22 +72,31 @@ export default function RoomSandboxPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="font-display text-xl font-semibold text-ink">Room sandbox</h2>
+        <div className="flex items-baseline gap-3">
+          <h2 className="font-display text-xl font-semibold text-ink">Live space</h2>
+          <Link to="/rooms" className="text-sm text-accent hover:underline">
+            ← my rooms
+          </Link>
+        </div>
         <p className="font-mono text-xs text-ink-muted">
-          WASD / arrows to move · E to interact · phase 3 · proximity
+          WASD / arrows to move · E at a door to walk through · phase 4 · multi-map
         </p>
       </div>
       <div className="flex items-center justify-between gap-3">
         <PresenceStrip selfUserId={user.id} />
         <AVControls av={av} onToggle={onToggleAv} />
       </div>
-      <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
+      <div className="relative">
+        <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
+        <KnockLayer />
+      </div>
       <div className="rounded-panel border border-edge bg-surface px-4 py-3">
         <p className="font-mono text-[11px] uppercase text-ink-muted">EventBus log</p>
         {interactions.length === 0 ? (
           <p className="mt-1 text-sm text-ink-muted">
-            Walk to the whiteboard on the north wall and press E. Open a second browser window and
-            walk together to see proximity bubbles.
+            You spawn in your last room (or the Commons). Doors along the Commons&apos; north wall
+            lead into public rooms — locked ones make you knock. Rooms have an exit door on the
+            south wall.
           </p>
         ) : (
           <ul className="mt-1 space-y-0.5">

@@ -12,11 +12,15 @@ describe('parseClientMessage', () => {
   it('accepts every valid client message shape', () => {
     const messages = [
       { t: 'join', mapId: 'studio_a' },
+      { t: 'join' }, // bare join = spawn resolution / resync (Phase 4)
       { t: 'join', mapId: 'studio_a', displayName: 'Asha', sprite: 'default' },
       { t: 'move', x: 3, y: 4, dir: 'left', moving: true },
       { t: 'leave' },
       { t: 'chat', body: 'hello' },
       { t: 'media', audio: false, video: true },
+      { t: 'transition', toMapId: 'commons' },
+      { t: 'knockRespond', requestId: 'r1', grant: true },
+      { t: 'knockCancel', requestId: 'r1' },
     ];
     for (const m of messages) {
       const result = parseClientMessage(JSON.stringify(m));
@@ -41,7 +45,7 @@ describe('parseClientMessage', () => {
 
   it('rejects a known discriminator with a bad payload', () => {
     expect(parseClientMessage(JSON.stringify({ t: 'move', x: 'three' })).ok).toBe(false);
-    expect(parseClientMessage(JSON.stringify({ t: 'join' })).ok).toBe(false);
+    expect(parseClientMessage(JSON.stringify({ t: 'join', mapId: '' })).ok).toBe(false);
     expect(parseClientMessage(JSON.stringify({ t: 'chat', body: '' })).ok).toBe(false);
   });
 
@@ -55,7 +59,7 @@ describe('parseClientMessage', () => {
 describe('parseServerMessage', () => {
   it('accepts a snapshot with zero actors', () => {
     const result = parseServerMessage(
-      JSON.stringify({ t: 'snapshot', mapId: 'studio_a', actors: [] }),
+      JSON.stringify({ t: 'snapshot', mapId: 'studio_a', template: 'studio_a', actors: [] }),
     );
     expect(result.ok).toBe(true);
   });
@@ -73,12 +77,27 @@ describe('parseServerMessage', () => {
       video: false,
     };
     const messages = [
-      { t: 'snapshot', mapId: 'studio_a', actors: [actor] },
+      { t: 'snapshot', mapId: 'studio_a', template: 'studio_a', actors: [actor] },
       { t: 'actorJoin', actor },
       { t: 'actorMove', userId: 'u1', x: 6, y: 7, dir: 'right', moving: true },
       { t: 'actorLeave', userId: 'u1' },
       { t: 'proximity', pairs: [{ userId: 'u2', zone: 'close' }] },
       { t: 'mediaState', userId: 'u1', audio: false, video: true },
+      {
+        t: 'doors',
+        doors: [
+          { slot: 0, x: 3, y: 0 },
+          {
+            slot: 1,
+            x: 7,
+            y: 0,
+            room: { roomId: 'r1', roomName: 'Lab', accessPolicy: 'knock', occupancy: 2 },
+          },
+        ],
+      },
+      { t: 'knock', requestId: 'req1', roomId: 'r1', roomName: 'Lab', requesterName: 'Asha' },
+      { t: 'knockPending', requestId: 'req1', roomId: 'r1', roomName: 'Lab' },
+      { t: 'knockResult', requestId: 'req1', status: 'granted' },
       { t: 'error', code: 'ROOM_FULL', message: 'Room is full' },
     ];
     for (const m of messages) {

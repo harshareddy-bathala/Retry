@@ -18,6 +18,8 @@ export const ERROR_CODES = [
   'TOKEN_INVALID',
   'TOKEN_EXPIRED',
   'ONBOARDING_ALREADY_COMPLETE',
+  // Rooms
+  'NO_FREE_DOOR_SLOT',
 ] as const;
 
 export type AppErrorCode = (typeof ERROR_CODES)[number];

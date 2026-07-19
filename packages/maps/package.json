@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./studio_a.json": "./maps/studio_a.json",
+    "./commons.json": "./maps/commons.json",
     "./tilesets/placeholder.png": "./tilesets/placeholder.png"
   },
   "scripts": {

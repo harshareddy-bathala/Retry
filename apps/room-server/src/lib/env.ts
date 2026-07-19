@@ -8,6 +8,9 @@ const envSchema = z.object({
   ROOM_SERVER_PORT: z.coerce.number().int().default(4100),
   HOST: z.string().default('0.0.0.0'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
+  // Optional so the sandbox still runs without Postgres — but room instances,
+  // doors and knocks need it; boot logs a loud warning when it is missing.
+  DATABASE_URL: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

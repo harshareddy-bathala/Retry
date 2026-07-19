@@ -1,6 +1,19 @@
-// Phase 0 tables only: users + auth token tables. The rest of DATABASE.md lands
-// with its own phase (posts/lineage in Phase 1, etc.) so migrations stay reviewable.
-import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+// Phase 0 tables (users + auth tokens) plus the rooms Phase 4 world tables.
+// The rest of DATABASE.md lands with its own phase (posts/lineage in Phase 1,
+// the rooms workspace columns — blueprint, whiteboard_state, … — with the main
+// rooms phase) so migrations stay reviewable.
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 export const userRole = pgEnum('user_role', ['student', 'faculty', 'alumni', 'admin']);
 
@@ -60,6 +73,91 @@ export const emailTokens = pgTable(
   },
   (t) => [index('email_tokens_user_idx').on(t.userId)],
 );
+
+// ---------------------------------------------------------------------------
+// Rooms multi-map world (rooms build plan Phase 4)
+// ---------------------------------------------------------------------------
+
+export const roomVisibility = pgEnum('room_visibility', ['public', 'private']);
+export const roomAccessPolicy = pgEnum('room_access_policy', ['open', 'knock', 'invite_only']);
+export const roomMemberRole = pgEnum('room_member_role', ['owner', 'member']);
+export const roomAccessRequestStatus = pgEnum('room_access_request_status', [
+  'pending',
+  'granted',
+  'denied',
+]);
+
+// Minimal rooms table for the multi-map world. Workspace columns (blueprint_*,
+// whiteboard_state, project context…) arrive with the main-app rooms phase.
+// door_x/door_y: the room's Commons door slot position in TILE coords —
+// assigned from the lowest free slot when a public room is created, NULL for
+// private rooms (privacy by absence: no door is ever rendered).
+export const rooms = pgTable('rooms', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description'),
+  ownerId: uuid('owner_id')
+    .notNull()
+    .references(() => users.id),
+  visibility: roomVisibility('visibility').notNull().default('private'),
+  accessPolicy: roomAccessPolicy('access_policy').notNull().default('invite_only'),
+  doorX: integer('door_x'),
+  doorY: integer('door_y'),
+  mapTemplate: text('map_template').notNull().default('studio_a'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// current_map_id: the room's id while the member's live-space presence is in
+// this room; doubles as "last-active room" for spawn resolution (cleared only
+// when the user enters a DIFFERENT room, not on disconnect). last_position:
+// {x, y, dir} in tile units, written on transition-out/disconnect only — no
+// attendance or session history is ever stored (CLAUDE.md room rules).
+export const roomMembers = pgTable(
+  'room_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: roomMemberRole('role').notNull().default('member'),
+    currentMapId: text('current_map_id'),
+    lastPosition: jsonb('last_position').$type<{ x: number; y: number; dir: string }>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('room_members_room_user_idx').on(t.roomId, t.userId),
+    index('room_members_user_idx').on(t.userId),
+  ],
+);
+
+// Knock flow (access_policy = 'knock'). A granted request admits the requester
+// for that live session only — it is an audit row, not a standing permission.
+export const roomAccessRequests = pgTable(
+  'room_access_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    requesterId: uuid('requester_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: roomAccessRequestStatus('status').notNull().default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: uuid('resolved_by').references(() => users.id),
+  },
+  (t) => [index('room_access_requests_room_idx').on(t.roomId)],
+);
+
+export type RoomRow = typeof rooms.$inferSelect;
+export type NewRoomRow = typeof rooms.$inferInsert;
+export type RoomMemberRow = typeof roomMembers.$inferSelect;
+export type RoomAccessRequestRow = typeof roomAccessRequests.$inferSelect;
 
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;

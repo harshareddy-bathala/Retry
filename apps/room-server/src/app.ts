@@ -3,6 +3,7 @@ import websocket from '@fastify/websocket';
 import { buildLoggerOptions } from './lib/logger.js';
 import { createTokenVerifier } from './lib/auth.js';
 import { RoomHub } from './rooms/hub.js';
+import { InMemoryRoomStore, type RoomStore } from './world/store.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -14,11 +15,15 @@ export type BuildAppOptions = {
   jwtSecret: string;
   logLevel?: string;
   pretty?: boolean;
+  /** Rooms persistence. Defaults to an empty in-memory store (tests / static maps only). */
+  store?: RoomStore;
+  /** Override the 60s knock timeout (tests). */
+  knockTimeoutMs?: number;
 };
 
-// Rooms Phase 2 server: authenticated WebSocket endpoint backed by RoomHub.
-// Auth is a JWT in the connection query string (rooms build plan Phase 2);
-// unauthenticated sockets are closed with 4401 before touching the hub.
+// Authenticated WebSocket endpoint backed by RoomHub (rooms build plan
+// Phases 2–4). Auth is a JWT in the connection query string; unauthenticated
+// sockets are closed with 4401 before touching the hub.
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: buildLoggerOptions({ level: options.logLevel, pretty: options.pretty }),
@@ -26,7 +31,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   const verifyToken = createTokenVerifier(options.jwtSecret);
-  const hub = new RoomHub();
+  const hub = new RoomHub({
+    store: options.store ?? new InMemoryRoomStore(),
+    knockTimeoutMs: options.knockTimeoutMs,
+  });
   hub.start();
   app.addHook('onClose', async () => hub.stop());
   app.decorate('hub', hub);

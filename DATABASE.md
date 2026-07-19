@@ -167,11 +167,18 @@ id, recipient_id FK cascade, type text (see `packages/types` union), payload jso
 | blueprint_history | jsonb | `[{field, userId, ts, value}]` edit log (FR-ROOM-12) |
 | whiteboard_state | jsonb | tldraw document, written by sync server |
 | created_at / updated_at | timestamptz | updated_at doubles as "last activity" for room list sorting |
+| visibility | room_visibility default `private` | rooms Phase 4: private = unlisted, no Commons door |
+| access_policy | room_access_policy default `invite_only` | `open` / `knock` / `invite_only`; private rooms coerced to `invite_only` |
+| door_x / door_y | int, nullable | Commons door slot (tile coords), assigned lowest-free at creation for public rooms |
+| map_template | text default `studio_a` | Tiled template the room's live space renders |
 
 **No FK to posts for room features. No attendance/session tables exist — presence is Redis-only.**
 
 ### room_members
-id, room_id FK cascade, user_id FK cascade, role room_role default `member`, avatar_sprite int (0–5, chosen on first Live Space entry), last_position jsonb `{x, y, direction}` (written on disconnect only), created_at. `UNIQUE(room_id, user_id)`.
+id, room_id FK cascade, user_id FK cascade, role room_role default `member`, avatar_sprite int (0–5, chosen on first Live Space entry), current_map_id text nullable (rooms Phase 4: the map the member's live presence is in — `commons` or a room id; doubles as last-active room for spawn resolution), last_position jsonb `{x, y, dir}` (written on transition-out/disconnect only — never a movement log), created_at. `UNIQUE(room_id, user_id)`.
+
+### room_access_requests
+id, room_id FK cascade, requester_id FK cascade, status room_access_request_status default `pending` (`pending` / `granted` / `denied` — timeouts and cancels resolve as denied), created_at, resolved_at nullable, resolved_by FK → users nullable. Audit rows for the knock flow (rooms Phase 4); a grant admits the requester for that live session only, never a standing permission.
 
 ### room_invites
 id, room_id FK cascade, invitee_id FK, inviter_id FK, status team_status default `pending`, created_at. Declined invites hidden from other members (FR-ROOM-04).

@@ -11,7 +11,8 @@ import { roomEvents } from '../event-bus.js';
 export type RoomSocketOptions = {
   url: string;
   token: string;
-  mapId: string;
+  /** Omit to let the server resolve the spawn map (last-active room, else Commons). */
+  mapId?: string;
   displayName: string;
   sprite: string;
 };
@@ -25,11 +26,13 @@ class RoomSocket {
   private options: RoomSocketOptions | null = null;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private joinedOnce = false;
 
   connect(options: RoomSocketOptions): void {
     this.teardown();
     this.options = options;
     this.attempt = 0;
+    this.joinedOnce = false;
     this.open();
   }
 
@@ -45,20 +48,17 @@ class RoomSocket {
   }
 
   /**
-   * Ask the server for a fresh snapshot (+ current zones) of the joined map.
+   * Ask the server for a fresh snapshot (+ current zones) of the CURRENT map.
    * The Phaser scene calls this when it finishes booting: the original join
    * snapshot often arrives while assets are still loading, before the scene
-   * has subscribed — without this, actors present at join never render.
+   * has subscribed — without this, actors present at join never render. A bare
+   * join (no mapId) is a resync of whatever map the session is in — after a
+   * door transition the connect-time mapId would be stale.
    */
   requestResync(): void {
     const options = this.options;
     if (!options || this.ws?.readyState !== WebSocket.OPEN) return;
-    this.send({
-      t: 'join',
-      mapId: options.mapId,
-      displayName: options.displayName,
-      sprite: options.sprite,
-    });
+    this.send({ t: 'join', displayName: options.displayName, sprite: options.sprite });
   }
 
   private teardown(): void {
@@ -91,13 +91,16 @@ class RoomSocket {
     ws.onopen = () => {
       this.attempt = 0;
       // join first, then announce open — listeners react to 'open' by sending
-      // (e.g. media state), which must never precede the join.
+      // (e.g. media state), which must never precede the join. The explicit
+      // mapId applies to the FIRST join only: after door transitions it is
+      // stale, so reconnects use a bare join (server-side spawn resolution).
       this.send({
         t: 'join',
-        mapId: options.mapId,
+        ...(options.mapId && !this.joinedOnce ? { mapId: options.mapId } : {}),
         displayName: options.displayName,
         sprite: options.sprite,
       });
+      this.joinedOnce = true;
       roomEvents.emit('net:status', 'open');
     };
 

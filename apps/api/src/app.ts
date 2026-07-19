@@ -12,7 +12,9 @@ import { createAuthGuards } from './plugins/auth.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
+import { roomsRoutes } from './routes/rooms.routes.js';
 import { createAuthService } from './services/auth.service.js';
+import { createRoomsService } from './services/rooms.service.js';
 
 export type BuildAppDeps = {
   env: Env;
@@ -47,11 +49,13 @@ export async function buildApp({ env, db, mailer }: BuildAppDeps): Promise<Fasti
   });
   const guards = createAuthGuards(jwt);
   const authService = createAuthService({ db, env, jwt, mailer, logger: app.log });
+  const roomsService = createRoomsService({ db });
 
   await app.register(
     async (api) => {
       healthRoutes(api, { db });
       authRoutes(api, { service: authService, guards, env });
+      roomsRoutes(api, { service: roomsService, guards });
     },
     { prefix: '/api' },
   );

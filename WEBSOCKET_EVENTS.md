@@ -101,12 +101,14 @@ Unlike the namespaced envelope above, these are flat messages discriminated on `
 
 | Direction | Events |
 |---|---|
-| Client → server | `join`, `move`, `leave`, `chat`, `media` |
-| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `error` |
+| Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `error` |
 
 Proximity (rooms Phase 3): the server computes pairwise Euclidean tile distance on every accepted move — `≤ 2` close, `≤ 5` near (SRS §11.4) — with 0.5-tile exit hysteresis and a 300 ms debounce before any transition is emitted. `proximity` goes only to the two clients whose pair changed, carrying only their own pairs. `media` reports the sender's mic/camera toggles; the server broadcasts `mediaState` to the rest of the map and folds current state into `snapshot` actors.
 
 Connection (rooms Phase 2): `ws://<room-server>/ws?token=<access JWT>`. The server verifies the JWT (shared `JWT_SECRET`, HS256) and derives `userId` from `sub` — a userId appearing anywhere in a message body is never trusted. `join.displayName`/`join.sprite` are cosmetic only. Server-side guards: 20 `move`/s per connection (excess silently dropped), moves that jump >2 tiles or land in a collision tile are rejected and answered with a fresh `snapshot` resync. `actorMove` is broadcast to every connection in the map except the sender.
+
+Multi-map world (rooms Phase 4): map ids are **instances** — `commons`, the `studio_a` sandbox, or a room uuid rendered from the room's `map_template`; `snapshot.template` names the Tiled file to draw. `join.mapId` is optional: a bare join asks the server to resolve the spawn (last-active room from `room_members.current_map_id`, else the Commons) or, while joined, to resync the current map. `transition` moves the SAME connection between map registries — the socket is never torn down at a door. Access policy is enforced server-side on every join/transition: members always enter, `open` admits any student, `knock` opens an access request (`knockPending` to the requester, `knock` prompts to online members, `knockRespond` first-answer-wins, 60 s timeout, `knockResult` to everyone involved; a grant admits that session only), `invite_only` rejects with `ROOM_ACCESS_DENIED`. Faculty/alumni are rejected from the whole live space (`FORBIDDEN`). `doors` carries the Commons door slots (assigned public room, access policy, live occupancy) on commons entry and re-broadcasts when occupancy or assignment changes; private rooms never appear in it. Proximity and presence are map-instance-scoped — pairs never form across maps.
 
 Every inbound message on both sides is runtime-validated (`parseClientMessage` / `parseServerMessage`); an unparseable frame is dropped with a logged warning, never a crashed connection. Coordinates on the wire are **tile units** (server-authoritative); the client converts to pixels via `packages/protocol/src/coords.ts` (32 px tiles).
 

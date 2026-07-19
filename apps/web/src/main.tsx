@@ -18,8 +18,9 @@ import { ForgotPasswordPage, ResetPasswordPage } from './features/auth/PasswordP
 import { RegisterPage } from './features/auth/RegisterPage.js';
 import { VerifyEmailPage } from './features/auth/VerifyEmailPage.js';
 
-// Phaser is heavy; the room sandbox loads on demand so the main bundle stays lean.
-const RoomSandboxPage = lazy(() => import('./features/rooms/RoomSandboxPage.js'));
+// Phaser is heavy; the live space loads on demand so the main bundle stays lean.
+const RoomsPage = lazy(() => import('./features/rooms/RoomsPage.js'));
+const RoomLivePage = lazy(() => import('./features/rooms/RoomLivePage.js'));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -42,10 +43,27 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <FeedPlaceholder /> },
       {
+        path: 'rooms',
+        element: (
+          <Suspense fallback={null}>
+            <RoomsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'rooms/live',
+        element: (
+          <Suspense fallback={null}>
+            <RoomLivePage />
+          </Suspense>
+        ),
+      },
+      {
+        // Phases 1–3 muscle memory; same live world now.
         path: 'rooms/sandbox',
         element: (
           <Suspense fallback={null}>
-            <RoomSandboxPage />
+            <RoomLivePage />
           </Suspense>
         ),
       },

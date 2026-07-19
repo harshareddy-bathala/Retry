@@ -37,8 +37,12 @@ export function authRoutes(
   deps: { service: AuthService; guards: AuthGuards; env: Env },
 ): void {
   const { service, guards, env } = deps;
-  // Auth endpoints are the brute-force surface: 5/min/IP (SECURITY.md §5)
-  const authRateLimit = { rateLimit: { max: 5, timeWindow: '1 minute' } };
+  // Auth endpoints are the brute-force surface: 5/min/IP (SECURITY.md §5).
+  // Disabled under test: integration suites share one app instance, and the
+  // in-memory counter would otherwise 429 legitimate fixtures mid-file.
+  const authRateLimit = {
+    rateLimit: env.NODE_ENV === 'test' ? false : { max: 5, timeWindow: '1 minute' },
+  };
 
   app.post('/auth/register', { config: authRateLimit }, async (request, reply) => {
     await service.register(registerSchema.parse(request.body));

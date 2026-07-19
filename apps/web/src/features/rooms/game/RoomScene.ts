@@ -1,14 +1,25 @@
 import Phaser from 'phaser';
 import studioA from '@foundry/maps/studio_a.json';
+import commons from '@foundry/maps/commons.json';
 import tilesetUrl from '@foundry/maps/tilesets/placeholder.png';
 import { TILE_SIZE, pixelToTile } from '@foundry/protocol';
-import type { Actor, ActorMoveMessage, Dir, ServerMessage, SnapshotMessage } from '@foundry/protocol';
+import type {
+  Actor,
+  ActorMoveMessage,
+  Dir,
+  DoorInfo,
+  ServerMessage,
+  SnapshotMessage,
+} from '@foundry/protocol';
 import avatarUrl from '../assets/avatar.png';
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
 
-const MAP_KEY = 'studio_a';
+// Both Tiled templates ship in the bundle; the server's snapshot names which
+// one to render (mapId is the instance — a room uuid — template is the file).
+const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
+
 const TILES_KEY = 'tiles';
 const AVATAR_KEY = 'avatar';
 
@@ -26,6 +37,9 @@ const FEET_OFFSET_Y = 8;
 const MOVE_SEND_INTERVAL_MS = 50;
 const INTERPOLATION_MS = 100;
 const REMOTE_IDLE_TIMEOUT_MS = 200;
+
+// Phase 4 door transition: 100ms out + 100ms in = the plan's 200ms fade.
+const FADE_MS = 100;
 
 const DIRS = ['down', 'left', 'right', 'up'] as const;
 type Facing = (typeof DIRS)[number];
@@ -47,6 +61,13 @@ type Remote = {
   lastUpdateAt: number;
 };
 
+type Interactable = {
+  kind: 'whiteboard' | 'exit' | 'door';
+  doorSlot: number | null;
+  tiles: Array<{ x: number; y: number }>;
+  hint: Phaser.GameObjects.Container;
+};
+
 export class RoomScene extends Phaser.Scene {
   private userId = '';
   private displayName = 'Explorer';
@@ -54,14 +75,21 @@ export class RoomScene extends Phaser.Scene {
   private playerBody!: Phaser.Physics.Arcade.Body;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: MoveKeys;
-  private keyE!: Phaser.Input.Keyboard.Key;
   private facing: Facing = 'down';
   private nameTag!: Phaser.GameObjects.Container;
-  private hint!: Phaser.GameObjects.Container;
-  private whiteboardTiles: Array<{ x: number; y: number }> = [];
   private remotes = new Map<string, Remote>();
   private wasMoving = false;
   private sinceLastSend = 0;
+
+  // Multi-map world (Phase 4)
+  private currentTemplate: string | null = null;
+  private mapLayers: Phaser.Tilemaps.TilemapLayer[] = [];
+  private collider: Phaser.Physics.Arcade.Collider | null = null;
+  private interactables: Interactable[] = [];
+  private doorVisuals: Phaser.GameObjects.GameObject[] = [];
+  private doorsInfo: DoorInfo[] = [];
+  private fading = false;
+  private pendingSnapshot: SnapshotMessage | null = null;
 
   constructor() {
     super('room');
@@ -73,44 +101,24 @@ export class RoomScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // The map JSON is bundled (same file the server validates against), so it
-    // goes straight into the cache instead of through a URL load.
-    this.cache.tilemap.add(MAP_KEY, {
-      format: Phaser.Tilemaps.Formats.TILED_JSON,
-      data: studioA,
-    });
+    // Map JSONs are bundled (the same files the server validates against), so
+    // they go straight into the cache instead of through a URL load.
+    for (const [key, data] of Object.entries(TEMPLATES)) {
+      this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
+    }
     this.load.image(TILES_KEY, tilesetUrl);
     this.load.spritesheet(AVATAR_KEY, avatarUrl, { frameWidth: 32, frameHeight: 32 });
   }
 
   create(): void {
-    const map = this.make.tilemap({ key: MAP_KEY });
-    const tiles = map.addTilesetImage('placeholder', TILES_KEY);
-    if (!tiles) throw new Error('tileset "placeholder" missing from map');
-
-    map.createLayer('ground', tiles, 0, 0);
-    map.createLayer('objects', tiles, 0, 0);
-    const collision = map.createLayer('collision', tiles, 0, 0);
-    if (!collision) throw new Error('collision layer missing from map');
-    collision.setVisible(false);
-    // Map contract: any non-empty tile in 'collision' blocks movement.
-    collision.setCollisionByExclusion([-1]);
-
-    const spawn = map.getObjectLayer('spawns')?.objects.find((o) => o.name === 'default');
-    const spawnX = spawn?.x ?? map.widthInPixels / 2;
-    const spawnY = spawn?.y ?? map.heightInPixels / 2;
-
-    this.player = this.physics.add.sprite(spawnX, spawnY - FEET_OFFSET_Y, AVATAR_KEY, 0);
+    // Everything map-independent boots here; the world itself is built from
+    // the first snapshot (the server decides where this user spawns).
+    this.player = this.physics.add.sprite(0, 0, AVATAR_KEY, 0).setVisible(false);
     const body = this.player.body as Phaser.Physics.Arcade.Body | null;
     if (!body) throw new Error('player has no arcade body');
     this.playerBody = body;
     // Feet-box collision so the avatar's head can overlap wall tiles top-down style.
     this.playerBody.setSize(18, 12).setOffset(7, 18);
-    this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
-    this.player.setCollideWorldBounds(true);
-    // Per-axis separation (wall sliding instead of sticking) is what arcade
-    // physics colliders do; do not hand-roll collision here.
-    this.physics.add.collider(this.player, collision);
 
     DIRS.forEach((dir, row) => {
       this.anims.create({
@@ -129,18 +137,19 @@ export class RoomScene extends Phaser.Scene {
     this.player.anims.play('idle-down');
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
-    this.collectInteractables(map);
-
-    const camera = this.cameras.main;
-    camera.setZoom(CAMERA_ZOOM);
-    camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
-    camera.startFollow(this.player, true, 0.1, 0.1);
+    this.nameTag.setVisible(false);
+    this.cameras.main.setZoom(CAMERA_ZOOM);
 
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('keyboard input unavailable');
     this.cursors = keyboard.createCursorKeys();
     this.wasd = keyboard.addKeys('W,A,S,D') as MoveKeys;
-    this.keyE = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    // Event-driven interact key — polling JustDown misses fast taps.
+    keyboard.on('keydown-E', () => {
+      if (!this.currentTemplate) return;
+      const near = this.nearestInteractable();
+      if (near) this.activate(near);
+    });
 
     const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
     const cleanup = (): void => {
@@ -156,6 +165,8 @@ export class RoomScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
+    if (!this.currentTemplate) return;
+
     const left = this.cursors.left.isDown || this.wasd.A.isDown;
     const right = this.cursors.right.isDown || this.wasd.D.isDown;
     const up = this.cursors.up.isDown || this.wasd.W.isDown;
@@ -193,16 +204,7 @@ export class RoomScene extends Phaser.Scene {
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - 26);
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
-
-    const tileX = pixelToTile(this.player.x);
-    const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
-    const nearWhiteboard = this.whiteboardTiles.some(
-      (t) => Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY)) <= 1,
-    );
-    this.hint.setVisible(nearWhiteboard);
-    if (nearWhiteboard && Phaser.Input.Keyboard.JustDown(this.keyE)) {
-      roomEvents.emit('interact:whiteboard');
-    }
+    this.updateInteractables();
   }
 
   // ---------------------------------------------------------------------------
@@ -234,13 +236,52 @@ export class RoomScene extends Phaser.Scene {
       case 'actorLeave':
         this.removeRemote(msg.userId);
         break;
-      case 'error':
+      case 'doors':
+        this.doorsInfo = msg.doors;
+        this.renderDoors();
+        break;
+      default:
         break;
     }
   }
 
-  /** Full authoritative state — initial join, reconnect, or illegal-move resync. */
+  /**
+   * Full authoritative state — join, reconnect, resync, or a door transition.
+   * A template change swaps the tilemap in place behind a 200ms fade; the
+   * Scene (and the socket beneath it) is never destroyed.
+   */
   private onSnapshot(msg: SnapshotMessage): void {
+    if (this.fading) {
+      // A newer snapshot during the fade wins; applied when the fade lands.
+      this.pendingSnapshot = msg;
+      return;
+    }
+    if (msg.template === this.currentTemplate) {
+      this.applySnapshot(msg);
+      return;
+    }
+    if (this.currentTemplate === null) {
+      // First world build: no fade, just appear.
+      this.buildWorld(msg.template);
+      this.applySnapshot(msg);
+      return;
+    }
+    this.fading = true;
+    this.pendingSnapshot = msg;
+    this.cameras.main.fadeOut(FADE_MS, 23, 21, 18);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      const pending = this.pendingSnapshot;
+      this.pendingSnapshot = null;
+      this.fading = false;
+      if (pending) {
+        this.buildWorld(pending.template);
+        this.applySnapshot(pending);
+      }
+      this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+    });
+  }
+
+  private applySnapshot(msg: SnapshotMessage): void {
     for (const userId of [...this.remotes.keys()]) this.removeRemote(userId);
     for (const actor of msg.actors) {
       if (actor.userId === this.userId) {
@@ -333,27 +374,162 @@ export class RoomScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------------------
-  // World furniture
+  // World building (Phase 4: swap tilemaps in place, never destroy the Scene)
   // ---------------------------------------------------------------------------
+
+  private buildWorld(template: string): void {
+    // Tear down the previous map's objects; the player, remotes and camera
+    // survive — they are repositioned by the snapshot that follows.
+    if (this.collider) {
+      this.collider.destroy();
+      this.collider = null;
+    }
+    for (const layer of this.mapLayers) layer.destroy();
+    this.mapLayers = [];
+    for (const i of this.interactables) i.hint.destroy();
+    this.interactables = [];
+    this.clearDoorVisuals();
+
+    const map = this.make.tilemap({ key: template });
+    const tiles = map.addTilesetImage('placeholder', TILES_KEY);
+    if (!tiles) throw new Error('tileset "placeholder" missing from map');
+
+    const ground = map.createLayer('ground', tiles, 0, 0);
+    const objects = map.createLayer('objects', tiles, 0, 0);
+    const collision = map.createLayer('collision', tiles, 0, 0);
+    if (!ground || !objects || !collision) throw new Error(`layers missing from map '${template}'`);
+    collision.setVisible(false);
+    // Map contract: any non-empty tile in 'collision' blocks movement.
+    collision.setCollisionByExclusion([-1]);
+    this.mapLayers = [ground, objects, collision];
+    // Player renders above tiles.
+    this.player.setDepth(1);
+
+    this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+    this.player.setCollideWorldBounds(true);
+    // Per-axis separation (wall sliding instead of sticking) is what arcade
+    // physics colliders do; do not hand-roll collision here.
+    this.collider = this.physics.add.collider(this.player, collision);
+
+    const camera = this.cameras.main;
+    camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+    camera.startFollow(this.player, true, 0.1, 0.1);
+
+    this.collectInteractables(map);
+    this.currentTemplate = template;
+    this.player.setVisible(true);
+    this.nameTag.setVisible(true);
+    this.renderDoors();
+  }
 
   /** Read objects with an `interactive` custom property from the map. */
   private collectInteractables(map: Phaser.Tilemaps.Tilemap): void {
     for (const obj of map.getObjectLayer('interactables')?.objects ?? []) {
       const properties = (obj.properties ?? []) as Array<{ name: string; value: unknown }>;
-      if (!properties.some((p) => p.name === 'interactive' && p.value === 'whiteboard')) continue;
+      const kindProp = properties.find((p) => p.name === 'interactive')?.value;
+      if (kindProp !== 'whiteboard' && kindProp !== 'exit' && kindProp !== 'door') continue;
+      const slotProp = properties.find((p) => p.name === 'door_slot')?.value;
 
       const x = obj.x ?? 0;
       const y = obj.y ?? 0;
       const width = obj.width ?? TILE_SIZE;
       const height = obj.height ?? TILE_SIZE;
+      const tiles: Array<{ x: number; y: number }> = [];
       for (let ty = pixelToTile(y); ty <= pixelToTile(y + height - 1); ty++) {
         for (let tx = pixelToTile(x); tx <= pixelToTile(x + width - 1); tx++) {
-          this.whiteboardTiles.push({ x: tx, y: ty });
+          tiles.push({ x: tx, y: ty });
         }
       }
-      this.hint = this.buildPill('Press E', 0x2d2926, '#f5f3ee');
-      this.hint.setPosition(x + width / 2, y - 8);
-      this.hint.setVisible(false);
+      const label = kindProp === 'exit' ? 'E — to Commons' : 'Press E';
+      const hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
+      hint.setPosition(x + width / 2, kindProp === 'door' ? y + height + 10 : y - 8);
+      hint.setVisible(false);
+      hint.setDepth(11);
+      this.interactables.push({
+        kind: kindProp,
+        doorSlot: typeof slotProp === 'number' ? slotProp : null,
+        tiles,
+        hint,
+      });
+    }
+  }
+
+  /** The interactable the player stands next to (Chebyshev distance ≤ 1). */
+  private nearestInteractable(): Interactable | null {
+    const tileX = pixelToTile(this.player.x);
+    const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
+    for (const i of this.interactables) {
+      if (i.tiles.some((t) => Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY)) <= 1)) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  private updateInteractables(): void {
+    const near = this.nearestInteractable();
+    for (const i of this.interactables) {
+      // A door with no assigned room is just wall dressing — no hint, no action.
+      const usable = i.kind !== 'door' || this.doorFor(i.doorSlot)?.room !== undefined;
+      i.hint.setVisible(i === near && usable);
+    }
+  }
+
+  private activate(interactable: Interactable): void {
+    switch (interactable.kind) {
+      case 'whiteboard':
+        roomEvents.emit('interact:whiteboard');
+        break;
+      case 'exit':
+        roomSocket.send({ t: 'transition', toMapId: 'commons' });
+        break;
+      case 'door': {
+        const room = this.doorFor(interactable.doorSlot)?.room;
+        if (room) roomSocket.send({ t: 'transition', toMapId: room.roomId });
+        break;
+      }
+    }
+  }
+
+  private doorFor(slot: number | null): DoorInfo | undefined {
+    return slot === null ? undefined : this.doorsInfo.find((d) => d.slot === slot);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Commons doors: plaque (room name), live occupancy, lock glyph
+  // ---------------------------------------------------------------------------
+
+  private clearDoorVisuals(): void {
+    for (const v of this.doorVisuals) v.destroy();
+    this.doorVisuals = [];
+  }
+
+  private renderDoors(): void {
+    if (this.currentTemplate !== 'commons') return;
+    this.clearDoorVisuals();
+    for (const door of this.doorsInfo) {
+      const px = door.x * TILE_SIZE;
+      const py = door.y * TILE_SIZE;
+      const g = this.add.graphics();
+      // Door leaf: assigned doors look warm and inviting, unassigned stay plain.
+      g.fillStyle(door.room ? 0x8a5a33 : 0x4a4440, 1);
+      g.fillRoundedRect(px + 6, py + 4, 2 * TILE_SIZE - 12, TILE_SIZE - 6, 4);
+      g.fillStyle(door.room ? 0xd9b06c : 0x5d564f, 1);
+      g.fillCircle(px + 2 * TILE_SIZE - 18, py + TILE_SIZE / 2 + 2, 2);
+      g.setDepth(0.5);
+      this.doorVisuals.push(g);
+
+      if (door.room) {
+        const lock = door.room.accessPolicy !== 'open' ? ' 🔒' : '';
+        const plaque = this.buildPill(
+          `${door.room.roomName} · ${door.room.occupancy}${lock}`,
+          0xf5f3ee,
+          '#2d2926',
+        );
+        plaque.setPosition(px + TILE_SIZE, py + TILE_SIZE + 12);
+        plaque.setDepth(10);
+        this.doorVisuals.push(plaque);
+      }
     }
   }
 
