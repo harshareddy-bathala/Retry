@@ -98,6 +98,12 @@ describe('parseServerMessage', () => {
       { t: 'knock', requestId: 'req1', roomId: 'r1', roomName: 'Lab', requesterName: 'Asha' },
       { t: 'knockPending', requestId: 'req1', roomId: 'r1', roomName: 'Lab' },
       { t: 'knockResult', requestId: 'req1', status: 'granted' },
+      {
+        t: 'avToken',
+        mapId: 'commons',
+        roomUrl: 'https://foundry.daily.co/foundry-commons',
+        token: 'jwt-token',
+      },
       { t: 'error', code: 'ROOM_FULL', message: 'Room is full' },
     ];
     for (const m of messages) {

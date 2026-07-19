@@ -4,6 +4,7 @@ import { buildLoggerOptions } from './lib/logger.js';
 import { createTokenVerifier } from './lib/auth.js';
 import { RoomHub } from './rooms/hub.js';
 import { InMemoryRoomStore, type RoomStore } from './world/store.js';
+import { DailyAvProvider, type AvProvider } from './av/daily.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -19,6 +20,10 @@ export type BuildAppOptions = {
   store?: RoomStore;
   /** Override the 60s knock timeout (tests). */
   knockTimeoutMs?: number;
+  /** Daily.co API key (Phase 5); absent = AV disabled. */
+  dailyApiKey?: string;
+  /** Test seam: inject a fake AV provider instead of the real Daily client. */
+  av?: AvProvider;
 };
 
 // Authenticated WebSocket endpoint backed by RoomHub (rooms build plan
@@ -31,9 +36,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   const verifyToken = createTokenVerifier(options.jwtSecret);
+  const av =
+    options.av ??
+    (options.dailyApiKey ? new DailyAvProvider(options.dailyApiKey, app.log) : undefined);
   const hub = new RoomHub({
     store: options.store ?? new InMemoryRoomStore(),
     knockTimeoutMs: options.knockTimeoutMs,
+    av,
   });
   hub.start();
   app.addHook('onClose', async () => hub.stop());

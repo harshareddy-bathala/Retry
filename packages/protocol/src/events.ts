@@ -224,6 +224,18 @@ export const mediaStateMessageSchema = z.object({
 });
 export type MediaStateMessage = z.infer<typeof mediaStateMessageSchema>;
 
+// Daily.co credentials for the CURRENT map's call (rooms Phase 5). Minted
+// server-side per room, per user, per session with a short TTL (SRS
+// NFR-SEC-02) — the Daily API key never reaches a client. Pushed after the
+// snapshot on every map entry; absent entirely when AV is not configured.
+export const avTokenMessageSchema = z.object({
+  t: z.literal('avToken'),
+  mapId: z.string().min(1),
+  roomUrl: z.string().url(),
+  token: z.string().min(1),
+});
+export type AvTokenMessage = z.infer<typeof avTokenMessageSchema>;
+
 export const serverMessageSchema = z.discriminatedUnion('t', [
   snapshotMessageSchema,
   actorJoinMessageSchema,
@@ -235,6 +247,7 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
   knockMessageSchema,
   knockPendingMessageSchema,
   knockResultMessageSchema,
+  avTokenMessageSchema,
   errorMessageSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { AVControls } from './AVControls.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
+import { avManager } from './av/av-manager.js';
 import { KnockLayer } from './KnockLayer.js';
 import { roomEvents } from './event-bus.js';
 import { roomSocket } from './net/room-socket.js';
@@ -49,6 +50,9 @@ export default function RoomLivePage() {
   useEffect(() => {
     const token = getAccessToken();
     if (!user || !token) return;
+    // AV first: the manager must be listening before the server can push the
+    // avToken that follows the join snapshot.
+    avManager.start(avRef.current);
     roomSocket.connect({
       url: ROOM_WS_URL,
       token,
@@ -58,6 +62,7 @@ export default function RoomLivePage() {
     });
     return () => {
       roomSocket.disconnect();
+      avManager.stop();
     };
   }, [user, mapId]);
 
@@ -65,6 +70,7 @@ export default function RoomLivePage() {
     setAv(next);
     saveAvState(next);
     roomSocket.send({ t: 'media', ...next });
+    avManager.setLocal(next);
   };
 
   if (!user) return null;

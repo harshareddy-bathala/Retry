@@ -11,6 +11,9 @@ const envSchema = z.object({
   // Optional so the sandbox still runs without Postgres — but room instances,
   // doors and knocks need it; boot logs a loud warning when it is missing.
   DATABASE_URL: z.string().min(1).optional(),
+  // Optional: without it AV stays off and the Phase 3 placeholder bubbles
+  // remain. The key lives ONLY here — never in the api or the client.
+  DAILY_API_KEY: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

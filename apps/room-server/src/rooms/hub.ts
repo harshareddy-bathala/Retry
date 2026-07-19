@@ -15,6 +15,7 @@ import {
   type Zone,
 } from '@foundry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
+import type { AvGrant, AvProvider } from '../av/daily.js';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
@@ -52,6 +53,10 @@ type Session = {
   granted: Set<string>;
   /** Serializes join/transition — overlapping async ops are dropped, not queued. */
   busy: boolean;
+  /** Last Daily grant, so resyncs re-send it without another REST mint. */
+  avGrant: { mapId: string; grant: AvGrant } | null;
+  /** First avToken timestamp — participant-time accounting (SRS §3.4). */
+  avStartedAt: number | null;
 };
 
 type PendingKnock = {
@@ -65,6 +70,8 @@ type PendingKnock = {
 export type RoomHubDeps = {
   store: RoomStore;
   knockTimeoutMs?: number;
+  /** Daily.co orchestration; absent = AV disabled, placeholder bubbles remain. */
+  av?: AvProvider;
 };
 
 // Server-authoritative world state (rooms build plan Phases 2–4). All positions
@@ -82,10 +89,14 @@ export class RoomHub {
   private pendingKnocks = new Map<string, PendingKnock>();
   private store: RoomStore;
   private knockTimeoutMs: number;
+  private av: AvProvider | null;
+  /** Cumulative live-space participant seconds — free-tier usage monitoring. */
+  avSecondsTotal = 0;
 
   constructor(deps: RoomHubDeps) {
     this.store = deps.store;
     this.knockTimeoutMs = deps.knockTimeoutMs ?? KNOCK_TIMEOUT_MS;
+    this.av = deps.av ?? null;
   }
 
   /** Open sessions (joined or not) — lets tests prove nothing leaks. */
@@ -133,12 +144,23 @@ export class RoomHub {
       movesInWindow: 0,
       granted: new Set(),
       busy: false,
+      avGrant: null,
+      avStartedAt: null,
     };
     this.all.add(session);
     log.info({ userId: user.userId }, 'ws connected');
 
     socket.on('message', (data: Buffer) => this.onMessage(session, data));
     socket.on('close', () => {
+      if (session.avStartedAt !== null) {
+        const seconds = Math.round((Date.now() - session.avStartedAt) / 1000);
+        this.avSecondsTotal += seconds;
+        // Aggregate duration only — never a session/attendance record.
+        log.info(
+          { userId: session.userId, seconds, totalSeconds: this.avSecondsTotal },
+          'av participant time',
+        );
+      }
       void this.persistPosition(session);
       this.leaveMap(session);
       this.all.delete(session);
@@ -390,6 +412,34 @@ export class RoomHub {
     }
     // Room occupancy changed → refresh every Commons door plaque.
     if (room || fromRoom) void this.broadcastDoors();
+
+    this.pushAvToken(session, world);
+  }
+
+  /**
+   * Mint and push Daily credentials for the map just entered (Phase 5). Runs
+   * detached — the snapshot must never wait on a Daily REST round-trip, and a
+   * Daily outage degrades to placeholder bubbles instead of blocking entry.
+   */
+  private pushAvToken(session: Session, world: WorldMap): void {
+    const av = this.av;
+    if (!av) return;
+    av.grantFor(world.id, session.userId, session.displayName)
+      .then((grant) => {
+        // The user may have walked through another door while we minted.
+        if (session.map?.id !== world.id) return;
+        session.avGrant = { mapId: world.id, grant };
+        if (session.avStartedAt === null) session.avStartedAt = Date.now();
+        this.send(session, {
+          t: 'avToken',
+          mapId: world.id,
+          roomUrl: grant.roomUrl,
+          token: grant.token,
+        });
+      })
+      .catch((err: unknown) => {
+        session.log.warn({ err, mapId: world.id }, 'daily grant failed; AV off for this entry');
+      });
   }
 
   /** Where the session lands in a map: saved position if legal, else spawn. */
@@ -697,6 +747,16 @@ export class RoomHub {
     if (zones.length > 0) this.send(session, { t: 'proximity', pairs: zones });
     if (world.id === COMMONS_MAP_ID) {
       void this.buildDoors().then((doors) => this.send(session, { t: 'doors', doors }));
+    }
+    // The initial avToken can arrive before the client's AV layer subscribes
+    // (same race the snapshot has) — re-send the cached grant, no re-mint.
+    if (session.avGrant?.mapId === world.id) {
+      this.send(session, {
+        t: 'avToken',
+        mapId: world.id,
+        roomUrl: session.avGrant.grant.roomUrl,
+        token: session.avGrant.grant.token,
+      });
     }
   }
 
