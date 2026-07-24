@@ -1,14 +1,18 @@
-import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import commonsMap from '@foundry/maps/commons.json';
 import { extractDoorSlots, validateMap, type DoorSlot } from '@foundry/maps';
-import { roomMembers, rooms, type Db, type RoomRow } from '@foundry/db';
+import { roomMembers, roomMessages, rooms, users, type Db, type RoomRow } from '@foundry/db';
 import type {
+  ChatHistoryResponse,
   CreateRoomInput,
   ListRoomsResponse,
   RoomMemberRole,
+  RoomMembersResponse,
   RoomSummary,
 } from '@foundry/types';
 import { AppError } from '../lib/errors.js';
+
+const CHAT_PAGE_SIZE = 50;
 
 // Rooms world API (rooms build plan Phase 4): create + list only. The room
 // server owns everything live (doors state, occupancy, transitions, knocks).
@@ -90,7 +94,6 @@ export function createRoomsService({ db }: RoomsServiceDeps) {
     return { mine, discover };
   }
 
-  /** Membership check used by tests and future routes; not exposed over HTTP yet. */
   async function isMember(roomId: string, userId: string): Promise<boolean> {
     const rows = await db
       .select({ id: roomMembers.id })
@@ -100,7 +103,63 @@ export function createRoomsService({ db }: RoomsServiceDeps) {
     return rows.length > 0;
   }
 
-  return { createRoom, listRooms, isMember };
+  async function requireMember(roomId: string, userId: string): Promise<void> {
+    if (!(await isMember(roomId, userId))) {
+      throw new AppError('FORBIDDEN', 403, 'Only room members can access this.');
+    }
+  }
+
+  /**
+   * Chat history (FR-ROOM-34): full history for any member, including members
+   * added after the messages were sent. Newest page first, 50 per page,
+   * ?before= cursor for scroll-up loading; each page returned oldest→newest.
+   */
+  async function listMessages(
+    roomId: string,
+    userId: string,
+    before?: string,
+  ): Promise<ChatHistoryResponse> {
+    await requireMember(roomId, userId);
+    const conditions = [eq(roomMessages.roomId, roomId)];
+    if (before) conditions.push(lt(roomMessages.createdAt, new Date(before)));
+    const rows = await db
+      .select({
+        id: roomMessages.id,
+        senderId: roomMessages.senderId,
+        senderName: users.name,
+        body: roomMessages.body,
+        createdAt: roomMessages.createdAt,
+      })
+      .from(roomMessages)
+      .innerJoin(users, eq(roomMessages.senderId, users.id))
+      .where(and(...conditions))
+      .orderBy(desc(roomMessages.createdAt), desc(roomMessages.id))
+      .limit(CHAT_PAGE_SIZE);
+    const page = rows.reverse().map((r) => ({
+      id: r.id,
+      senderId: r.senderId,
+      senderName: r.senderName,
+      body: r.body,
+      createdAt: r.createdAt.toISOString(),
+    }));
+    return {
+      messages: page,
+      nextBefore: rows.length === CHAT_PAGE_SIZE ? (page[0]?.createdAt ?? null) : null,
+    };
+  }
+
+  async function listMembers(roomId: string, userId: string): Promise<RoomMembersResponse> {
+    await requireMember(roomId, userId);
+    const rows = await db
+      .select({ userId: roomMembers.userId, name: users.name, role: roomMembers.role })
+      .from(roomMembers)
+      .innerJoin(users, eq(roomMembers.userId, users.id))
+      .where(eq(roomMembers.roomId, roomId))
+      .orderBy(roomMembers.createdAt);
+    return { members: rows };
+  }
+
+  return { createRoom, listRooms, isMember, listMessages, listMembers };
 }
 
 export type RoomsService = ReturnType<typeof createRoomsService>;

@@ -152,8 +152,20 @@ export class RoomScene extends Phaser.Scene {
     });
 
     const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
+    // While a panel holds focus, the scene surrenders the keyboard entirely —
+    // "typing in chat never moves the avatar" (Phase 6 acceptance).
+    const unsubscribePanel = roomEvents.on('panel:state', ({ open }) => {
+      keyboard.enabled = !open;
+      if (open && this.currentTemplate) {
+        keyboard.resetKeys();
+        this.playerBody.setVelocity(0, 0);
+        this.wasMoving = false;
+        this.sendMove(false);
+      }
+    });
     const cleanup = (): void => {
       unsubscribe();
+      unsubscribePanel();
       avatarScreenPositions.clear();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);

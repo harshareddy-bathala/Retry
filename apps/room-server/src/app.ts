@@ -3,6 +3,7 @@ import websocket from '@fastify/websocket';
 import { buildLoggerOptions } from './lib/logger.js';
 import { createTokenVerifier } from './lib/auth.js';
 import { RoomHub } from './rooms/hub.js';
+import { WhiteboardHub } from './rooms/whiteboard.js';
 import { InMemoryRoomStore, type RoomStore } from './world/store.js';
 import { DailyAvProvider, type AvProvider } from './av/daily.js';
 
@@ -36,14 +37,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   await app.register(websocket, { options: { maxPayload: 16 * 1024 } });
   const verifyToken = createTokenVerifier(options.jwtSecret);
+  const store = options.store ?? new InMemoryRoomStore();
   const av =
     options.av ??
     (options.dailyApiKey ? new DailyAvProvider(options.dailyApiKey, app.log) : undefined);
   const hub = new RoomHub({
-    store: options.store ?? new InMemoryRoomStore(),
+    store,
     knockTimeoutMs: options.knockTimeoutMs,
     av,
   });
+  const whiteboards = new WhiteboardHub(store, app.log);
+  app.addHook('onClose', async () => whiteboards.stop());
   hub.start();
   app.addHook('onClose', async () => hub.stop());
   app.decorate('hub', hub);
@@ -59,6 +63,32 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       return;
     }
     app.hub.connect(socket, user, req.log);
+  });
+
+  // Shared whiteboard (Phase 6): tldraw sync protocol on its own endpoint.
+  // Same JWT auth; members only (FR-ROOM-37 — "all members can draw").
+  app.get('/whiteboard', { websocket: true }, async (socket, req) => {
+    const { token, roomId, sessionId } = req.query as {
+      token?: string;
+      roomId?: string;
+      sessionId?: string;
+    };
+    const user = token ? await verifyToken(token) : null;
+    if (!user || user.role !== 'student') {
+      socket.close(4401, 'unauthorized');
+      return;
+    }
+    if (!roomId || !(await store.isMember(roomId, user.userId))) {
+      req.log.warn({ roomId, userId: user.userId }, 'whiteboard rejected: not a member');
+      socket.close(4403, 'forbidden');
+      return;
+    }
+    try {
+      await whiteboards.connect(roomId, sessionId ?? `${user.userId}-${Date.now()}`, socket);
+    } catch (err) {
+      req.log.error({ err, roomId }, 'whiteboard connect failed');
+      socket.close(1011, 'whiteboard unavailable');
+    }
   });
 
   return app;

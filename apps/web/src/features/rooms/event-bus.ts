@@ -11,6 +11,9 @@ export type RoomEventMap = {
   'interact:whiteboard': undefined;
   'net:server-message': ServerMessage;
   'net:status': RoomSocketStatus;
+  // Phase 6: a panel holds keyboard focus — the scene must release input so
+  // typing in chat never moves the avatar.
+  'panel:state': { open: boolean };
 };
 
 type Handler<T> = (payload: T) => void;

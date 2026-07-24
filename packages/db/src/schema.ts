@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -104,6 +105,8 @@ export const rooms = pgTable('rooms', {
   doorX: integer('door_x'),
   doorY: integer('door_y'),
   mapTemplate: text('map_template').notNull().default('studio_a'),
+  // tldraw document (FR-ROOM-38), written by the whiteboard sync server only.
+  whiteboardState: jsonb('whiteboard_state'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -154,10 +157,73 @@ export const roomAccessRequests = pgTable(
   (t) => [index('room_access_requests_room_idx').on(t.roomId)],
 );
 
+// ---------------------------------------------------------------------------
+// Persistent panels (rooms build plan Phase 6)
+// ---------------------------------------------------------------------------
+
+// Plain text only (FR-ROOM-35), stored indefinitely, deleted only via room
+// deletion cascade (FR-ROOM-36).
+export const roomMessages = pgTable(
+  'room_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    senderId: uuid('sender_id')
+      .notNull()
+      .references(() => users.id),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('room_messages_room_created_idx').on(t.roomId, t.createdAt)],
+);
+
+export const kanbanColumnKey = pgEnum('kanban_column', ['todo', 'doing', 'done', 'parked']);
+
+// Stores RENAMED column labels only (FR-ROOM-18); absence = default label.
+export const kanbanColumns = pgTable(
+  'kanban_columns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    key: kanbanColumnKey('key').notNull(),
+    label: text('label').notNull(),
+  },
+  (t) => [uniqueIndex('kanban_columns_room_key_idx').on(t.roomId, t.key)],
+);
+
+// position is fractional (real): a drag writes ONE row, never reindexes the
+// column — integer reindexing races when two members drag simultaneously.
+export const kanbanCards = pgTable(
+  'kanban_cards',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    column: kanbanColumnKey('column').notNull().default('todo'),
+    title: text('title').notNull(),
+    description: text('description'),
+    assigneeId: uuid('assignee_id').references(() => users.id),
+    // FR-ROOM-21 (P2): optional one-line note when moved to done/parked.
+    moveNote: text('move_note'),
+    position: real('position').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('kanban_cards_room_idx').on(t.roomId)],
+);
+
 export type RoomRow = typeof rooms.$inferSelect;
 export type NewRoomRow = typeof rooms.$inferInsert;
 export type RoomMemberRow = typeof roomMembers.$inferSelect;
 export type RoomAccessRequestRow = typeof roomAccessRequests.$inferSelect;
+export type RoomMessageRow = typeof roomMessages.$inferSelect;
+export type KanbanCardRow = typeof kanbanCards.$inferSelect;
+export type KanbanColumnRow = typeof kanbanColumns.$inferSelect;
 
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;

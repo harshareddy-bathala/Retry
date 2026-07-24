@@ -3,9 +3,16 @@ import type { FastifyBaseLogger } from 'fastify';
 import {
   parseClientMessage,
   type Actor,
+  type ChatMessage,
   type Dir,
   type DoorInfo,
   type JoinMessage,
+  type KanbanCard,
+  type KanbanCreateMessage,
+  type KanbanDeleteMessage,
+  type KanbanMoveMessage,
+  type KanbanRenameColumnMessage,
+  type KanbanUpdateMessage,
   type KnockCancelMessage,
   type KnockRespondMessage,
   type MediaMessage,
@@ -24,7 +31,7 @@ import {
   isBlocked,
   type WorldMap,
 } from '../world/maps.js';
-import type { LastPosition, RoomRecord, RoomStore } from '../world/store.js';
+import type { KanbanCardRecord, LastPosition, RoomRecord, RoomStore } from '../world/store.js';
 import { ProximityEngine, type PairChange } from './proximity.js';
 
 const MOVES_PER_SECOND = 20;
@@ -207,8 +214,18 @@ export class RoomHub {
         this.onMedia(session, parsed.message);
         break;
       case 'chat':
-        // Chat UI lands with the panels phase; accepted by the protocol, ignored here.
-        session.log.debug('chat message ignored (no chat yet)');
+        void this.onChat(session, parsed.message).catch((err: unknown) => {
+          session.log.error({ err }, 'chat handler failed');
+        });
+        break;
+      case 'kanbanCreate':
+      case 'kanbanUpdate':
+      case 'kanbanMove':
+      case 'kanbanDelete':
+      case 'kanbanRenameColumn':
+        void this.onKanban(session, parsed.message).catch((err: unknown) => {
+          session.log.error({ err }, 'kanban handler failed');
+        });
         break;
     }
   }
@@ -414,6 +431,7 @@ export class RoomHub {
     if (room || fromRoom) void this.broadcastDoors();
 
     this.pushAvToken(session, world);
+    if (room) this.pushKanbanState(session, room.id);
   }
 
   /**
@@ -628,6 +646,114 @@ export class RoomHub {
   }
 
   // ---------------------------------------------------------------------------
+  // Persistent panels (Phase 6): chat + kanban over the same socket
+  // ---------------------------------------------------------------------------
+
+  /** The room instance this session is inside, or null on static maps. */
+  private roomIdOf(session: Session): string | null {
+    const mapId = session.map?.id;
+    return mapId && !STATIC_MAP_IDS.has(mapId) ? mapId : null;
+  }
+
+  private async onChat(session: Session, msg: ChatMessage): Promise<void> {
+    const roomId = this.roomIdOf(session);
+    if (!roomId) {
+      session.log.debug('chat dropped: not inside a room instance');
+      return;
+    }
+    // Plain text only (FR-ROOM-35): sanitise on write — control chars out,
+    // whitespace trimmed; the client renders as text nodes (NFR-SEC-04).
+    const body = sanitizeText(msg.body);
+    if (body.length === 0) return;
+    const record = await this.store.appendMessage(roomId, session.userId, body);
+    this.broadcast(roomId, {
+      t: 'chatMessage',
+      id: record.id,
+      userId: session.userId,
+      displayName: session.displayName,
+      body: record.body,
+      createdAt: record.createdAt.toISOString(),
+    });
+  }
+
+  private async onKanban(
+    session: Session,
+    msg:
+      | KanbanCreateMessage
+      | KanbanUpdateMessage
+      | KanbanMoveMessage
+      | KanbanDeleteMessage
+      | KanbanRenameColumnMessage,
+  ): Promise<void> {
+    const roomId = this.roomIdOf(session);
+    if (!roomId) return;
+    // FR-ROOM-18/19: any MEMBER may mutate the board; visitors see it read-only.
+    if (!(await this.store.isMember(roomId, session.userId))) {
+      this.send(session, {
+        t: 'error',
+        code: 'FORBIDDEN',
+        message: 'Only room members can edit the board.',
+      });
+      return;
+    }
+    switch (msg.t) {
+      case 'kanbanCreate': {
+        const title = sanitizeText(msg.title);
+        if (!title) return;
+        const card = await this.store.createCard(roomId, msg.column, title);
+        this.broadcast(roomId, { t: 'kanbanCard', card: toKanbanCard(card) });
+        break;
+      }
+      case 'kanbanUpdate': {
+        const card = await this.store.updateCard(roomId, msg.cardId, {
+          ...(msg.title !== undefined ? { title: sanitizeText(msg.title) } : {}),
+          ...(msg.description !== undefined
+            ? { description: msg.description === null ? null : sanitizeText(msg.description) }
+            : {}),
+          ...(msg.moveNote !== undefined
+            ? { moveNote: msg.moveNote === null ? null : sanitizeText(msg.moveNote) }
+            : {}),
+        });
+        if (card) this.broadcast(roomId, { t: 'kanbanCard', card: toKanbanCard(card) });
+        break;
+      }
+      case 'kanbanMove': {
+        const card = await this.store.moveCard(roomId, msg.cardId, msg.column, msg.position);
+        if (card) this.broadcast(roomId, { t: 'kanbanCard', card: toKanbanCard(card) });
+        break;
+      }
+      case 'kanbanDelete': {
+        if (await this.store.deleteCard(roomId, msg.cardId)) {
+          this.broadcast(roomId, { t: 'kanbanCardRemoved', cardId: msg.cardId });
+        }
+        break;
+      }
+      case 'kanbanRenameColumn': {
+        const label = sanitizeText(msg.label);
+        if (!label) return;
+        await this.store.renameColumn(roomId, msg.column, label);
+        this.broadcast(roomId, { t: 'kanbanColumn', column: { key: msg.column, label } });
+        break;
+      }
+    }
+  }
+
+  /** Board snapshot for a session that just entered a room's map. */
+  private pushKanbanState(session: Session, roomId: string): void {
+    this.store
+      .kanbanBoard(roomId)
+      .then((board) => {
+        if (session.map?.id !== roomId) return; // moved on while loading
+        this.send(session, {
+          t: 'kanbanState',
+          columns: board.columns,
+          cards: board.cards.map(toKanbanCard),
+        });
+      })
+      .catch((err: unknown) => session.log.warn({ err }, 'kanban state load failed'));
+  }
+
+  // ---------------------------------------------------------------------------
   // Movement, media, presence
   // ---------------------------------------------------------------------------
 
@@ -773,6 +899,24 @@ export class RoomHub {
       session.socket.send(JSON.stringify(msg));
     }
   }
+}
+
+function sanitizeText(value: string): string {
+  // eslint-disable-next-line no-control-regex -- stripping control chars is the point
+  return value.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '').trim();
+}
+
+function toKanbanCard(record: KanbanCardRecord): KanbanCard {
+  return {
+    id: record.id,
+    column: record.column,
+    title: record.title,
+    description: record.description,
+    assigneeId: record.assigneeId,
+    moveNote: record.moveNote,
+    position: record.position,
+    createdAt: record.createdAt.toISOString(),
+  };
 }
 
 function toActor(session: Session): Actor {

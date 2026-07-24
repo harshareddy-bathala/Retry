@@ -85,6 +85,70 @@ describe.skipIf(!hasTestDb)('rooms API', () => {
     expect(body.discover.map((r) => r.name)).toEqual(['A public']);
   });
 
+  it('chat history: member-only, paginated at 50, oldest-first pages (FR-ROOM-34)', async () => {
+    const owner = await ctx.seedUser('student');
+    const outsider = await ctx.seedUser('student');
+    const created = await createRoom(owner.token, { name: 'Chatty', visibility: 'public', accessPolicy: 'open' });
+    const roomId = created.json<{ room: { id: string } }>().room.id;
+
+    // Seed 60 messages directly (the WS path owns writes in production).
+    for (let i = 0; i < 60; i++) {
+      await ctx.db.execute(
+        // eslint-disable-next-line no-await-in-loop -- deterministic createdAt ordering
+        `INSERT INTO room_messages (room_id, sender_id, body, created_at)
+         VALUES ('${roomId}', (SELECT id FROM users LIMIT 1), 'msg ${i}',
+                 now() - interval '${60 - i} seconds')`,
+      );
+    }
+
+    const history = (token: string, before?: string) =>
+      ctx.app.inject({
+        method: 'GET',
+        url: `/api/rooms/${roomId}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+    const page1 = await history(owner.token);
+    expect(page1.statusCode).toBe(200);
+    const body1 = page1.json<{ messages: Array<{ body: string }>; nextBefore: string | null }>();
+    expect(body1.messages).toHaveLength(50);
+    expect(body1.messages.at(-1)?.body).toBe('msg 59');
+    expect(body1.nextBefore).not.toBeNull();
+
+    const page2 = await history(owner.token, body1.nextBefore ?? undefined);
+    const body2 = page2.json<{ messages: Array<{ body: string }>; nextBefore: string | null }>();
+    expect(body2.messages).toHaveLength(10);
+    expect(body2.messages[0]?.body).toBe('msg 0');
+    expect(body2.nextBefore).toBeNull();
+
+    // Non-members get nothing — not even for a public room.
+    expect((await history(outsider.token)).statusCode).toBe(403);
+  });
+
+  it('members endpoint lists roster for members only', async () => {
+    const owner = await ctx.seedUser('student');
+    const outsider = await ctx.seedUser('student');
+    const created = await createRoom(owner.token, { name: 'Roster', visibility: 'private' });
+    const roomId = created.json<{ room: { id: string } }>().room.id;
+
+    const res = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/rooms/${roomId}/members`,
+      headers: { authorization: `Bearer ${owner.token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const { members } = res.json<{ members: Array<{ userId: string; role: string }> }>();
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({ userId: owner.id, role: 'owner' });
+
+    const denied = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/rooms/${roomId}/members`,
+      headers: { authorization: `Bearer ${outsider.token}` },
+    });
+    expect(denied.statusCode).toBe(403);
+  });
+
   it('rejects faculty, alumni and admin (SRS §3.2/§3.3)', async () => {
     for (const role of ['faculty', 'alumni', 'admin'] as const) {
       const user = await ctx.seedUser(role);

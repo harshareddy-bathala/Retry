@@ -91,6 +91,50 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
+// Kanban (rooms build plan Phase 6, FR-ROOM-18..21). Mutations ride the same
+// socket; the server persists and broadcasts so every member stays in sync.
+export const kanbanColumnKeySchema = z.enum(['todo', 'doing', 'done', 'parked']);
+export type KanbanColumnKey = z.infer<typeof kanbanColumnKeySchema>;
+
+export const kanbanCreateMessageSchema = z.object({
+  t: z.literal('kanbanCreate'),
+  column: kanbanColumnKeySchema,
+  title: z.string().min(1).max(200),
+});
+export type KanbanCreateMessage = z.infer<typeof kanbanCreateMessageSchema>;
+
+export const kanbanUpdateMessageSchema = z.object({
+  t: z.literal('kanbanUpdate'),
+  cardId: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).nullable().optional(),
+  moveNote: z.string().max(200).nullable().optional(),
+});
+export type KanbanUpdateMessage = z.infer<typeof kanbanUpdateMessageSchema>;
+
+// position is FRACTIONAL — a drag writes one card, never reindexes a column
+// (integer reindexing races between two simultaneous draggers).
+export const kanbanMoveMessageSchema = z.object({
+  t: z.literal('kanbanMove'),
+  cardId: z.string().min(1),
+  column: kanbanColumnKeySchema,
+  position: z.number().finite(),
+});
+export type KanbanMoveMessage = z.infer<typeof kanbanMoveMessageSchema>;
+
+export const kanbanDeleteMessageSchema = z.object({
+  t: z.literal('kanbanDelete'),
+  cardId: z.string().min(1),
+});
+export type KanbanDeleteMessage = z.infer<typeof kanbanDeleteMessageSchema>;
+
+export const kanbanRenameColumnMessageSchema = z.object({
+  t: z.literal('kanbanRenameColumn'),
+  column: kanbanColumnKeySchema,
+  label: z.string().min(1).max(40),
+});
+export type KanbanRenameColumnMessage = z.infer<typeof kanbanRenameColumnMessageSchema>;
+
 export const mediaMessageSchema = z.object({
   t: z.literal('media'),
   audio: z.boolean(),
@@ -107,6 +151,11 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   transitionMessageSchema,
   knockRespondMessageSchema,
   knockCancelMessageSchema,
+  kanbanCreateMessageSchema,
+  kanbanUpdateMessageSchema,
+  kanbanMoveMessageSchema,
+  kanbanDeleteMessageSchema,
+  kanbanRenameColumnMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -224,6 +273,57 @@ export const mediaStateMessageSchema = z.object({
 });
 export type MediaStateMessage = z.infer<typeof mediaStateMessageSchema>;
 
+// A persisted chat line (rooms Phase 6, FR-ROOM-33..36) — broadcast to every
+// connection in the room's map, INCLUDING the sender (clients render only
+// what the server persisted; there is no local echo).
+export const chatBroadcastMessageSchema = z.object({
+  t: z.literal('chatMessage'),
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  displayName: z.string().min(1),
+  body: z.string().min(1),
+  createdAt: z.string().min(1),
+});
+export type ChatBroadcastMessage = z.infer<typeof chatBroadcastMessageSchema>;
+
+export const kanbanCardSchema = z.object({
+  id: z.string().min(1),
+  column: kanbanColumnKeySchema,
+  title: z.string().min(1),
+  description: z.string().nullable(),
+  assigneeId: z.string().nullable(),
+  moveNote: z.string().nullable(),
+  position: z.number(),
+  createdAt: z.string().min(1),
+});
+export type KanbanCard = z.infer<typeof kanbanCardSchema>;
+
+// Full board, sent to each connection when it enters a room's map.
+export const kanbanStateMessageSchema = z.object({
+  t: z.literal('kanbanState'),
+  columns: z.array(z.object({ key: kanbanColumnKeySchema, label: z.string().min(1) })),
+  cards: z.array(kanbanCardSchema),
+});
+export type KanbanStateMessage = z.infer<typeof kanbanStateMessageSchema>;
+
+export const kanbanCardBroadcastSchema = z.object({
+  t: z.literal('kanbanCard'),
+  card: kanbanCardSchema,
+});
+export type KanbanCardBroadcast = z.infer<typeof kanbanCardBroadcastSchema>;
+
+export const kanbanCardRemovedSchema = z.object({
+  t: z.literal('kanbanCardRemoved'),
+  cardId: z.string().min(1),
+});
+export type KanbanCardRemoved = z.infer<typeof kanbanCardRemovedSchema>;
+
+export const kanbanColumnBroadcastSchema = z.object({
+  t: z.literal('kanbanColumn'),
+  column: z.object({ key: kanbanColumnKeySchema, label: z.string().min(1) }),
+});
+export type KanbanColumnBroadcast = z.infer<typeof kanbanColumnBroadcastSchema>;
+
 // Daily.co credentials for the CURRENT map's call (rooms Phase 5). Minted
 // server-side per room, per user, per session with a short TTL (SRS
 // NFR-SEC-02) — the Daily API key never reaches a client. Pushed after the
@@ -248,6 +348,11 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
   knockPendingMessageSchema,
   knockResultMessageSchema,
   avTokenMessageSchema,
+  chatBroadcastMessageSchema,
+  kanbanStateMessageSchema,
+  kanbanCardBroadcastSchema,
+  kanbanCardRemovedSchema,
+  kanbanColumnBroadcastSchema,
   errorMessageSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

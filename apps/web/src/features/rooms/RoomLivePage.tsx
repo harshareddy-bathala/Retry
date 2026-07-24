@@ -6,6 +6,7 @@ import { AVControls } from './AVControls.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
 import { KnockLayer } from './KnockLayer.js';
+import { RoomPanels } from './panels/RoomPanels.js';
 import { roomEvents } from './event-bus.js';
 import { roomSocket } from './net/room-socket.js';
 import { PresenceStrip } from './PresenceStrip.js';
@@ -95,6 +96,7 @@ export default function RoomLivePage() {
       <div className="relative">
         <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
         <KnockLayer />
+        <RoomPanels selfUserId={user.id} />
       </div>
       <div className="rounded-panel border border-edge bg-surface px-4 py-3">
         <p className="font-mono text-[11px] uppercase text-ink-muted">EventBus log</p>

@@ -44,3 +44,36 @@ export type ListRoomsResponse = {
   mine: RoomSummary[];
   discover: RoomSummary[];
 };
+
+// --- Persistent panels (rooms build plan Phase 6) ---
+
+export const chatHistoryQuerySchema = z
+  .object({
+    // Opaque cursor: the createdAt ISO of the oldest message already loaded.
+    before: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+export type ChatHistoryQuery = z.infer<typeof chatHistoryQuerySchema>;
+
+export type RoomMessageDto = {
+  id: string;
+  senderId: string;
+  senderName: string;
+  body: string;
+  createdAt: string;
+};
+
+export type ChatHistoryResponse = {
+  /** Oldest→newest within the page. */
+  messages: RoomMessageDto[];
+  /** Pass as ?before= to load the previous page; null when history is exhausted. */
+  nextBefore: string | null;
+};
+
+export type RoomMemberDto = {
+  userId: string;
+  name: string;
+  role: RoomMemberRole;
+};
+
+export type RoomMembersResponse = { members: RoomMemberDto[] };

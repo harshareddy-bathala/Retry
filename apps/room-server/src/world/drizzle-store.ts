@@ -1,8 +1,27 @@
-import { and, eq, isNotNull } from 'drizzle-orm';
-import { createDb, roomAccessRequests, roomMembers, rooms, type Db } from '@foundry/db';
-import { dirSchema } from '@foundry/protocol';
+import { and, eq, isNotNull, max } from 'drizzle-orm';
+import {
+  createDb,
+  kanbanCards,
+  kanbanColumns,
+  roomAccessRequests,
+  roomMembers,
+  roomMessages,
+  rooms,
+  type Db,
+  type KanbanCardRow,
+} from '@foundry/db';
+import { dirSchema, type KanbanColumnKey } from '@foundry/protocol';
 import { z } from 'zod';
-import type { LastPosition, RoomRecord, RoomStore } from './store.js';
+import {
+  mergeColumnLabels,
+  type ChatMessageRecord,
+  type KanbanBoard,
+  type KanbanCardPatch,
+  type KanbanCardRecord,
+  type LastPosition,
+  type RoomRecord,
+  type RoomStore,
+} from './store.js';
 
 // Production RoomStore backed by Postgres via Drizzle (Hard Rule 7). The room
 // server holds its own small pool — it must keep serving live traffic even if
@@ -112,6 +131,127 @@ export class DrizzleRoomStore implements RoomStore {
       .set({ status, resolvedAt: new Date(), resolvedBy })
       .where(eq(roomAccessRequests.id, requestId));
   }
+
+  // --- Persistent panels (Phase 6) ---
+
+  async appendMessage(roomId: string, senderId: string, body: string): Promise<ChatMessageRecord> {
+    const [row] = await this.db.insert(roomMessages).values({ roomId, senderId, body }).returning();
+    if (!row) throw new Error('message insert returned no row');
+    return row;
+  }
+
+  async kanbanBoard(roomId: string): Promise<KanbanBoard> {
+    if (!isUuid(roomId)) return { columns: mergeColumnLabels([]), cards: [] };
+    const [labels, cards] = await Promise.all([
+      this.db
+        .select({ key: kanbanColumns.key, label: kanbanColumns.label })
+        .from(kanbanColumns)
+        .where(eq(kanbanColumns.roomId, roomId)),
+      this.db
+        .select()
+        .from(kanbanCards)
+        .where(eq(kanbanCards.roomId, roomId))
+        .orderBy(kanbanCards.position, kanbanCards.id),
+    ]);
+    return { columns: mergeColumnLabels(labels), cards: cards.map(toCardRecord) };
+  }
+
+  async createCard(
+    roomId: string,
+    column: KanbanColumnKey,
+    title: string,
+  ): Promise<KanbanCardRecord> {
+    const [top] = await this.db
+      .select({ max: max(kanbanCards.position) })
+      .from(kanbanCards)
+      .where(and(eq(kanbanCards.roomId, roomId), eq(kanbanCards.column, column)));
+    const [row] = await this.db
+      .insert(kanbanCards)
+      .values({ roomId, column, title, position: (top?.max ?? 0) + 1 })
+      .returning();
+    if (!row) throw new Error('card insert returned no row');
+    return toCardRecord(row);
+  }
+
+  async updateCard(
+    roomId: string,
+    cardId: string,
+    patch: KanbanCardPatch,
+  ): Promise<KanbanCardRecord | null> {
+    if (!isUuid(cardId)) return null;
+    const [row] = await this.db
+      .update(kanbanCards)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(kanbanCards.id, cardId), eq(kanbanCards.roomId, roomId)))
+      .returning();
+    return row ? toCardRecord(row) : null;
+  }
+
+  async moveCard(
+    roomId: string,
+    cardId: string,
+    column: KanbanColumnKey,
+    position: number,
+  ): Promise<KanbanCardRecord | null> {
+    if (!isUuid(cardId)) return null;
+    const [row] = await this.db
+      .update(kanbanCards)
+      .set({ column, position, updatedAt: new Date() })
+      .where(and(eq(kanbanCards.id, cardId), eq(kanbanCards.roomId, roomId)))
+      .returning();
+    return row ? toCardRecord(row) : null;
+  }
+
+  async deleteCard(roomId: string, cardId: string): Promise<boolean> {
+    if (!isUuid(cardId)) return false;
+    const rows = await this.db
+      .delete(kanbanCards)
+      .where(and(eq(kanbanCards.id, cardId), eq(kanbanCards.roomId, roomId)))
+      .returning({ id: kanbanCards.id });
+    return rows.length > 0;
+  }
+
+  async renameColumn(roomId: string, key: KanbanColumnKey, label: string): Promise<void> {
+    await this.db
+      .insert(kanbanColumns)
+      .values({ roomId, key, label })
+      .onConflictDoUpdate({
+        target: [kanbanColumns.roomId, kanbanColumns.key],
+        set: { label },
+      });
+  }
+
+  async whiteboardState(roomId: string): Promise<unknown | null> {
+    if (!isUuid(roomId)) return null;
+    const [row] = await this.db
+      .select({ whiteboardState: rooms.whiteboardState })
+      .from(rooms)
+      .where(eq(rooms.id, roomId))
+      .limit(1);
+    return row?.whiteboardState ?? null;
+  }
+
+  async saveWhiteboardState(roomId: string, doc: unknown): Promise<void> {
+    if (!isUuid(roomId)) return;
+    await this.db
+      .update(rooms)
+      .set({ whiteboardState: doc, updatedAt: new Date() })
+      .where(eq(rooms.id, roomId));
+  }
+}
+
+function toCardRecord(row: KanbanCardRow): KanbanCardRecord {
+  return {
+    id: row.id,
+    roomId: row.roomId,
+    column: row.column,
+    title: row.title,
+    description: row.description,
+    assigneeId: row.assigneeId,
+    moveNote: row.moveNote,
+    position: row.position,
+    createdAt: row.createdAt,
+  };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
