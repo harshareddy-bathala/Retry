@@ -102,7 +102,7 @@ Unlike the namespaced envelope above, these are flat messages discriminated on `
 | Direction | Events |
 |---|---|
 | Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel`, `kanbanCreate`, `kanbanUpdate`, `kanbanMove`, `kanbanDelete`, `kanbanRenameColumn` |
-| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `error` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `evicted`, `error` |
 
 Proximity (rooms Phase 3): the server computes pairwise Euclidean tile distance on every accepted move — `≤ 2` close, `≤ 5` near (SRS §11.4) — with 0.5-tile exit hysteresis and a 300 ms debounce before any transition is emitted. `proximity` goes only to the two clients whose pair changed, carrying only their own pairs. `media` reports the sender's mic/camera toggles; the server broadcasts `mediaState` to the rest of the map and folds current state into `snapshot` actors.
 
@@ -117,6 +117,23 @@ Persistent panels (rooms Phase 6): chat and Kanban ride the **same world socket*
 Whiteboard (rooms Phase 6): its own endpoint, `ws://<room-server>/whiteboard?roomId=&token=&sessionId=`, speaking the tldraw sync protocol (`@tldraw/sync-core` `TLSocketRoom`, one per room, lazily created) rather than our envelope. Same JWT auth; **membership is required** (4403 otherwise, 4401 for a missing or non-student token). The document is persisted to `rooms.whiteboard_state` debounced to at most one write per 5 s, flushed on shutdown, and reloaded for the next reader; a corrupt stored document warns and starts empty rather than bricking the board.
 
 **Both WS routes pause the socket while their handler awaits.** A `ws` socket emits `message` whether or not a listener is attached and the event is then lost forever, so any handler that awaits (JWT verification, a membership query) before attaching its listener races the client's first frame. The whiteboard lost its entire handshake this way — the tldraw client sends `connect` the instant the socket opens, it arrived during the membership query and vanished, and the board spun forever with no error on either side. `socket.pause()`/`resume()` around handler setup is mandatory for every new WS route.
+
+Membership changes reaching the live world (R3): the API owns membership and runs in a different
+process, so a removal that only lands in Postgres leaves the removed member walking around the room.
+`POST /internal/evict` on the room server (private network, `INTERNAL_API_SECRET`, never through
+Nginx) closes that gap. Targets are `userIds` (a removal), `except` (a room turning private keeps
+its members and drops visitors) or neither (a deleted room empties). Each target is sent
+`evicted {roomId, reason: 'removed'|'roomDeleted'}` and then **moved to the Commons on the same
+socket** — the connection is the user's whole session and killing it would read as a crash — with
+their session-scoped knock grant revoked so they cannot immediately walk back in. `POST
+/internal/doors-changed` rebuilds the Commons plaques after a visibility change, which is otherwise
+invisible until someone moves.
+
+Presence (R3): the hub refreshes `room_members.presence_seen_at` every 20 s for everyone standing in
+a map and NULLs it on socket close (skipped when a newer connection for the same user superseded the
+old one). That single mutable cell is what lets the REST API answer "who is in this room right now"
+(FR-ROOM-07/08) with a 30 s staleness window (NFR-REL-02) and no sessions table. Chat, board
+mutations and whiteboard saves also bump `rooms.last_activity_at` for the room list's ordering.
 
 Every inbound message on both sides is runtime-validated (`parseClientMessage` / `parseServerMessage`); an unparseable frame is dropped with a logged warning, never a crashed connection. Coordinates on the wire are **tile units** (server-authoritative); the client converts to pixels via `packages/protocol/src/coords.ts` (32 px tiles).
 

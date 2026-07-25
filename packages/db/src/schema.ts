@@ -2,6 +2,7 @@
 // The rest of DATABASE.md lands with its own phase (posts/lineage in Phase 1,
 // the rooms workspace columns — blueprint, whiteboard_state, … — with the main
 // rooms phase) so migrations stay reviewable.
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -107,6 +108,10 @@ export const rooms = pgTable('rooms', {
   mapTemplate: text('map_template').notNull().default('studio_a'),
   // tldraw document (FR-ROOM-38), written by the whiteboard sync server only.
   whiteboardState: jsonb('whiteboard_state'),
+  // Denormalised "something happened in here" clock for the room list ordering
+  // (FR-ROOM-06). Bumped by chat/kanban/whiteboard writes; deliberately NOT
+  // updated_at, which moves on every row edit including whiteboard autosaves.
+  lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -129,6 +134,11 @@ export const roomMembers = pgTable(
     role: roomMemberRole('role').notNull().default('member'),
     currentMapId: text('current_map_id'),
     lastPosition: jsonb('last_position').$type<{ x: number; y: number; dir: string }>(),
+    // Heartbeat of live presence, NULL when the socket closes. Combined with
+    // current_map_id this answers "who is in this room right now" (FR-ROOM-07/08)
+    // without a sessions table — which SRS line 301 forbids. It is a single
+    // mutable cell per membership, never an append-only attendance history.
+    presenceSeenAt: timestamp('presence_seen_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -155,6 +165,67 @@ export const roomAccessRequests = pgTable(
     resolvedBy: uuid('resolved_by').references(() => users.id),
   },
   (t) => [index('room_access_requests_room_idx').on(t.roomId)],
+);
+
+// ---------------------------------------------------------------------------
+// Room lifecycle & membership (R3)
+// ---------------------------------------------------------------------------
+
+export const roomInviteStatus = pgEnum('room_invite_status', ['pending', 'accepted', 'declined']);
+
+// FR-ROOM-04. Declined invites are kept (the invitee's own record) but are never
+// surfaced to the room — see the service: a decline notifies nobody.
+export const roomInvites = pgTable(
+  'room_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    inviterId: uuid('inviter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    inviteeId: uuid('invitee_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: roomInviteStatus('status').notNull().default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    respondedAt: timestamp('responded_at', { withTimezone: true }),
+  },
+  (t) => [
+    // One live invite per person per room; re-inviting after a decline is fine,
+    // so the constraint is partial rather than on the pair outright.
+    uniqueIndex('room_invites_pending_idx')
+      .on(t.roomId, t.inviteeId)
+      .where(sql`status = 'pending'`),
+    index('room_invites_invitee_idx').on(t.inviteeId, t.status),
+  ],
+);
+
+// Generic notification feed. `kind` is text rather than an enum on purpose:
+// posts, grading and the Idea Hub all reuse this table, and each new kind
+// would otherwise need an ALTER TYPE that Drizzle cannot run inside a
+// migration transaction. The union below is the type-level contract.
+export type NotificationKind =
+  | 'room_invite'
+  | 'room_invite_accepted'
+  | 'room_member_removed'
+  | 'room_deleted'
+  | 'room_ownership_transferred';
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<NotificationKind>().notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('notifications_user_created_idx').on(t.userId, t.createdAt)],
 );
 
 // ---------------------------------------------------------------------------
@@ -221,6 +292,8 @@ export type RoomRow = typeof rooms.$inferSelect;
 export type NewRoomRow = typeof rooms.$inferInsert;
 export type RoomMemberRow = typeof roomMembers.$inferSelect;
 export type RoomAccessRequestRow = typeof roomAccessRequests.$inferSelect;
+export type RoomInviteRow = typeof roomInvites.$inferSelect;
+export type NotificationRow = typeof notifications.$inferSelect;
 export type RoomMessageRow = typeof roomMessages.$inferSelect;
 export type KanbanCardRow = typeof kanbanCards.$inferSelect;
 export type KanbanColumnRow = typeof kanbanColumns.$inferSelect;

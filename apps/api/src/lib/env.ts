@@ -36,6 +36,13 @@ const envSchema = z.object({
   SMTP_FROM: z.string().default('Retry <retry@nttf.co.in>'),
 
   SENTRY_DSN_API: z.string().optional().default(''),
+
+  // Server-to-server channel to the room server (R3). The API cannot reach
+  // RoomHub in-process, so removals and deletions are pushed over HTTP. Both
+  // must be set for the channel to exist; absent = the API still works and a
+  // removed member simply stays inside the map until they walk out.
+  ROOM_SERVER_INTERNAL_URL: z.string().url().default('http://127.0.0.1:4100'),
+  INTERNAL_API_SECRET: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

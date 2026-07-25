@@ -58,6 +58,16 @@ export interface RoomStore {
   lastActiveRoomId(userId: string): Promise<string | null>;
   /** Record the user's current map ('commons' or a room id) on all their membership rows. */
   setPresence(userId: string, mapId: string): Promise<void>;
+  /**
+   * Refresh the presence heartbeat for everyone still standing in a map. Called
+   * on a timer so "who is here right now" stays true for the REST API without
+   * anything resembling an attendance log.
+   */
+  touchPresence(userIds: string[]): Promise<void>;
+  /** Presence ends the moment the socket does — NULL, not a timestamp. */
+  clearPresence(userId: string): Promise<void>;
+  /** Bump rooms.last_activity_at; drives room-list ordering (FR-ROOM-06). */
+  bumpActivity(roomId: string): Promise<void>;
   /** Written on transition-out and disconnect only — never a movement log. */
   saveLastPosition(roomId: string, userId: string, pos: LastPosition): Promise<void>;
   lastPosition(roomId: string, userId: string): Promise<LastPosition | null>;
@@ -106,12 +116,13 @@ export function mergeColumnLabels(renames: KanbanColumnLabel[]): KanbanColumnLab
 // In-memory implementation (tests + running without a database)
 // ---------------------------------------------------------------------------
 
-type MemberRecord = { userId: string; currentMapId: string | null };
+type MemberRecord = { userId: string; currentMapId: string | null; presenceSeenAt: Date | null };
 
 export class InMemoryRoomStore implements RoomStore {
   private rooms = new Map<string, RoomRecord>();
   private members = new Map<string, MemberRecord[]>();
   private positions = new Map<string, LastPosition>();
+  private activity = new Map<string, Date>();
   private requests = new Map<
     string,
     { roomId: string; requesterId: string; status: string; resolvedBy: string | null }
@@ -123,15 +134,39 @@ export class InMemoryRoomStore implements RoomStore {
     this.rooms.set(room.id, room);
     this.members.set(
       room.id,
-      memberUserIds.map((userId) => ({ userId, currentMapId: null })),
+      memberUserIds.map((userId) => ({ userId, currentMapId: null, presenceSeenAt: null })),
     );
   }
 
   /** Test/seed helper. */
   addMember(roomId: string, userId: string): void {
     const list = this.members.get(roomId) ?? [];
-    if (!list.some((m) => m.userId === userId)) list.push({ userId, currentMapId: null });
+    if (!list.some((m) => m.userId === userId)) {
+      list.push({ userId, currentMapId: null, presenceSeenAt: null });
+    }
     this.members.set(roomId, list);
+  }
+
+  /** Test helper: drop a membership the way the API's removeMember does. */
+  removeMember(roomId: string, userId: string): void {
+    const list = (this.members.get(roomId) ?? []).filter((m) => m.userId !== userId);
+    this.members.set(roomId, list);
+  }
+
+  /** Test helper: how many rooms currently hold a live presence for a user. */
+  presenceRowsFor(userId: string): Array<{ currentMapId: string | null; seen: Date | null }> {
+    const out: Array<{ currentMapId: string | null; seen: Date | null }> = [];
+    for (const list of this.members.values()) {
+      for (const m of list) {
+        if (m.userId === userId) out.push({ currentMapId: m.currentMapId, seen: m.presenceSeenAt });
+      }
+    }
+    return out;
+  }
+
+  /** Test helper. */
+  activityAt(roomId: string): Date | null {
+    return this.activity.get(roomId) ?? null;
   }
 
   /** Test helper: inspect a stored access request. */
@@ -164,11 +199,38 @@ export class InMemoryRoomStore implements RoomStore {
   }
 
   async setPresence(userId: string, mapId: string): Promise<void> {
+    const now = new Date();
     for (const list of this.members.values()) {
       for (const m of list) {
-        if (m.userId === userId) m.currentMapId = mapId;
+        if (m.userId === userId) {
+          m.currentMapId = mapId;
+          m.presenceSeenAt = now;
+        }
       }
     }
+  }
+
+  async touchPresence(userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const now = new Date();
+    const wanted = new Set(userIds);
+    for (const list of this.members.values()) {
+      for (const m of list) {
+        if (wanted.has(m.userId)) m.presenceSeenAt = now;
+      }
+    }
+  }
+
+  async clearPresence(userId: string): Promise<void> {
+    for (const list of this.members.values()) {
+      for (const m of list) {
+        if (m.userId === userId) m.presenceSeenAt = null;
+      }
+    }
+  }
+
+  async bumpActivity(roomId: string): Promise<void> {
+    this.activity.set(roomId, new Date());
   }
 
   async saveLastPosition(roomId: string, userId: string, pos: LastPosition): Promise<void> {

@@ -132,3 +132,10 @@ class RoomSocket {
 }
 
 export const roomSocket = new RoomSocket();
+
+if (import.meta.env.DEV) {
+  // Dev-only handle for the headless drives: when the world stops responding,
+  // "is the socket actually open?" is the first question and there is no other
+  // way to ask it from outside the bundle.
+  (window as unknown as { __roomSocket?: RoomSocket }).__roomSocket = roomSocket;
+}

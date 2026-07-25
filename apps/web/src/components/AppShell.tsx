@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../features/auth/AuthContext.js';
 import { cn } from '../lib/cn.js';
+import { NotificationBell } from './NotificationBell.js';
 
 // Top nav per the Figma feed frames: wordmark, primary nav, user block.
 // Sections beyond Feed arrive with their phases — links stay disabled until then.
@@ -47,6 +48,7 @@ export function AppShell() {
           </nav>
           {user && (
             <div className="flex items-center gap-3">
+              <NotificationBell />
               <div className="text-right">
                 <p className="font-display text-sm text-ink">{user.name}</p>
                 <p className="font-mono text-[11px] uppercase text-ink-muted">{user.role}</p>

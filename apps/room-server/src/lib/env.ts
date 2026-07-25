@@ -18,6 +18,9 @@ const envSchema = z.object({
   LIVEKIT_URL: z.string().url().optional(),
   LIVEKIT_API_KEY: z.string().min(1).optional(),
   LIVEKIT_API_SECRET: z.string().min(1).optional(),
+  // Shared with apps/api. Absent = /internal is not mounted and membership
+  // changes reach the live world only when a user next moves between maps.
+  INTERNAL_API_SECRET: z.string().min(16).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

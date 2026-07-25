@@ -25,6 +25,20 @@ export const createRoomSchema = z
   .strict();
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;
 
+// Owner-only edits (FR-ROOM-03). Every field optional; an empty body is a
+// no-op rather than an error. Flipping visibility claims or releases the
+// room's Commons door slot — see rooms.service.
+export const updateRoomSchema = z
+  .object({
+    name: z.string().trim().min(2).max(80).optional(),
+    // null clears the description; omitted leaves it alone.
+    description: z.string().trim().max(500).nullable().optional(),
+    visibility: z.enum(ROOM_VISIBILITIES).optional(),
+    accessPolicy: z.enum(ROOM_ACCESS_POLICIES).optional(),
+  })
+  .strict();
+export type UpdateRoomInput = z.infer<typeof updateRoomSchema>;
+
 // What room lists return. memberRole is null for public rooms the caller has
 // not joined. Door coordinates are intentionally not exposed here — the world
 // server owns door state.
@@ -37,8 +51,15 @@ export type RoomSummary = {
   mapTemplate: string;
   ownerId: string;
   memberRole: RoomMemberRole | null;
+  memberCount: number;
+  /** ISO; drives room-list ordering (FR-ROOM-06). */
+  lastActivityAt: string;
+  /** Members whose live presence is in this room right now (FR-ROOM-08). */
+  presentMembers: RoomPresenceDto[];
   createdAt: string;
 };
+
+export type RoomPresenceDto = { userId: string; name: string };
 
 export type ListRoomsResponse = {
   mine: RoomSummary[];
@@ -74,6 +95,62 @@ export type RoomMemberDto = {
   userId: string;
   name: string;
   role: RoomMemberRole;
+  /** Live presence, from presence_seen_at — not an attendance record. */
+  present: boolean;
+  joinedAt: string;
 };
 
 export type RoomMembersResponse = { members: RoomMemberDto[] };
+
+// --- Invites, membership and notifications (R3) ---
+
+// Invite by college email (deterministic) or by user id (from a picker). Names
+// are ambiguous across 4000+ students, so they are not an addressing mode.
+export const createInviteSchema = z
+  .union([
+    z.object({ email: z.string().trim().email().max(200) }).strict(),
+    z.object({ userId: z.string().uuid() }).strict(),
+  ])
+  .describe('invite target');
+export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+
+export const transferOwnershipSchema = z.object({ userId: z.string().uuid() }).strict();
+export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>;
+
+export type RoomInviteDto = {
+  id: string;
+  roomId: string;
+  roomName: string;
+  inviterName: string;
+  createdAt: string;
+};
+
+export type InvitesResponse = { invites: RoomInviteDto[] };
+
+export const NOTIFICATION_KINDS = [
+  'room_invite',
+  'room_invite_accepted',
+  'room_member_removed',
+  'room_deleted',
+  'room_ownership_transferred',
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export type NotificationDto = {
+  id: string;
+  kind: NotificationKind;
+  /** Kind-specific; the bell reads roomName/actorName/inviteId when present. */
+  payload: {
+    roomId?: string;
+    roomName?: string;
+    actorName?: string;
+    inviteId?: string;
+  };
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationsResponse = {
+  notifications: NotificationDto[];
+  unreadCount: number;
+};

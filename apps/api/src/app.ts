@@ -8,6 +8,7 @@ import type { Env } from './lib/env.js';
 import { createJwt } from './lib/jwt.js';
 import type { Mailer } from './lib/email.js';
 import { buildLoggerOptions } from './lib/logger.js';
+import { createRoomServerClient, type RoomServerClient } from './lib/room-server.js';
 import { createAuthGuards } from './plugins/auth.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { authRoutes } from './routes/auth.routes.js';
@@ -20,11 +21,18 @@ export type BuildAppDeps = {
   env: Env;
   db: Db;
   mailer: Mailer;
+  /** Test seam: a recording stub instead of HTTP calls to the room server. */
+  roomServer?: RoomServerClient;
 };
 
 // All wiring happens here so tests can inject a test db + recording mailer
 // and drive everything through app.inject() (TESTING.md).
-export async function buildApp({ env, db, mailer }: BuildAppDeps): Promise<FastifyInstance> {
+export async function buildApp({
+  env,
+  db,
+  mailer,
+  roomServer,
+}: BuildAppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: buildLoggerOptions({
       level: env.NODE_ENV === 'test' ? 'silent' : 'info',
@@ -49,7 +57,10 @@ export async function buildApp({ env, db, mailer }: BuildAppDeps): Promise<Fasti
   });
   const guards = createAuthGuards(jwt);
   const authService = createAuthService({ db, env, jwt, mailer, logger: app.log });
-  const roomsService = createRoomsService({ db });
+  const roomsService = createRoomsService({
+    db,
+    roomServer: roomServer ?? createRoomServerClient(env, app.log),
+  });
 
   await app.register(
     async (api) => {

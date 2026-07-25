@@ -166,22 +166,31 @@ id, recipient_id FK cascade, type text (see `packages/types` union), payload jso
 | blueprint_problem / blueprint_audience / blueprint_existing | text | all optional, never validated (FR-ROOM-11) |
 | blueprint_history | jsonb | `[{field, userId, ts, value}]` edit log (FR-ROOM-12) |
 | whiteboard_state | jsonb | tldraw document, written by sync server |
-| created_at / updated_at | timestamptz | updated_at doubles as "last activity" for room list sorting |
+| created_at / updated_at | timestamptz | |
+| last_activity_at | timestamptz default now() | R3: bumped by chat, board mutations and whiteboard saves. Deliberately **not** `updated_at`, which moves on every row write including whiteboard autosaves. Orders the room list (FR-ROOM-06) |
 | visibility | room_visibility default `private` | rooms Phase 4: private = unlisted, no Commons door |
 | access_policy | room_access_policy default `invite_only` | `open` / `knock` / `invite_only`; private rooms coerced to `invite_only` |
 | door_x / door_y | int, nullable | Commons door slot (tile coords), assigned lowest-free at creation for public rooms |
 | map_template | text default `studio_a` | Tiled template the room's live space renders |
 
-**No FK to posts for room features. No attendance/session tables exist — presence is Redis-only.**
+**No FK to posts for room features. No attendance/session tables exist.**
 
 ### room_members
-id, room_id FK cascade, user_id FK cascade, role room_role default `member`, avatar_sprite int (0–5, chosen on first Live Space entry), current_map_id text nullable (rooms Phase 4: the map the member's live presence is in — `commons` or a room id; doubles as last-active room for spawn resolution), last_position jsonb `{x, y, dir}` (written on transition-out/disconnect only — never a movement log), created_at. `UNIQUE(room_id, user_id)`.
+id, room_id FK cascade, user_id FK cascade, role room_role default `member`, avatar_sprite int (0–5, chosen on first Live Space entry), current_map_id text nullable (rooms Phase 4: the map the member's live presence is in — `commons` or a room id; doubles as last-active room for spawn resolution), last_position jsonb `{x, y, dir}` (written on transition-out/disconnect only — never a movement log), presence_seen_at timestamptz nullable, created_at. `UNIQUE(room_id, user_id)`.
+
+`presence_seen_at` (R3) is how "who is in this room right now" is answered without a sessions table:
+the room server refreshes it every 20 s for everyone standing in a map and **NULLs it when the
+socket closes**; a reader treats anything older than 30 s as gone (NFR-REL-02). It is one mutable
+cell per membership — nothing is appended, so no attendance history can accumulate (SRS line 301).
 
 ### room_access_requests
 id, room_id FK cascade, requester_id FK cascade, status room_access_request_status default `pending` (`pending` / `granted` / `denied` — timeouts and cancels resolve as denied), created_at, resolved_at nullable, resolved_by FK → users nullable. Audit rows for the knock flow (rooms Phase 4); a grant admits the requester for that live session only, never a standing permission.
 
 ### room_invites
-id, room_id FK cascade, invitee_id FK, inviter_id FK, status team_status default `pending`, created_at. Declined invites hidden from other members (FR-ROOM-04).
+id, room_id FK cascade, invitee_id FK cascade, inviter_id FK cascade, status room_invite_status default `pending` (`pending` / `accepted` / `declined`), created_at, responded_at nullable. Unique index on `(room_id, invitee_id) WHERE status = 'pending'` — one live invite per person per room, while re-inviting after a decline stays possible. Declined invites are kept as the invitee's own record and are never surfaced to the room (FR-ROOM-04).
+
+### notifications
+id, user_id FK cascade, kind **text** (not an enum), payload jsonb default `{}`, read_at nullable, created_at. Index `(user_id, created_at)`. `kind` is text on purpose: posts, grading and the Idea Hub will all write here, and each new kind would otherwise need an `ALTER TYPE` that Drizzle cannot run inside a migration transaction. The TypeScript union in `packages/db/src/schema.ts` is the contract instead.
 
 ### room_messages
 id, room_id FK cascade, sender_id FK, body text (plain text only, FR-ROOM-35), created_at. Index `(room_id, created_at)`. Deleted only via room deletion cascade (FR-ROOM-36).

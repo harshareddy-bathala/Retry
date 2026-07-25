@@ -86,6 +86,9 @@ export class WhiteboardHub {
   private async persist(roomId: string, entry: Entry): Promise<void> {
     try {
       await this.store.saveWhiteboardState(roomId, entry.room.getCurrentSnapshot());
+      // Drawing is work in the room too (FR-ROOM-06). Already debounced to one
+      // write per 5s by the caller.
+      await this.store.bumpActivity(roomId);
     } catch (err) {
       this.log.warn({ err, roomId }, 'whiteboard persist failed');
     }

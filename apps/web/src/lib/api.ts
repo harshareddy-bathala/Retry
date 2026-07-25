@@ -47,7 +47,10 @@ async function rawRequest(path: string, init: RequestInit): Promise<Response> {
     ...init,
     credentials: 'include', // refresh cookie rides along on /api/auth
     headers: {
-      'content-type': 'application/json',
+      // Only when there IS a body: Fastify rejects an empty body sent with a
+      // JSON content-type, which would 400 every bodyless POST (accept an
+      // invite, mark notifications read).
+      ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...init.headers,
     },
@@ -87,6 +90,12 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PATCH',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  del: <T = void>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
 
 export type { SessionResponse };

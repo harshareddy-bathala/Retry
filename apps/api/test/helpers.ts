@@ -7,6 +7,7 @@ import type { Role } from '@retry/types';
 import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/lib/crypto.js';
 import type { Mailer } from '../src/lib/email.js';
+import type { EvictReason, EvictTarget, RoomServerClient } from '../src/lib/room-server.js';
 import { loadEnv, type Env } from '../src/lib/env.js';
 import { createJwt } from '../src/lib/jwt.js';
 
@@ -35,11 +36,40 @@ export function testEnv(): Env {
   });
 }
 
+// The room server is a separate process in production; integration tests
+// record what the API would have pushed to it rather than starting one.
+export type RecordedEviction = {
+  roomId: string;
+  target: EvictTarget;
+  reason: EvictReason;
+};
+
+export function createFakeRoomServer(): RoomServerClient & {
+  evictions: RecordedEviction[];
+  doorRefreshes: number;
+} {
+  const evictions: RecordedEviction[] = [];
+  const state = { doorRefreshes: 0 };
+  return {
+    evictions,
+    get doorRefreshes() {
+      return state.doorRefreshes;
+    },
+    async evict(roomId, target, reason) {
+      evictions.push({ roomId, target, reason });
+    },
+    async doorsChanged() {
+      state.doorRefreshes += 1;
+    },
+  };
+}
+
 export type TestContext = {
   app: FastifyInstance;
   db: Db;
   env: Env;
   mailer: ReturnType<typeof createFakeMailer>;
+  roomServer: ReturnType<typeof createFakeRoomServer>;
   seedUser: (role?: Role, overrides?: { verified?: boolean }) => Promise<{ id: string; email: string; token: string }>;
   resetDb: () => Promise<void>;
   close: () => Promise<void>;
@@ -51,7 +81,8 @@ export async function buildTestApp(): Promise<TestContext> {
   const env = testEnv();
   const { db, pool } = createDb({ connectionString: TEST_DATABASE_URL, poolMax: 5 });
   const mailer = createFakeMailer();
-  const app = await buildApp({ env, db, mailer });
+  const roomServer = createFakeRoomServer();
+  const app = await buildApp({ env, db, mailer, roomServer });
   const jwt = createJwt({
     secret: env.JWT_SECRET,
     previousSecret: '',
@@ -63,6 +94,7 @@ export async function buildTestApp(): Promise<TestContext> {
     db,
     env,
     mailer,
+    roomServer,
     async seedUser(role: Role = 'student', overrides = {}) {
       seedCounter += 1;
       const email = `user${seedCounter}@nttf.co.in`;

@@ -20,6 +20,7 @@ import { VerifyEmailPage } from './features/auth/VerifyEmailPage.js';
 
 // Phaser is heavy; the live space loads on demand so the main bundle stays lean.
 const RoomsPage = lazy(() => import('./features/rooms/RoomsPage.js'));
+const RoomDetailPage = lazy(() => import('./features/rooms/RoomDetailPage.js'));
 const RoomLivePage = lazy(() => import('./features/rooms/RoomLivePage.js'));
 
 const queryClient = new QueryClient({
@@ -47,6 +48,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={null}>
             <RoomsPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: 'rooms/:roomId',
+        element: (
+          <Suspense fallback={null}>
+            <RoomDetailPage />
           </Suspense>
         ),
       },

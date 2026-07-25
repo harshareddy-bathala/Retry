@@ -12,6 +12,7 @@ const app = await buildApp({
   pretty: env.NODE_ENV === 'development',
   store,
   livekit,
+  ...(env.INTERNAL_API_SECRET ? { internalSecret: env.INTERNAL_API_SECRET } : {}),
 });
 
 if (!store) {

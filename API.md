@@ -102,28 +102,51 @@
 
 ## 9. Rooms — `rooms.routes.ts` (REST part; realtime in `WEBSOCKET_EVENTS.md`)
 
-| Method + Path | Roles | Purpose |
-|---|---|---|
-| GET `/rooms` | S | My rooms, sorted by last activity, with live presence counts (from Redis) |
-| POST `/rooms` | S | Create; origin new/fork; fork origin captures ancestor snapshot; triggers tag-overlap notice query (FR-ROOM-16) |
-| GET `/rooms/:id` | S (member) | Full Workspace payload: context, blueprint, journey, kanban, columns, members |
-| PATCH `/rooms/:id` | S (owner) | Rename / description |
-| DELETE `/rooms/:id` | S (owner) | Confirmed, permanent cascade |
-| POST `/rooms/:id/invites` · POST `/room-invites/:id/respond` | S | Invite by name/email; accept/decline |
-| POST `/rooms/:id/leave` · POST `/rooms/:id/transfer-ownership` | S (member/owner) | FR-ROOM-05 |
-| DELETE `/rooms/:id/members/:userId` | S (owner) | Remove member (also revokes Daily.co access) |
-| GET `/rooms/:id/messages?cursor=` | S (member) | Chat history pagination |
-| POST `/rooms/:id/ws-ticket` | S (member) | Short-lived one-time WS auth ticket |
-| POST `/rooms/:id/daily-token` | S (member) | Scoped per-room per-session Daily.co token (NFR-SEC-02) |
+| Method + Path | Roles | Status | Purpose |
+|---|---|---|---|
+| GET `/rooms` | S | built | `{ mine, discover }`, newest activity first, each room carrying `memberCount`, `lastActivityAt` and `presentMembers` (who is in the live space right now) |
+| POST `/rooms` | S | built | Create; public rooms claim the lowest free Commons door slot, private rooms get none |
+| GET `/rooms/:id` | S (member; public rooms visible to all) | built | Room detail. Grows into the full Workspace payload (context, blueprint, journey) in R4 |
+| PATCH `/rooms/:id` | S (owner) | built | Rename / description / visibility. Flipping to public claims a door slot (409 `NO_FREE_DOOR_SLOT`), to private releases it and forces `invite_only` |
+| DELETE `/rooms/:id` | S (owner) | built | Permanent cascade — chat, board and whiteboard go too (FR-ROOM-36) |
+| POST `/rooms/:id/invites` | S (owner) | built | `{ email }` or `{ userId }` → `{ inviteId }`. 404 unknown, 403 non-student, 409 already a member / already invited |
+| GET `/invites` | S | built | The caller's own pending invites, with room and inviter names |
+| POST `/invites/:id/accept` · `/invites/:id/decline` | S (invitee) | built | Accept joins the room; **decline notifies nobody** |
+| DELETE `/rooms/:id/members/:userId` | S (owner, or self) | built | Owner removes anyone; removing yourself is "leave". A leaving owner promotes the longest-standing member; a sole owner gets 409 `SOLE_OWNER` and is told to delete instead |
+| POST `/rooms/:id/transfer` | S (owner) | built | Hand the room to a member; the old owner stays as a member |
+| GET `/rooms/:id/members` | S (member) | built | Roster with role, join date, and live `present` flag |
+| GET `/rooms/:id/messages?before=` | S (member) | built | Chat history, 50/page, scroll-up cursor |
+| POST `/rooms/:id/ws-ticket` | S (member) | not built | Not needed: the WS authenticates with the access token itself |
+| Room origin (new/fork), tag-overlap notice (FR-ROOM-16) | S | not built | Depends on posts/lineage — deferred with build-plan Phase 7 |
 
 Faculty have **no** room routes — rooms are private to members (SRS §3.2).
 
+**LiveKit tokens are not a REST route.** They are minted by the room server and pushed over the
+WebSocket as `avToken` on map entry (ADR-012); the LiveKit secret never enters `apps/api`.
+
+### Internal (room server, not public)
+
+`apps/api` reaches the live world over a private HTTP channel guarded by `INTERNAL_API_SECRET`.
+Never routed through Nginx, never JWT-authenticated — no user is acting.
+
+| Method + Path | Purpose |
+|---|---|
+| POST `/internal/evict` | `{ roomId, reason, userIds? , except? }` — walk users out of a room's map to the Commons. Called on member removal, room deletion, and a room turning private |
+| POST `/internal/doors-changed` | Rebuild and push the Commons door plaques after a visibility change |
+
+Both are best-effort: the database change has already committed, so a room server that is down
+costs a few seconds of stale world, never a wrong outcome.
+
 ## 10. Notifications — `notifications.routes.ts`
 
-| Method + Path | Roles | Purpose |
-|---|---|---|
-| GET `/notifications?cursor=` | ✱ | List + unread count |
-| POST `/notifications/read` | ✱ | Mark ids (or all) read |
+| Method + Path | Roles | Status | Purpose |
+|---|---|---|---|
+| GET `/notifications` | ✱ | built | Newest 30 + unread count. `kind` is text, not an enum, so posts and grading can add kinds without a migration |
+| POST `/notifications/read` | ✱ | built | Marks all of the caller's unread notifications read |
+
+Kinds so far: `room_invite`, `room_invite_accepted`, `room_member_removed`, `room_deleted`,
+`room_ownership_transferred`. Pending invites are actionable and are read from `GET /invites`, not
+from this feed — the bell renders both.
 
 ## 11. Admin — `admin.routes.ts`
 

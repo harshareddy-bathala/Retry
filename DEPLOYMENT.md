@@ -20,7 +20,11 @@
 The room server is its own process (`apps/room-server`), not part of the API: it holds the
 authoritative world state, the proximity engine, and the tldraw sync rooms. It hosts both WebSocket
 endpoints — `/ws` for the world and `/whiteboard` for tldraw — so there is no separate tldraw
-service. It shares `JWT_SECRET` with the API so access tokens verify on both.
+service. It shares `JWT_SECRET` with the API so access tokens verify on both, and
+`INTERNAL_API_SECRET` for the private `/internal/*` channel the API uses to push membership changes
+into the live world. `/internal` must be reachable from the API process and from nowhere else —
+Nginx denies it, and the room server binds it on the same port only because both processes share a
+droplet.
 
 Budget: ~$39/mo for the app droplet + managed Postgres, plus one VPS for LiveKit when AV goes live. $200 credit ≈ 5 months free. Fallback: college server (4 core/8 GB) — stack is plain Node + Postgres, portable by design.
 
@@ -31,6 +35,7 @@ retry.<domain>            → /var/www/retry (SPA, try_files → index.html)
 /api/*                      → 127.0.0.1:3000
 /ws                         → 127.0.0.1:4100  (Upgrade headers, proxy_read_timeout 120s)
 /whiteboard                 → 127.0.0.1:4100  (Upgrade headers, proxy_read_timeout 120s)
+/internal/*                 → **404 (deny)**; server-to-server only, never routed from outside
 HTTP → HTTPS 301 redirect (NFR-SEC-01); certs via certbot/Let's Encrypt with auto-renew
 Client body limit 5 MB (cover images); gzip on; HSTS on
 /uploads/* → /var/lib/retry/uploads (cover images, immutable cache headers)

@@ -28,6 +28,22 @@ export default function RoomLivePage() {
   const avRef = useRef(av);
   avRef.current = av;
 
+  // Being moved out of a room is jarring unless the world says why (R3). The
+  // server sends this immediately before the Commons snapshot arrives.
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(
+    () =>
+      roomEvents.on('net:server-message', (msg) => {
+        if (msg.t !== 'evicted') return;
+        setNotice(
+          msg.reason === 'roomDeleted'
+            ? 'That room was deleted. You are back in the Commons.'
+            : 'You are no longer a member of that room. You are back in the Commons.',
+        );
+      }),
+    [],
+  );
+
   useEffect(
     () =>
       roomEvents.on('interact:whiteboard', () => {
@@ -89,6 +105,18 @@ export default function RoomLivePage() {
           WASD / arrows to move · E at a door to walk through · phase 4 · multi-map
         </p>
       </div>
+      {notice && (
+        <div className="flex items-center justify-between gap-3 rounded-panel border border-edge bg-accent-tint px-4 py-2.5">
+          <p className="text-sm text-ink">{notice}</p>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="rounded-card border border-edge px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <PresenceStrip selfUserId={user.id} />
         <AVControls av={av} onToggle={onToggleAv} />

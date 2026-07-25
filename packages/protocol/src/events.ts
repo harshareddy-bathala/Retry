@@ -340,6 +340,18 @@ export const avTokenMessageSchema = z.object({
 });
 export type AvTokenMessage = z.infer<typeof avTokenMessageSchema>;
 
+// You are no longer in this room (R3). Sent immediately before the server
+// walks the session out to the Commons, so the client can say why rather than
+// making the teleport look like a bug. `removed` = the owner removed you (or
+// the room went private while you were visiting); `roomDeleted` = it is gone.
+export const evictedMessageSchema = z.object({
+  t: z.literal('evicted'),
+  roomId: z.string().min(1),
+  reason: z.enum(['removed', 'roomDeleted']),
+});
+export type EvictedMessage = z.infer<typeof evictedMessageSchema>;
+export type EvictReason = EvictedMessage['reason'];
+
 export const serverMessageSchema = z.discriminatedUnion('t', [
   snapshotMessageSchema,
   actorJoinMessageSchema,
@@ -357,6 +369,7 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
   kanbanCardBroadcastSchema,
   kanbanCardRemovedSchema,
   kanbanColumnBroadcastSchema,
+  evictedMessageSchema,
   errorMessageSchema,
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;

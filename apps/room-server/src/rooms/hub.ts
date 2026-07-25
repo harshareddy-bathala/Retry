@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type Dir,
   type DoorInfo,
+  type EvictReason,
   type JoinMessage,
   type KanbanCard,
   type KanbanCreateMessage,
@@ -39,6 +40,13 @@ const MAX_STEP_TILES = 2;
 // Settles pending proximity transitions when actors stop moving mid-debounce.
 const PROXIMITY_TICK_MS = 100;
 export const KNOCK_TIMEOUT_MS = 60_000;
+/**
+ * How often live presence is refreshed in the database (R3). Must stay well
+ * under the API's 30 s presence window (NFR-REL-02) so a user standing still
+ * for an hour never looks absent, while a socket that dies without a close
+ * frame disappears from "who's here" within that window.
+ */
+const PRESENCE_HEARTBEAT_MS = 20_000;
 
 type Session = {
   socket: WebSocket;
@@ -79,6 +87,8 @@ export type RoomHubDeps = {
   knockTimeoutMs?: number;
   /** LiveKit orchestration; absent = AV disabled, placeholder bubbles remain. */
   av?: AvProvider;
+  /** For work that belongs to no session (timers, internal calls). */
+  logger?: FastifyBaseLogger;
 };
 
 // Server-authoritative world state (rooms build plan Phases 2–4). All positions
@@ -91,12 +101,14 @@ export class RoomHub {
   private all = new Set<Session>();
   private proximity = new ProximityEngine();
   private ticker: ReturnType<typeof setInterval> | null = null;
+  private presenceTicker: ReturnType<typeof setInterval> | null = null;
   /** Ephemeral positions for static maps (commons/sandbox) — never persisted. */
   private staticPositions = new Map<string, LastPosition>();
   private pendingKnocks = new Map<string, PendingKnock>();
   private store: RoomStore;
   private knockTimeoutMs: number;
   private av: AvProvider | null;
+  private log: FastifyBaseLogger | null;
   /** Cumulative live-space participant seconds — free-tier usage monitoring. */
   avSecondsTotal = 0;
 
@@ -104,6 +116,7 @@ export class RoomHub {
     this.store = deps.store;
     this.knockTimeoutMs = deps.knockTimeoutMs ?? KNOCK_TIMEOUT_MS;
     this.av = deps.av ?? null;
+    this.log = deps.logger ?? null;
   }
 
   /** Open sessions (joined or not) — lets tests prove nothing leaks. */
@@ -117,6 +130,7 @@ export class RoomHub {
       () => this.emitProximity(this.proximity.settle(Date.now())),
       PROXIMITY_TICK_MS,
     );
+    this.presenceTicker = setInterval(() => void this.heartbeatPresence(), PRESENCE_HEARTBEAT_MS);
   }
 
   stop(): void {
@@ -124,8 +138,78 @@ export class RoomHub {
       clearInterval(this.ticker);
       this.ticker = null;
     }
+    if (this.presenceTicker) {
+      clearInterval(this.presenceTicker);
+      this.presenceTicker = null;
+    }
     for (const knock of this.pendingKnocks.values()) clearTimeout(knock.timer);
     this.pendingKnocks.clear();
+  }
+
+  /**
+   * One UPDATE for everyone currently standing in a map. This is what makes the
+   * REST API's "present members" true; it overwrites a single cell per
+   * membership row and appends nothing, so no attendance history accumulates
+   * (SRS line 301).
+   */
+  private async heartbeatPresence(): Promise<void> {
+    const userIds = [...new Set([...this.all].filter((s) => s.map).map((s) => s.userId))];
+    if (userIds.length === 0) return;
+    try {
+      await this.store.touchPresence(userIds);
+    } catch (err: unknown) {
+      // Presence going stale is cosmetic; the world keeps running.
+      this.log?.warn({ err }, 'presence heartbeat failed');
+    }
+  }
+
+  /** Fire-and-forget room activity bump for the room list's ordering. */
+  private touchRoom(roomId: string): void {
+    void this.store.bumpActivity(roomId).catch((err: unknown) => {
+      this.log?.warn({ err, roomId }, 'activity bump failed');
+    });
+  }
+
+  /**
+   * Walk users out of a room's live map (R3). Called by the API over the
+   * internal HTTP channel when a membership changes, because a removal that
+   * only lands in Postgres leaves the removed member standing in the room.
+   *
+   * They are moved to the Commons rather than disconnected: the socket is the
+   * user's whole session, and killing it would look like a crash.
+   */
+  async evict(
+    roomId: string,
+    target: { userIds?: string[]; except?: string[] },
+    reason: EvictReason,
+  ): Promise<number> {
+    const inRoom = [...(this.mapSessions.get(roomId)?.values() ?? [])];
+    const wanted = target.userIds ? new Set(target.userIds) : null;
+    const spared = target.except ? new Set(target.except) : null;
+    const targets = inRoom.filter(
+      (s) => (wanted ? wanted.has(s.userId) : true) && !spared?.has(s.userId),
+    );
+    if (targets.length === 0) return 0;
+
+    const commons = await this.resolveMap(COMMONS_MAP_ID);
+    for (const session of targets) {
+      // A knock grant was permission to be in a room they have now lost.
+      session.granted.delete(roomId);
+      this.send(session, { t: 'evicted', roomId, reason });
+      if (commons) await this.enterMap(session, commons.world, null);
+      else this.leaveMap(session);
+      session.log.info({ userId: session.userId, roomId, reason }, 'evicted from room');
+    }
+    return targets.length;
+  }
+
+  /**
+   * Rebuild and push the Commons door plaques. Public because the API triggers
+   * it after a visibility change: a room that just went public has a door
+   * nobody in the Commons can see until the plaques are rebuilt.
+   */
+  async refreshDoors(): Promise<void> {
+    await this.broadcastDoors();
   }
 
   actorsIn(mapId: string): Actor[] {
@@ -173,10 +257,16 @@ export class RoomHub {
       this.all.delete(session);
       // Static-map positions are for within-session door round-trips only —
       // a fresh connection starts at the spawn (rooms restore from the store).
+      // Guarded by "no other socket for this user" so a supersede (which closes
+      // the OLD socket after the new one has entered) does not wipe the live
+      // connection's presence.
       if (!this.findSession(session.userId)) {
         for (const mapId of STATIC_MAP_IDS) {
           this.staticPositions.delete(`${mapId}:${session.userId}`);
         }
+        void this.store.clearPresence(session.userId).catch((err: unknown) => {
+          log.warn({ err, userId: session.userId }, 'clearing presence failed');
+        });
       }
       this.cancelKnocksBy(session.userId, 'cancelled');
       log.info({ userId: session.userId }, 'ws disconnected');
@@ -669,6 +759,7 @@ export class RoomHub {
     const body = sanitizeText(msg.body);
     if (body.length === 0) return;
     const record = await this.store.appendMessage(roomId, session.userId, body);
+    this.touchRoom(roomId);
     this.broadcast(roomId, {
       t: 'chatMessage',
       id: record.id,
@@ -699,6 +790,8 @@ export class RoomHub {
       });
       return;
     }
+    // Any board mutation counts as the room being worked in (FR-ROOM-06).
+    this.touchRoom(roomId);
     switch (msg.t) {
       case 'kanbanCreate': {
         const title = sanitizeText(msg.title);

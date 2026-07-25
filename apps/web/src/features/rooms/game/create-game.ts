@@ -19,5 +19,10 @@ export function createRoomGame(parent: HTMLElement, data: RoomSceneData): Phaser
     physics: { default: 'arcade' },
   });
   game.scene.add('room', RoomScene, true, data);
+  if (import.meta.env.DEV) {
+    // Dev-only handle so a headless drive can inspect scene/input state when
+    // the world stops responding — there is no other way in from the outside.
+    (window as unknown as { __roomGame?: Phaser.Game }).__roomGame = game;
+  }
   return game;
 }

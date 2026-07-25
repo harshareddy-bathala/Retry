@@ -11,6 +11,7 @@ import type {
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { cn } from '../../lib/cn.js';
+import { formatWhen } from '../../lib/when.js';
 
 // Rooms tab (rooms build plan Phase 4): my rooms + discoverable public rooms +
 // creation. Private rooms are reachable ONLY from here — they have no door in
@@ -77,9 +78,10 @@ export default function RoomsPage() {
 }
 
 function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
+  const here = room.presentMembers;
   return (
-    <div className="flex items-center justify-between rounded-panel border border-edge bg-surface px-4 py-3">
-      <div>
+    <div className="flex items-center justify-between gap-3 rounded-panel border border-edge bg-surface px-4 py-3">
+      <div className="min-w-0">
         <p className="font-display text-sm font-semibold text-ink">
           {room.name}
           {room.visibility === 'private' && (
@@ -88,19 +90,34 @@ function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
         </p>
         <p className="font-mono text-[11px] text-ink-muted">
           {POLICY_LABEL[room.accessPolicy]}
-          {mine && room.memberRole ? ` · ${room.memberRole}` : ''}
+          {mine && room.memberRole ? ` · ${room.memberRole}` : ''} · {room.memberCount}{' '}
+          {room.memberCount === 1 ? 'member' : 'members'} · active {formatWhen(room.lastActivityAt)}
         </p>
+        {here.length > 0 && (
+          <p className="mt-1 font-mono text-[11px] text-accent">
+            {/* FR-ROOM-08: who is in there right now, by name — this is a
+                20-person room, not a stadium. */}
+            {here.map((m) => m.name.split(' ')[0]).join(', ')}{' '}
+            {here.length === 1 ? 'is' : 'are'} in the live space
+          </p>
+        )}
       </div>
-      <Link
-        to={`/rooms/live?map=${room.id}`}
-        className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
-      >
-        {mine || room.accessPolicy === 'open'
-          ? 'Enter'
-          : room.accessPolicy === 'knock'
-            ? 'Knock'
-            : 'Enter'}
-      </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        {mine && (
+          <Link
+            to={`/rooms/${room.id}`}
+            className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+          >
+            Open
+          </Link>
+        )}
+        <Link
+          to={`/rooms/live?map=${room.id}`}
+          className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+        >
+          {!mine && room.accessPolicy === 'knock' ? 'Knock' : 'Enter'}
+        </Link>
+      </div>
     </div>
   );
 }

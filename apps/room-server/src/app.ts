@@ -7,6 +7,7 @@ import { RoomHub } from './rooms/hub.js';
 import { WhiteboardHub } from './rooms/whiteboard.js';
 import { InMemoryRoomStore, type RoomStore } from './world/store.js';
 import { LiveKitAvProvider, type AvProvider, type LiveKitConfig } from './av/livekit.js';
+import { internalRoutes } from './internal.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -26,6 +27,8 @@ export type BuildAppOptions = {
   livekit?: LiveKitConfig;
   /** Test seam: inject a fake AV provider instead of signing real tokens. */
   av?: AvProvider;
+  /** Shared secret for the API's server-to-server calls; absent = /internal off. */
+  internalSecret?: string;
 };
 
 // Authenticated WebSocket endpoint backed by RoomHub (rooms build plan
@@ -45,6 +48,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     store,
     knockTimeoutMs: options.knockTimeoutMs,
     av,
+    logger: app.log,
   });
   const whiteboards = new WhiteboardHub(store, app.log);
   app.addHook('onClose', async () => whiteboards.stop());
@@ -53,6 +57,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.decorate('hub', hub);
 
   app.get('/health', () => ({ status: 'ok' }));
+
+  // Server-to-server surface for apps/api (R3). Never exposed through Nginx.
+  internalRoutes(app, { hub, ...(options.internalSecret ? { secret: options.internalSecret } : {}) });
 
   app.get('/ws', { websocket: true }, async (socket, req) => {
     // Buffer inbound frames across the auth round-trip: a client may send its

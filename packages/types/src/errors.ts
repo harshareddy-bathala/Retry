@@ -20,6 +20,11 @@ export const ERROR_CODES = [
   'ONBOARDING_ALREADY_COMPLETE',
   // Rooms
   'NO_FREE_DOOR_SLOT',
+  'NOT_ROOM_OWNER',
+  'ALREADY_A_MEMBER',
+  'INVITE_ALREADY_PENDING',
+  'INVITE_NOT_PENDING',
+  'SOLE_OWNER',
 ] as const;
 
 export type AppErrorCode = (typeof ERROR_CODES)[number];

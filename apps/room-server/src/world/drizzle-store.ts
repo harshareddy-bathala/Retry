@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, max } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, max } from 'drizzle-orm';
 import {
   createDb,
   kanbanCards,
@@ -88,8 +88,33 @@ export class DrizzleRoomStore implements RoomStore {
     if (!isUuid(userId)) return;
     await this.db
       .update(roomMembers)
-      .set({ currentMapId: mapId })
+      .set({ currentMapId: mapId, presenceSeenAt: new Date() })
       .where(eq(roomMembers.userId, userId));
+  }
+
+  async touchPresence(userIds: string[]): Promise<void> {
+    const ids = userIds.filter(isUuid);
+    if (ids.length === 0) return;
+    await this.db
+      .update(roomMembers)
+      .set({ presenceSeenAt: new Date() })
+      .where(inArray(roomMembers.userId, ids));
+  }
+
+  async clearPresence(userId: string): Promise<void> {
+    if (!isUuid(userId)) return;
+    await this.db
+      .update(roomMembers)
+      .set({ presenceSeenAt: null })
+      .where(eq(roomMembers.userId, userId));
+  }
+
+  async bumpActivity(roomId: string): Promise<void> {
+    if (!isUuid(roomId)) return;
+    await this.db
+      .update(rooms)
+      .set({ lastActivityAt: new Date() })
+      .where(eq(rooms.id, roomId));
   }
 
   async saveLastPosition(roomId: string, userId: string, pos: LastPosition): Promise<void> {

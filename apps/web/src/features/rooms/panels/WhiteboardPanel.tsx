@@ -9,6 +9,12 @@ const ROOM_WS_URL =
 // Same host as the world socket, dedicated sync endpoint (Phase 6).
 const WHITEBOARD_WS_BASE = ROOM_WS_URL.replace(/\/ws$/, '/whiteboard');
 
+// Unlicensed tldraw renders a "get a license for production" watermark. The only
+// sanctioned way to remove it is a real key — the licence lists watermark display
+// among the software's technical measures, so hiding it with CSS would breach it.
+// Absent → watermark, which is the correct unlicensed state; present → clean.
+const LICENSE_KEY = import.meta.env.VITE_TLDRAW_LICENSE_KEY as string | undefined;
+
 // V1 whiteboards are shapes/ink only — no uploaded media (FR-ROOM-35 spirit:
 // no file uploads anywhere in rooms). tldraw requires an asset store; this one
 // declines uploads and resolves nothing.
@@ -46,7 +52,7 @@ export default function WhiteboardPanel({ roomId, onClose }: WhiteboardPanelProp
             The whiteboard is for room members only.
           </p>
         ) : (
-          <Tldraw store={store} />
+          <Tldraw store={store} licenseKey={LICENSE_KEY} />
         )}
       </div>
     </div>
