@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { KanbanCard, KanbanColumnKey } from '@foundry/protocol';
+import type { KanbanCard, KanbanColumnKey } from '@retry/protocol';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
 

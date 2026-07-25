@@ -1,16 +1,16 @@
 # Rooms Build — Handoff Document
 
 > **Audience:** the next AI assistant (or teammate) continuing the Collaboration Rooms build.
-> **Written:** 2026-07-19, mid-Phase-6. Read this fully, then `CLAUDE.md`, then `foundry_rooms_build_plan.md`, before writing any code.
-> **Authority order when documents disagree:** `foundry_srs.md` > `CLAUDE.md` > `foundry_rooms_build_plan.md` prompts. This has already mattered once — see "Known deviation" below.
+> **Written:** 2026-07-19, mid-Phase-6. Read this fully, then `CLAUDE.md`, then `retry_rooms_build_plan.md`, before writing any code.
+> **Authority order when documents disagree:** `retry_srs.md` > `CLAUDE.md` > `retry_rooms_build_plan.md` prompts. This has already mattered once — see "Known deviation" below.
 
 ---
 
 ## 1. How this build is being run (keep doing this)
 
-- **One phase at a time**, from `foundry_rooms_build_plan.md` (its own phase numbering, separate from ROADMAP.md's). A phase is done only when its acceptance criteria are **exercised for real**, not just unit-tested.
+- **One phase at a time**, from `retry_rooms_build_plan.md` (its own phase numbering, separate from ROADMAP.md's). A phase is done only when its acceptance criteria are **exercised for real**, not just unit-tested.
 - **Verification is three-layered**, every phase:
-  1. `pnpm -r typecheck && pnpm -r lint && pnpm -r test` (api integration tests need `DATABASE_URL_TEST=postgresql://foundry:foundry@localhost:5432/foundry_test`).
+  1. `pnpm -r typecheck && pnpm -r lint && pnpm -r test` (api integration tests need `DATABASE_URL_TEST=postgresql://retry:retry@localhost:5432/retry_test`).
   2. WS integration tests in `apps/room-server/test/*.ws.test.ts` against `buildApp()` with `InMemoryRoomStore` (never Postgres in room-server tests).
   3. **A headless-browser drive of the actual app** — puppeteer-core driving Edge (`C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`), CDP `Network.webSocketFrameReceived/Sent` sniffing to assert wire behavior, screenshots to verify rendering. Existing drive scripts (reference material, live in the job temp dir which may be gone — patterns are what matter): login → click through the UI (never `page.goto` after login — the access token is in-memory only and a full navigation drops it), walk with held WASD keys (4 tiles/s), press E, assert frames.
 - **One commit per phase**, message written to a temp file and committed with `git commit -F <file>` (PowerShell mangles quotes in `-m`). Every commit ends with the `Co-Authored-By: Claude …` trailer. Commit only when the phase is verified.
@@ -27,7 +27,7 @@
 | `2e182a4` | 4 | Multi-map world: `commons` map + door slots, rooms as map instances (mapId = room uuid), one-socket transitions with 200 ms client fade, access policies (open/knock/invite_only) enforced server-side, knock flow (60 s timeout, session-only grants), spawn resolution via `room_members.current_map_id`, per-map position restore, rooms REST API + Rooms tab UI, migration `0001` |
 | `bc69340` | 5 | Daily.co proximity AV: lazy one-Daily-room-per-map, per-session 2 h tokens pushed as `avToken`, client joins with **all tracks unsubscribed** and subscribes only on close/near (bandwidth scales with proximity), WebAudio gain ramp 200 ms (1.0/0.5), `<video>` bubbles with initials fallback, clean no-key degradation |
 
-**Phase 5 open item:** live AV is blocked on the user's Daily account — the API key is set in `apps/room-server/.env` and token minting works (verified: real room created at `harshareddy.daily.co/foundry-commons`), but joining fails with `account-missing-payment-method`. The user must add a payment method at dashboard.daily.co → Billing. When they have, re-run the live-AV checks (fake-media-device drive: launch Edge with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`, assert `<video>` appears for close peers, disappears on walking apart, reconnects <1 s). No code changes should be needed.
+**Phase 5 open item:** live AV is blocked on the user's Daily account — the API key is set in `apps/room-server/.env` and token minting works (verified: real room created at `harshareddy.daily.co/retry-commons`), but joining fails with `account-missing-payment-method`. The user must add a payment method at dashboard.daily.co → Billing. When they have, re-run the live-AV checks (fake-media-device drive: launch Edge with `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream`, assert `<video>` appears for close peers, disappears on walking apart, reconnects <1 s). No code changes should be needed.
 
 ## 3. Phase 6 (persistent panels) — IN PROGRESS, uncommitted
 
@@ -35,7 +35,7 @@ Everything below exists in the working tree, **typechecks and lints clean across
 
 ### Done (uncommitted, file by file)
 
-- **Migration `0002_low_grandmaster.sql`** (applied to both `foundry` and `foundry_test` local DBs): `room_messages`, `kanban_columns` (rename overlay, UNIQUE(room_id,key)), `kanban_cards` (fractional `position real` — one write per drag, never a reindex), `kanban_column` enum `todo/doing/done/parked`, `rooms.whiteboard_state jsonb`. Schema in `packages/db/src/schema.ts`.
+- **Migration `0002_low_grandmaster.sql`** (applied to both `retry` and `retry_test` local DBs): `room_messages`, `kanban_columns` (rename overlay, UNIQUE(room_id,key)), `kanban_cards` (fractional `position real` — one write per drag, never a reindex), `kanban_column` enum `todo/doing/done/parked`, `rooms.whiteboard_state jsonb`. Schema in `packages/db/src/schema.ts`.
 - **Protocol** (`packages/protocol/src/events.ts`): client `kanbanCreate/kanbanUpdate/kanbanMove/kanbanDelete/kanbanRenameColumn`; server `chatMessage` (broadcast INCLUDING sender — clients never locally echo), `kanbanState` (full board on room entry), `kanbanCard` (upsert), `kanbanCardRemoved`, `kanbanColumn`. The pre-existing client `chat` message is now live.
 - **Store** (`apps/room-server/src/world/store.ts` + `drizzle-store.ts` + in-memory): `appendMessage`, `kanbanBoard`, `createCard` (position = column max + 1), `updateCard`, `moveCard`, `deleteCard`, `renameColumn` (upsert on conflict), `whiteboardState`/`saveWhiteboardState`. `mergeColumnLabels` merges rename rows over `DEFAULT_KANBAN_LABELS`. In-memory store has a `messagesIn()` test helper.
 - **Hub** (`apps/room-server/src/rooms/hub.ts`): `onChat` (room instances only — sanitized via `sanitizeText` which strips control chars; persists then broadcasts), `onKanban` (member-gated via `store.isMember`, visitors get FORBIDDEN error frame and read-only sync), `pushKanbanState` on every room-map entry (guarded: skip if the session moved on while loading).
@@ -63,7 +63,7 @@ The build plan's Phase 6 asks for an "Activity log" backed by a `room_sessions(j
 
 ## 4. After Phase 6: what remains in the build plan
 
-- **Phase 7 — Project awareness (derived read-model)** (`foundry_rooms_build_plan.md` §PHASE 7): `room_project_context` cache table (never user-written, rebuildable), computed summary/active-card-count/last-activity/top-contributors, displayed in the room UI. Depends on posts/lineage existing — **the main app's Phase 1 (posts) hasn't been built**, so parts of this phase may need stubbing or deferral; read the phase prompt carefully and scope honestly.
+- **Phase 7 — Project awareness (derived read-model)** (`retry_rooms_build_plan.md` §PHASE 7): `room_project_context` cache table (never user-written, rebuildable), computed summary/active-card-count/last-activity/top-contributors, displayed in the room UI. Depends on posts/lineage existing — **the main app's Phase 1 (posts) hasn't been built**, so parts of this phase may need stubbing or deferral; read the phase prompt carefully and scope honestly.
 - **Phase 8 — Resilience & scale** (§PHASE 8): reconnect storms, Redis adapter for multi-process fan-out, load testing (the plan names targets), graceful shutdown. The one-socket + in-memory-registry architecture was built knowing this phase converts fan-out to Redis pub/sub — `RoomHub.broadcast` is the single choke point to adapt.
 - **Main-app phases** (ROADMAP.md): the Workspace view (blueprint, build journey, project context header) is *separate* from this live-space track and lands with main-app rooms phases. Don't conflate them.
 
@@ -71,7 +71,7 @@ The build plan's Phase 6 asks for an "Activity log" backed by a `room_sessions(j
 
 All current art is **programmatically generated placeholder** — the visual quality ceiling is an asset swap away, and every contract was designed for that swap:
 
-- **Tileset contract**: 32×32 px tiles, one tileset image per map, embedded tileset named `placeholder` in the Tiled JSON (`packages/maps/maps/*.json`), referenced by the scene as texture key `tiles`. To upgrade: author real maps in **Tiled** (export JSON, keep layer names `ground`/`objects`/`collision` + object layers `spawns`/`interactables` exactly — `pnpm --filter @foundry/maps validate` enforces this), drop the new tileset PNG in `packages/maps/tilesets/`, update the `image`/`columns`/`tilecount` fields. The validator + server collision + client render all read the same JSON — nothing else changes.
+- **Tileset contract**: 32×32 px tiles, one tileset image per map, embedded tileset named `placeholder` in the Tiled JSON (`packages/maps/maps/*.json`), referenced by the scene as texture key `tiles`. To upgrade: author real maps in **Tiled** (export JSON, keep layer names `ground`/`objects`/`collision` + object layers `spawns`/`interactables` exactly — `pnpm --filter @retry/maps validate` enforces this), drop the new tileset PNG in `packages/maps/tilesets/`, update the `image`/`columns`/`tilecount` fields. The validator + server collision + client render all read the same JSON — nothing else changes.
 - **Avatar contract**: `apps/web/src/features/rooms/assets/avatar.png`, 32×32 frames, **4 rows (down/left/right/up) × 4 columns (idle, walk1, walk2, walk3)** — see `DIRS`/anims in `RoomScene.ts`. The wire protocol already carries a cosmetic `sprite` string per actor and `room_members` is specced for `avatar_sprite int (0–5)` (FR-ROOM-24: six presets chosen on first Live Space entry — **not yet implemented**; that's part of this work: a sprite picker on first room entry, persisted per room per member, sprite sheets `avatar_0.png`…`avatar_5.png`, scene picks the sheet by `actor.sprite`).
 - **Recommended sources** (all license-safe): Kenney.nl packs (CC0), LPC (Liberated Pixel Cup) sprites (CC-BY-SA — attribution required), itch.io CC0 interior/office packs ("Modern Office" style suits the studio metaphor). Or commission/draw 16-color originals for a distinctive look — the Commons wants a corridor/atrium feel, rooms want desks + whiteboard + plants.
 - **Polish list**: door open/close animation on transitions (currently instant fade), footstep dust particles, whiteboard desk glow when someone is drawing, Commons ambient props, camera shake off, name-tag font already DPR-crisp (keep the `buildPill` resolution trick).
@@ -80,9 +80,9 @@ All current art is **programmatically generated placeholder** — the visual qua
 
 - **Windows.** Bash tool = Git Bash; PowerShell also available. Foreground `sleep` is blocked in Bash chains. `git commit -F tempfile` always. Heredocs with quotes inside sometimes break — prefer the Write tool for script files. Python `re.sub` replacement strings decode `\uXXXX` — a literal-control-character bug came from this once; use plain `str.replace`.
 - **Processes**: killing a shell task orphans node children holding ports. Free ports with PowerShell: `Get-NetTCPConnection -LocalPort 4100 -State Listen | % OwningProcess | Stop-Process -Force`. **The user runs their own `pnpm run dev` (ports 3000 api / 4100 room-server / 5173 vite)** — do NOT kill their stack casually; tsx watch hot-reloads committed changes but does NOT reload `.env` edits (a room-server restart was needed for the Daily key). If you must restart something of theirs, say so in the final message.
-- **Local stack**: Docker Desktop (can be down after reboots — `docker compose up -d` in repo root brings postgres/redis/mailpit back; DB data survives). Migrations: `cd packages/db && DATABASE_URL=… pnpm migrate` (dev DB `foundry`, test DB `foundry_test` — created manually, both migrated through `0002`).
-- **Accounts** (all password `correct-horse-battery`): `testuser@gmail.com` (student, owns "Open Lab"), `proxa@test.local` (owns "Knock Studio" public/knock + "Secret Base" private), `proxb@test.local`, and **dedicated drive accounts `drivea@test.local` (owns "Drive Open" public/open) / `driveb@test.local` (owns "Drive Knock" public/knock)** — always drive with these two, never the user's accounts (live-tab supersede ping-pong killed a drive once). `admin@nttf.co.in` / `FoundryDev!234`. New-account flow: register → Mailpit API (`localhost:8025/api/v1/search?query=to:<email>`) → verify link token → login → `POST /api/auth/onboarding`.
-- **Before every drive**: reset drive-account presence: `docker exec foundry-postgres-1 psql -U foundry -d foundry -c "UPDATE room_members SET current_map_id = NULL, last_position = NULL WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'drive%@test.local')"`. Auth endpoints rate-limit 5/min/IP in dev — drive logins retry after 30 s, or space runs out a minute apart.
+- **Local stack**: Docker Desktop (can be down after reboots — `docker compose up -d` in repo root brings postgres/redis/mailpit back; DB data survives). Migrations: `cd packages/db && DATABASE_URL=… pnpm migrate` (dev DB `retry`, test DB `retry_test` — created manually, both migrated through `0002`).
+- **Accounts** (all password `correct-horse-battery`): `testuser@gmail.com` (student, owns "Open Lab"), `proxa@test.local` (owns "Knock Studio" public/knock + "Secret Base" private), `proxb@test.local`, and **dedicated drive accounts `drivea@test.local` (owns "Drive Open" public/open) / `driveb@test.local` (owns "Drive Knock" public/knock)** — always drive with these two, never the user's accounts (live-tab supersede ping-pong killed a drive once). `admin@nttf.co.in` / `RetryDev!234`. New-account flow: register → Mailpit API (`localhost:8025/api/v1/search?query=to:<email>`) → verify link token → login → `POST /api/auth/onboarding`.
+- **Before every drive**: reset drive-account presence: `docker exec retry-postgres-1 psql -U retry -d retry -c "UPDATE room_members SET current_map_id = NULL, last_position = NULL WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'drive%@test.local')"`. Auth endpoints rate-limit 5/min/IP in dev — drive logins retry after 30 s, or space runs out a minute apart.
 - **Drive walking math**: commons spawn (14,9); door slots on the north wall at x = 3,7,11,15,19,23 (2-wide, interact from y=1); studio_a spawn (10.5,7.5), exit door tiles (9–10,14); speed 4 tiles/s ⇒ hold-key ms = tiles/4×1000; **direction depends on relative door x — a sign bug here cost a debugging cycle**. After any door transition, `sleep(500)` before the next E (the 200 ms fade swallows early presses).
 - **Phaser gotcha**: `JustDown` polling missed E presses in headless Edge — interact is now the event-driven `keydown-E` handler. Keep new key handling event-driven.
 - **StrictMode**: RoomSocket teardown detaches handlers before close; scene calls `roomSocket.requestResync()` post-boot because the join snapshot races asset loading. Don't "simplify" either.
@@ -94,11 +94,11 @@ Use §8 of this file (or the prompt the user was given in chat) verbatim to brie
 ## 8. Prompt for the next assistant
 
 ```
-You are continuing the Foundry Collaboration Rooms build on Windows 11.
+You are continuing the Retry Collaboration Rooms build on Windows 11.
 
 Read, in order: ROOMS_HANDOFF.md (repo root — your primary brief), CLAUDE.md,
-foundry_rooms_build_plan.md, PROGRESS.md, WEBSOCKET_EVENTS.md §6. Authority
-when they disagree: foundry_srs.md > CLAUDE.md > build plan.
+retry_rooms_build_plan.md, PROGRESS.md, WEBSOCKET_EVENTS.md §6. Authority
+when they disagree: retry_srs.md > CLAUDE.md > build plan.
 
 Current state: rooms phases 0–5 are committed (see PROGRESS.md). Phase 6
 (persistent panels: chat, kanban, tldraw whiteboard, live-presence panel) is

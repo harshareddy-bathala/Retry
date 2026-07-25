@@ -1,4 +1,4 @@
-import type { AccessPolicy, Dir, KanbanColumnKey } from '@foundry/protocol';
+import type { AccessPolicy, Dir, KanbanColumnKey } from '@retry/protocol';
 
 // Persistence boundary of the world server (rooms build plan Phase 4). The hub
 // never touches the database directly — it talks to this interface, so tests

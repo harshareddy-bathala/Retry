@@ -1,4 +1,4 @@
-# Foundry — Collaboration Rooms
+# Retry — Collaboration Rooms
 ## Phased Build Plan & Fable 5 Prompts
 
 **Build order is not negotiable.** Each phase produces a working, demoable artifact and every later phase depends on contracts established earlier. Do not start Phase N+1 until Phase N passes its acceptance criteria.
@@ -48,7 +48,7 @@ No gameplay. This phase exists purely to prevent rework. Skipping it is the sing
 
 ```
 You are setting up the foundation for a real-time 2D multiplayer collaboration
-system called Foundry Rooms. This phase produces NO gameplay and NO visuals.
+system called Retry Rooms. This phase produces NO gameplay and NO visuals.
 It establishes shared contracts that every later phase depends on.
 
 TECH CONSTRAINTS (fixed, do not substitute):
@@ -131,7 +131,7 @@ proximity, database tables.
 One room, one avatar, no network. Get the feel right here — movement that feels bad at this stage will feel bad forever.
 
 ```
-Build the single-player room canvas for Foundry Rooms. No networking in this
+Build the single-player room canvas for Retry Rooms. No networking in this
 phase. One local avatar in one map.
 
 BUILD ON: the Phase 0 monorepo, protocol package, and studio_a map.
@@ -194,7 +194,7 @@ multiple maps.
 ## PHASE 2 — Multiplayer Sync
 
 ```
-Add real-time multiplayer to the Foundry room from Phase 1. Multiple users
+Add real-time multiplayer to the Retry room from Phase 1. Multiple users
 in one map, seeing each other move.
 
 BUILD ON: Phase 1 client, Phase 0 protocol.
@@ -258,7 +258,7 @@ DO NOT BUILD YET: proximity, video, portals, panels, persistence.
 Real AV is deliberately deferred. This phase builds and proves the *logic*.
 
 ```
-Build server-side proximity detection for Foundry Rooms, with placeholder
+Build server-side proximity detection for Retry Rooms, with placeholder
 video bubbles. No real WebRTC in this phase.
 
 BUILD ON: Phase 2 multiplayer.
@@ -325,7 +325,7 @@ DO NOT BUILD YET: Daily.co, real video, portals, panels.
 This is the phase that delivers the concept you described.
 
 ```
-Build the multi-map world for Foundry Rooms: a shared Commons space, room
+Build the multi-map world for Retry Rooms: a shared Commons space, room
 maps, doors between them, and access control.
 
 BUILD ON: Phases 0-3.
@@ -425,7 +425,7 @@ session handoff is built once against the final topology.
 DELIVERABLES:
 
 1. Daily.co room provisioning:
-   - One Daily room per Foundry room map, created lazily on first join and
+   - One Daily room per Retry room map, created lazily on first join and
      cached
    - The Commons gets its own Daily room
    - Tokens are minted server-side, scoped per room AND per session, with a
@@ -485,7 +485,7 @@ DO NOT BUILD YET: panels, project context.
 ## PHASE 6 — Persistent Panels
 
 ```
-Build the four persistent panels for Foundry Rooms: chat, Kanban, whiteboard,
+Build the four persistent panels for Retry Rooms: chat, Kanban, whiteboard,
 and activity log. All state persists in PostgreSQL.
 
 BUILD ON: Phases 0-5.
@@ -550,7 +550,7 @@ ACCEPTANCE CRITERIA:
 This is where the concept pays off. Note carefully what it does *not* do.
 
 ```
-Add derived project context to Foundry Rooms.
+Add derived project context to Retry Rooms.
 
 CRITICAL CONSTRAINT: rooms remain completely independent of posts. There is
 NO foreign key from rooms to posts, no link field, and no user-facing action
@@ -623,7 +623,7 @@ ACCEPTANCE CRITERIA:
 ## PHASE 8 — Resilience & Scale
 
 ```
-Harden Foundry Rooms for real use.
+Harden Retry Rooms for real use.
 
 DELIVERABLES:
 
@@ -654,7 +654,7 @@ DELIVERABLES:
    - Detect viewport width under 1024px or a coarse pointer
    - Show a clear explanatory screen, not a broken canvas: rooms need a
      keyboard, open on a laptop
-   - The rest of Foundry stays fully mobile-usable; only this module gates
+   - The rest of Retry stays fully mobile-usable; only this module gates
 
 5. Graceful degradation:
    - Daily.co unavailable: rooms remain fully functional without AV, with a
@@ -683,4 +683,4 @@ ACCEPTANCE CRITERIA:
 
 ---
 
-*Foundry — Collaboration Rooms Build Plan — July 2026*
+*Retry — Collaboration Rooms Build Plan — July 2026*

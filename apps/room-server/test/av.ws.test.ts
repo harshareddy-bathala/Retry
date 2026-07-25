@@ -2,7 +2,7 @@ import { afterEach, beforeAll, afterAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
-import { parseServerMessage, type ServerMessage } from '@foundry/protocol';
+import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 import type { AvGrant, AvProvider } from '../src/av/daily.js';
@@ -22,7 +22,7 @@ class FakeAv implements AvProvider {
     }
     this.calls.push({ mapId, userId, userName });
     return {
-      roomUrl: `https://fake.daily.co/foundry-${mapId}`,
+      roomUrl: `https://fake.daily.co/retry-${mapId}`,
       token: `tok-${mapId}-${userId}-${this.calls.length}`,
     };
   }
@@ -106,7 +106,7 @@ describe('daily av flow', () => {
     const c = await connectAndJoin('av-user', 'commons');
     await until(() => avTokensOf(c).length > 0);
     const msg = avTokensOf(c)[0];
-    expect(msg).toMatchObject({ mapId: 'commons', roomUrl: 'https://fake.daily.co/foundry-commons' });
+    expect(msg).toMatchObject({ mapId: 'commons', roomUrl: 'https://fake.daily.co/retry-commons' });
     expect(fakeAv.calls.at(-1)).toMatchObject({ mapId: 'commons', userId: 'av-user' });
   });
 

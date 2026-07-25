@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { AuthUser, LoginInput } from '@foundry/types';
+import type { AuthUser, LoginInput } from '@retry/types';
 import {
   api,
   setAccessToken,

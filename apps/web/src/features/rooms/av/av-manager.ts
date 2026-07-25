@@ -5,7 +5,7 @@ import Daily, {
   type DailyEventObjectParticipantLeft,
   type DailyParticipant,
 } from '@daily-co/daily-js';
-import type { ServerMessage, Zone } from '@foundry/protocol';
+import type { ServerMessage, Zone } from '@retry/protocol';
 import { reportWarning } from '../../../lib/report.js';
 import { roomEvents } from '../event-bus.js';
 import type { AvState } from '../av-state.js';

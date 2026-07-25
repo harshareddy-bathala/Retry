@@ -18,7 +18,7 @@ export function AppShell() {
     <div className="min-h-screen bg-page">
       <header className="sticky top-0 z-10 border-b border-edge bg-surface">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-4">
-          <span className="font-display text-lg font-bold tracking-tight text-ink">Foundry</span>
+          <span className="font-display text-lg font-bold tracking-tight text-ink">Retry</span>
           <nav className="flex flex-1 items-center gap-1">
             {NAV_ITEMS.map((item) =>
               item.enabled ? (
@@ -75,7 +75,7 @@ export function FeedPlaceholder() {
   return (
     <div className="flex flex-col items-center gap-3 rounded-panel border border-edge bg-surface px-6 py-16 text-center">
       <h2 className="font-display text-xl font-semibold text-ink">
-        Welcome to Foundry{user ? `, ${user.name.split(' ')[0]}` : ''}
+        Welcome to Retry{user ? `, ${user.name.split(' ')[0]}` : ''}
       </h2>
       <p className="max-w-md text-sm text-ink-muted">
         The project feed lands in Phase 1. Auth, accounts, and the design system are live — this is

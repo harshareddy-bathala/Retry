@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { chatHistoryQuerySchema, createRoomSchema } from '@foundry/types';
+import { chatHistoryQuerySchema, createRoomSchema } from '@retry/types';
 import { AppError } from '../lib/errors.js';
 import type { AuthGuards } from '../plugins/auth.js';
 import type { RoomsService } from '../services/rooms.service.js';

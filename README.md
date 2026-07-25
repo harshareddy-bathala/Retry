@@ -1,4 +1,4 @@
-# Foundry
+# Retry
 
 **College project archival, collaboration, and evaluation platform** — built for NTTF NEC Bangalore by a 5-member final-year team over 12 months.
 
@@ -10,8 +10,8 @@ Students post projects throughout their academics. Projects form a fork lineage.
 
 | Understand the product | Build it | Team process | Plan & status |
 |---|---|---|---|
-| [Problem & Solution](foundry_problem_and_solution.md) | [TECH_STACK.md](TECH_STACK.md) | [CONTRIBUTING.md](CONTRIBUTING.md) | [ROADMAP.md](ROADMAP.md) |
-| [SRS (full requirements)](foundry_srs.md) | [ARCHITECTURE.md](ARCHITECTURE.md) | [CONVENTIONS.md](CONVENTIONS.md) | [PROGRESS.md](PROGRESS.md) |
+| [Problem & Solution](retry_problem_and_solution.md) | [TECH_STACK.md](TECH_STACK.md) | [CONTRIBUTING.md](CONTRIBUTING.md) | [ROADMAP.md](ROADMAP.md) |
+| [SRS (full requirements)](retry_srs.md) | [ARCHITECTURE.md](ARCHITECTURE.md) | [CONVENTIONS.md](CONVENTIONS.md) | [PROGRESS.md](PROGRESS.md) |
 | | [DATABASE.md](DATABASE.md) | [TESTING.md](TESTING.md) | [DECISIONS.md](DECISIONS.md) |
 | | [API.md](API.md) | [SECURITY.md](SECURITY.md) | [CHANGELOG.md](CHANGELOG.md) |
 | | [WEBSOCKET_EVENTS.md](WEBSOCKET_EVENTS.md) | [DEPLOYMENT.md](DEPLOYMENT.md) | |

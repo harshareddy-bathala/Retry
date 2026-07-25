@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/room-server",
+  "name": "@retry/room-server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@fastify/websocket": "^10.0.1",
-    "@foundry/db": "workspace:*",
-    "@foundry/maps": "workspace:*",
-    "@foundry/protocol": "workspace:*",
+    "@retry/db": "workspace:*",
+    "@retry/maps": "workspace:*",
+    "@retry/protocol": "workspace:*",
     "@tldraw/sync-core": "^5.2.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
@@ -26,7 +26,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@foundry/config": "workspace:*",
+    "@retry/config": "workspace:*",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.5.13",
     "pino-pretty": "^13.0.0",

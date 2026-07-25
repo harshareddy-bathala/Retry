@@ -1,8 +1,11 @@
 # Changelog
 
-All notable changes to Foundry. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer once releases begin. Each production deploy tag (`v*`) must have an entry here (CI-enforced, see `DEPLOYMENT.md`).
+All notable changes to Retry. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer once releases begin. Each production deploy tag (`v*`) must have an entry here (CI-enforced, see `DEPLOYMENT.md`).
 
 ## [Unreleased]
+
+### Changed
+- **Renamed the product Foundry → Retry** (ADR-011): package scope `@foundry/*` → `@retry/*`, spec filenames, env vars, service and deploy names, refresh cookie, localStorage key, all user-facing copy. No domain is hard-coded — base URLs stay environment variables. Local dev needs `pnpm install` and a one-time `ALTER DATABASE`/`ALTER ROLE` (2026-07-25)
 
 ### Added
 - Phase 0 scaffold: pnpm monorepo (`apps/api`, `apps/web`, `packages/db|types|config`), docker-compose dev stack, CI workflow (2026-07-06)

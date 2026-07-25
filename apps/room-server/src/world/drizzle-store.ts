@@ -9,8 +9,8 @@ import {
   rooms,
   type Db,
   type KanbanCardRow,
-} from '@foundry/db';
-import { dirSchema, type KanbanColumnKey } from '@foundry/protocol';
+} from '@retry/db';
+import { dirSchema, type KanbanColumnKey } from '@retry/protocol';
 import { z } from 'zod';
 import {
   mergeColumnLabels,

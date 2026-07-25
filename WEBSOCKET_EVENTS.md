@@ -1,4 +1,4 @@
-# WEBSOCKET_EVENTS.md — Foundry Room Protocol
+# WEBSOCKET_EVENTS.md — Retry Room Protocol
 
 > The complete, exact WebSocket event contract for Collaboration Rooms. **Hard Rule 9: no ad-hoc event names.** Every event here has a Zod schema in `packages/types/src/ws.ts`; server and client both parse against it. Adding an event = updating this file + the Zod schema in the same PR.
 
@@ -95,7 +95,7 @@ All broadcasts publish to Redis pub/sub channel `room:<roomId>`; each server ins
 
 ## 6. Movement Protocol (Rooms multiplayer — `packages/protocol`)
 
-The real-time 2D multiplayer rebuild (`foundry_rooms_build_plan.md`) carries its own wire protocol, established in rooms Phase 0. **Its authoritative definition is the Zod schemas in `packages/protocol/src/events.ts`** — client (`apps/web`) and room server (`apps/room-server`) both import shapes and validators only from there, never redefine them locally.
+The real-time 2D multiplayer rebuild (`retry_rooms_build_plan.md`) carries its own wire protocol, established in rooms Phase 0. **Its authoritative definition is the Zod schemas in `packages/protocol/src/events.ts`** — client (`apps/web`) and room server (`apps/room-server`) both import shapes and validators only from there, never redefine them locally.
 
 Unlike the namespaced envelope above, these are flat messages discriminated on `t`:
 

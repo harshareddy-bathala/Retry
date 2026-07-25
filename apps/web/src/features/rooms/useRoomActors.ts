@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Actor } from '@foundry/protocol';
+import type { Actor } from '@retry/protocol';
 import { roomEvents } from './event-bus.js';
 
 // Live actor roster for the current map, maintained from server messages.

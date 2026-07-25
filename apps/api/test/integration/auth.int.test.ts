@@ -55,7 +55,7 @@ describe.skipIf(!hasTestDb)('auth flow', () => {
     const { accessToken, user } = login.json();
     expect(user.role).toBe('student');
     expect(user.onboardingComplete).toBe(false);
-    expect(login.cookies.find((c) => c.name === 'foundry_refresh')?.httpOnly).toBe(true);
+    expect(login.cookies.find((c) => c.name === 'retry_refresh')?.httpOnly).toBe(true);
 
     const me = await ctx.app.inject({
       method: 'GET',
@@ -112,22 +112,22 @@ describe.skipIf(!hasTestDb)('auth flow', () => {
       url: '/api/auth/login',
       payload: { email: GOOD_REGISTRATION.email, password: GOOD_REGISTRATION.password },
     });
-    const cookie1 = login.cookies.find((c) => c.name === 'foundry_refresh')!.value;
+    const cookie1 = login.cookies.find((c) => c.name === 'retry_refresh')!.value;
 
     const refresh1 = await ctx.app.inject({
       method: 'POST',
       url: '/api/auth/refresh',
-      cookies: { foundry_refresh: cookie1 },
+      cookies: { retry_refresh: cookie1 },
     });
     expect(refresh1.statusCode).toBe(200);
-    const cookie2 = refresh1.cookies.find((c) => c.name === 'foundry_refresh')!.value;
+    const cookie2 = refresh1.cookies.find((c) => c.name === 'retry_refresh')!.value;
     expect(cookie2).not.toBe(cookie1);
 
     // Reusing the rotated token is theft — whole family dies
     const reuse = await ctx.app.inject({
       method: 'POST',
       url: '/api/auth/refresh',
-      cookies: { foundry_refresh: cookie1 },
+      cookies: { retry_refresh: cookie1 },
     });
     expect(reuse.statusCode).toBe(401);
     expect(reuse.json().error.code).toBe('TOKEN_INVALID');
@@ -135,7 +135,7 @@ describe.skipIf(!hasTestDb)('auth flow', () => {
     const afterRevoke = await ctx.app.inject({
       method: 'POST',
       url: '/api/auth/refresh',
-      cookies: { foundry_refresh: cookie2 },
+      cookies: { retry_refresh: cookie2 },
     });
     expect(afterRevoke.statusCode).toBe(401);
   });

@@ -1,4 +1,4 @@
-# TESTING.md — Foundry
+# TESTING.md — Retry
 
 > Vitest for unit + integration, Playwright for E2E. Tests are risk-weighted: the grading pipeline and post state machine get depth; UI polish gets smoke coverage.
 

@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/web",
+  "name": "@retry/web",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,9 +15,9 @@
     "@fontsource/ibm-plex-mono": "^5.1.0",
     "@fontsource/ibm-plex-sans": "^5.1.0",
     "@fontsource/space-grotesk": "^5.1.0",
-    "@foundry/maps": "workspace:^",
-    "@foundry/protocol": "workspace:^",
-    "@foundry/types": "workspace:*",
+    "@retry/maps": "workspace:^",
+    "@retry/protocol": "workspace:^",
+    "@retry/types": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
     "@tanstack/react-query": "^5.64.1",
     "@tldraw/sync": "^5.2.5",
@@ -32,7 +32,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@foundry/config": "workspace:*",
+    "@retry/config": "workspace:*",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

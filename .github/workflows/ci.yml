@@ -18,13 +18,13 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg15
         env:
-          POSTGRES_USER: foundry
-          POSTGRES_PASSWORD: foundry
-          POSTGRES_DB: foundry_test
+          POSTGRES_USER: retry
+          POSTGRES_PASSWORD: retry
+          POSTGRES_DB: retry_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U foundry"
+          --health-cmd "pg_isready -U retry"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -34,8 +34,8 @@ jobs:
           - 6379:6379
 
     env:
-      DATABASE_URL: postgresql://foundry:foundry@localhost:5432/foundry_test
-      DATABASE_URL_TEST: postgresql://foundry:foundry@localhost:5432/foundry_test
+      DATABASE_URL: postgresql://retry:retry@localhost:5432/retry_test
+      DATABASE_URL_TEST: postgresql://retry:retry@localhost:5432/retry_test
 
     steps:
       - uses: actions/checkout@v4
@@ -59,11 +59,11 @@ jobs:
         run: pnpm -r typecheck
 
       - name: Migrate test database
-        run: pnpm --filter @foundry/db migrate
+        run: pnpm --filter @retry/db migrate
 
       # Rooms map contract: required layers + default spawn (packages/maps/README.md)
       - name: Validate maps
-        run: pnpm --filter @foundry/maps validate
+        run: pnpm --filter @retry/maps validate
 
       - name: Test
         run: pnpm -r test

@@ -2,8 +2,8 @@
 // real Postgres for integration tests, fakes only for true externals (mailer).
 import { sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { createDb, users, type Db } from '@foundry/db';
-import type { Role } from '@foundry/types';
+import { createDb, users, type Db } from '@retry/db';
+import type { Role } from '@retry/types';
 import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/lib/crypto.js';
 import type { Mailer } from '../src/lib/email.js';

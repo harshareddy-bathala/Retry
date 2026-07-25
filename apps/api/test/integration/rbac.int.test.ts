@@ -1,7 +1,7 @@
 // Table-driven RBAC matrix (TESTING.md §3.2). Grows a row per protected route
 // as domains land — the table IS the spec.
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Role } from '@foundry/types';
+import type { Role } from '@retry/types';
 import { buildTestApp, hasTestDb, type TestContext } from '../helpers.js';
 
 type RbacCase = {

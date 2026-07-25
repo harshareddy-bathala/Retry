@@ -50,7 +50,7 @@ export class DailyAvProvider implements AvProvider {
   }
 
   private async createOrFetchRoom(mapId: string): Promise<DailyRoom> {
-    const name = `foundry-${mapId}`;
+    const name = `retry-${mapId}`;
     const created = await this.request('POST', '/rooms', {
       name,
       privacy: 'private',

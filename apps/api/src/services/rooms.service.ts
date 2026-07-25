@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, lt } from 'drizzle-orm';
-import commonsMap from '@foundry/maps/commons.json';
-import { extractDoorSlots, validateMap, type DoorSlot } from '@foundry/maps';
-import { roomMembers, roomMessages, rooms, users, type Db, type RoomRow } from '@foundry/db';
+import commonsMap from '@retry/maps/commons.json';
+import { extractDoorSlots, validateMap, type DoorSlot } from '@retry/maps';
+import { roomMembers, roomMessages, rooms, users, type Db, type RoomRow } from '@retry/db';
 import type {
   ChatHistoryResponse,
   CreateRoomInput,
@@ -9,7 +9,7 @@ import type {
   RoomMemberRole,
   RoomMembersResponse,
   RoomSummary,
-} from '@foundry/types';
+} from '@retry/types';
 import { AppError } from '../lib/errors.js';
 
 const CHAT_PAGE_SIZE = 50;

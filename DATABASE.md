@@ -1,4 +1,4 @@
-# DATABASE.md — Foundry
+# DATABASE.md — Retry
 
 > PostgreSQL 15 + pgvector. Schema lives in `packages/db/src/schema.ts` (single file, Drizzle). This document is the human-readable contract; the schema file is the machine truth. Change the schema → regenerate migration → update this doc in the same PR.
 
@@ -205,7 +205,7 @@ id, user_id FK cascade, purpose enum (`verify_email`, `reset_password`), token_h
 
 ## 3. Raw SQL Exceptions (the only two)
 
-**`packages/db/src/queries/lineage.ts`** — recursive CTEs for ancestor/descendant traversal with depth (FR-LINEAGE-04). Canonical SQL is in `foundry_srs.md` §8.2.
+**`packages/db/src/queries/lineage.ts`** — recursive CTEs for ancestor/descendant traversal with depth (FR-LINEAGE-04). Canonical SQL is in `retry_srs.md` §8.2.
 
 **`packages/db/src/queries/similarity.ts`** — pgvector cosine similarity scoped to ancestor IDs (SRS §8.3):
 ```sql

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// Every Foundry map must contain exactly these named tile layers (Phase 0
+// Every Retry map must contain exactly these named tile layers (Phase 0
 // contract — the client renders 'ground'/'objects', both sides build the
 // collision set from 'collision'), plus a 'spawns' object layer with a point
 // named 'default'. This module is pure (no fs) so both the CLI script and the

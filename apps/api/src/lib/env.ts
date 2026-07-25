@@ -33,7 +33,7 @@ const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().default(1025),
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
-  SMTP_FROM: z.string().default('Foundry <foundry@nttf.co.in>'),
+  SMTP_FROM: z.string().default('Retry <retry@nttf.co.in>'),
 
   SENTRY_DSN_API: z.string().optional().default(''),
 });

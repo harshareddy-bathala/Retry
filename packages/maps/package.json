@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/maps",
+  "name": "@retry/maps",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@foundry/config": "workspace:*",
+    "@retry/config": "workspace:*",
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",

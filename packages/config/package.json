@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/config",
+  "name": "@retry/config",
   "version": "0.0.0",
   "private": true,
   "type": "module",

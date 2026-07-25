@@ -1,5 +1,5 @@
 # Software Requirements Specification
-## Foundry — College Project Archival, Collaboration, and Evaluation Platform
+## Retry — College Project Archival, Collaboration, and Evaluation Platform
 
 | Field | Detail |
 |-------|--------|
@@ -44,7 +44,7 @@
 
 ### 1.1 Purpose
 
-This Software Requirements Specification (SRS) defines the complete functional and non-functional requirements for **Foundry**, a college project archival, collaboration, and evaluation platform. This document is the authoritative reference for the development team and governs what the system must do in version 1.
+This Software Requirements Specification (SRS) defines the complete functional and non-functional requirements for **Retry**, a college project archival, collaboration, and evaluation platform. This document is the authoritative reference for the development team and governs what the system must do in version 1.
 
 ### 1.2 Document Conventions
 
@@ -84,7 +84,7 @@ Engineering college students build many projects throughout their academics, but
 - Faculty and interviewers evaluate the same common project ideas year after year because there is no channel connecting past work to current students.
 - Students do not have a clear picture of what a weekend project, mini project, or final year project should look like — because they have never seen enough examples.
 
-**Foundry solves this by creating a living archive.** Students post projects throughout their academics, not only at graduation. The archive builds institutional memory. Junior students can see, fork, and build on senior work. Faculty get AI-assisted tools to evaluate and track originality. The whole college — across departments — becomes visible and collaborative.
+**Retry solves this by creating a living archive.** Students post projects throughout their academics, not only at graduation. The archive builds institutional memory. Junior students can see, fork, and build on senior work. Faculty get AI-assisted tools to evaluate and track originality. The whole college — across departments — becomes visible and collaborative.
 
 ---
 
@@ -297,7 +297,7 @@ A collaboration room is a persistent 2D virtual workspace where a team of studen
 - A student can create and be a member of as many rooms as they want, with no platform-imposed limit.
 - Rooms persist indefinitely once created. Only the owner can delete a room, which is an explicit confirmed action.
 - Room membership is independent of post team membership. A room's members do not need to match any post's team — rooms often exist long before any post does.
-- The platform never mandates that real project work happens inside a room. Teams that meet in person, use WhatsApp, or work without ever opening a room are at zero disadvantage anywhere on Foundry. The room is an option, not a requirement.
+- The platform never mandates that real project work happens inside a room. Teams that meet in person, use WhatsApp, or work without ever opening a room are at zero disadvantage anywhere on Retry. The room is an option, not a requirement.
 - No audio or video is ever recorded or stored. No session timestamps or attendance history are kept. The only real-time data tracked is who is present right now, ephemerally.
 - Every room has two views. **Workspace** (default — what the student sees on entry) shows project context, Blueprint, Build Journey, and the Kanban board. **Live Space** (opened on demand) has the 2D canvas, proximity audio/video, and whiteboard. A team can use Workspace indefinitely without ever opening Live Space.
 
@@ -778,4 +778,4 @@ Proximity thresholds are server-configurable without a code deploy. Conversation
 
 ---
 
-*End of Document — Foundry SRS v1.0*
+*End of Document — Retry SRS v1.0*

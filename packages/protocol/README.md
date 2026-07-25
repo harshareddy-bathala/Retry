@@ -1,6 +1,6 @@
-# @foundry/protocol
+# @retry/protocol
 
-The shared contract for Foundry Rooms real-time multiplayer. **Both the client
+The shared contract for Retry Rooms real-time multiplayer. **Both the client
 (`apps/web`) and the room server (`apps/room-server`) import event shapes,
 validators, and coordinate helpers only from here.** Never redefine an event
 shape locally — that is how client and server drift apart.

@@ -4,7 +4,7 @@
 // tracks key off.
 export type AvState = { audio: boolean; video: boolean };
 
-const STORAGE_KEY = 'foundry.rooms.av';
+const STORAGE_KEY = 'retry.rooms.av';
 
 export function loadAvState(): AvState {
   try {

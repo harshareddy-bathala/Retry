@@ -1,24 +1,24 @@
-# CLAUDE.md — Foundry AI Context File
+# CLAUDE.md — Retry AI Context File
 
 > Read this file completely before writing any code, suggesting any architecture, or answering any question about this codebase. This is the authoritative source of truth. Do not hallucinate dependencies, patterns, or conventions that are not listed here.
 
 ---
 
-## What is Foundry
+## What is Retry
 
-Foundry is a college project archival, collaboration, and evaluation platform for engineering students at NTTF NEC Bangalore. It is a final year project built by a 5-member team over 12 months.
+Retry is a college project archival, collaboration, and evaluation platform for engineering students at NTTF NEC Bangalore. It is a final year project built by a 5-member team over 12 months.
 
 Students post projects throughout their academics. Projects form a lineage (fork graph). Faculty grade using AI assistance with human approval. Teams collaborate in project-aware Collaboration Rooms. An Idea Hub surfaces unbuilt ideas and feature requests.
 
-Full problem statement: `foundry_problem_and_solution.md`
-Full requirements: `foundry_srs.md`
+Full problem statement: `retry_problem_and_solution.md`
+Full requirements: `retry_srs.md`
 
 ---
 
 ## Monorepo Structure
 
 ```
-foundry/
+retry/
 ├── apps/
 │   ├── web/                  # React frontend (Vite)
 │   └── api/                  # Fastify backend (API + Room server + Workers)
@@ -156,6 +156,6 @@ Check `PROGRESS.md` for the current state. As of project start, nothing is built
 | Working on any route | `ARCHITECTURE.md`, `API.md`, `CONVENTIONS.md` |
 | Database changes | `DATABASE.md`, `packages/db/src/schema.ts` |
 | Room server | `WEBSOCKET_EVENTS.md`, `ARCHITECTURE.md` |
-| AI grading | `foundry_srs.md` §4.6, `apps/api/src/workers/grading.worker.ts` |
+| AI grading | `retry_srs.md` §4.6, `apps/api/src/workers/grading.worker.ts` |
 | Frontend component | `CONVENTIONS.md`, `.claude/skills/skill-frontend.md` |
 | Writing a test | `TESTING.md`, `.claude/skills/skill-testing.md` |

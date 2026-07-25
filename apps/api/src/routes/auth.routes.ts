@@ -6,13 +6,13 @@ import {
   registerSchema,
   resetPasswordSchema,
   verifyEmailSchema,
-} from '@foundry/types';
+} from '@retry/types';
 import { AppError } from '../lib/errors.js';
 import type { Env } from '../lib/env.js';
 import type { AuthGuards } from '../plugins/auth.js';
 import type { AuthService } from '../services/auth.service.js';
 
-const REFRESH_COOKIE = 'foundry_refresh';
+const REFRESH_COOKIE = 'retry_refresh';
 
 // Refresh token rides an httpOnly cookie scoped to the auth routes — never
 // readable by JS, never in localStorage (SECURITY.md §1).

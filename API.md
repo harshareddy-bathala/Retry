@@ -1,4 +1,4 @@
-# API.md — Foundry REST API
+# API.md — Retry REST API
 
 > Every route lives in `apps/api/src/routes/<domain>.routes.ts`, validates input with Zod, and enforces roles via `requireRole()` middleware. This document is the endpoint contract. Adding/changing a route = updating this file in the same PR.
 

@@ -4,15 +4,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg15
     environment:
-      POSTGRES_USER: foundry
-      POSTGRES_PASSWORD: foundry
-      POSTGRES_DB: foundry
+      POSTGRES_USER: retry
+      POSTGRES_PASSWORD: retry
+      POSTGRES_DB: retry
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U foundry"]
+      test: ["CMD-SHELL", "pg_isready -U retry"]
       interval: 5s
       timeout: 3s
       retries: 10

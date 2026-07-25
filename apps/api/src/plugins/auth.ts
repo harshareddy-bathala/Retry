@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { Role } from '@foundry/types';
+import type { Role } from '@retry/types';
 import { AppError } from '../lib/errors.js';
 import type { AccessTokenClaims, Jwt } from '../lib/jwt.js';
 

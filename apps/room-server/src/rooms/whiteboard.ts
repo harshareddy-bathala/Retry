@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { RoomStore } from '../world/store.js';
 
 // Shared whiteboard sync (rooms build plan Phase 6, FR-ROOM-37..39). One
-// self-hosted tldraw TLSocketRoom per Foundry room, created lazily on first
+// self-hosted tldraw TLSocketRoom per Retry room, created lazily on first
 // open, document persisted to rooms.whiteboard_state — debounced to at most
 // one write per 5 seconds (plan §4).
 const PERSIST_DEBOUNCE_MS = 5_000;

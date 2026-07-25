@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useNavigate } from 'react-router-dom';
-import { onboardingSchema, type AuthUser, type OnboardingInput } from '@foundry/types';
+import { onboardingSchema, type AuthUser, type OnboardingInput } from '@retry/types';
 import { AuthLayout, AuthPanel, Button, FormError, TextField } from '../../components/ui.js';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from './AuthContext.js';

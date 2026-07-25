@@ -1,5 +1,5 @@
 {
-  "extends": "@foundry/config/tsconfig.base.json",
+  "extends": "@retry/config/tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },

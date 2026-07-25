@@ -1,4 +1,4 @@
-import type { AppErrorCode } from '@foundry/types';
+import type { AppErrorCode } from '@retry/types';
 
 // Services throw AppError; the global error handler maps it to the envelope
 // (CONVENTIONS.md §3). Anything else becomes INTERNAL_ERROR + Sentry.

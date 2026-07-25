@@ -1,4 +1,4 @@
-# SECURITY.md — Foundry
+# SECURITY.md — Retry
 
 > Security posture and the concrete rules that implement it. Every item here maps to an NFR-SEC requirement or a hard rule in CLAUDE.md.
 
@@ -32,7 +32,7 @@
 
 ## 4. Secrets (NFR-SEC-03)
 
-- All secrets from environment only (Hard Rule 3). Canonical list: `.env.example`. Production: `/etc/foundry/*.env`, root-owned `600`.
+- All secrets from environment only (Hard Rule 3). Canonical list: `.env.example`. Production: `/etc/retry/*.env`, root-owned `600`.
 - Never logged: the Pino logger has redact paths for `authorization`, `password`, `token`, `apiKey`. Sentry `beforeSend` scrubs the same.
 - DO Managed Postgres and droplet disks are encrypted at rest by the provider; app-level AES-256 applies to any stored third-party token (GitHub OAuth tokens in DB, if/when per-student tokens land — encrypted with `SECRET_ENCRYPTION_KEY`).
 - Key rotation: JWT signing secret and encryption key rotatable via dual-key envelope (`JWT_SECRET`, `JWT_SECRET_PREVIOUS`).

@@ -80,11 +80,11 @@ export function FormError({ message }: { message: string | null }) {
   );
 }
 
-// Centered single-panel layout with the Foundry wordmark, per login/signup/onboarding frames
+// Centered single-panel layout with the Retry wordmark, per login/signup/onboarding frames
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-7 bg-page px-4 py-9">
-      <h1 className="font-display text-[22px] font-bold tracking-tight text-ink">Foundry</h1>
+      <h1 className="font-display text-[22px] font-bold tracking-tight text-ink">Retry</h1>
       {children}
     </main>
   );

@@ -26,13 +26,13 @@ importers:
       '@fastify/rate-limit':
         specifier: ^9.1.0
         version: 9.1.0
-      '@foundry/db':
+      '@retry/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@foundry/maps':
+      '@retry/maps':
         specifier: workspace:*
         version: link:../../packages/maps
-      '@foundry/types':
+      '@retry/types':
         specifier: workspace:*
         version: link:../../packages/types
       argon2:
@@ -60,7 +60,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@types/node':
@@ -90,13 +90,13 @@ importers:
       '@fastify/websocket':
         specifier: ^10.0.1
         version: 10.0.1
-      '@foundry/db':
+      '@retry/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@foundry/maps':
+      '@retry/maps':
         specifier: workspace:*
         version: link:../../packages/maps
-      '@foundry/protocol':
+      '@retry/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       '@tldraw/sync-core':
@@ -121,7 +121,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@types/node':
@@ -160,18 +160,18 @@ importers:
       '@fontsource/space-grotesk':
         specifier: ^5.1.0
         version: 5.2.10
-      '@foundry/maps':
-        specifier: workspace:^
-        version: link:../../packages/maps
-      '@foundry/protocol':
-        specifier: workspace:^
-        version: link:../../packages/protocol
-      '@foundry/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       '@hookform/resolvers':
         specifier: ^3.10.0
         version: 3.10.0(react-hook-form@7.81.0(react@18.3.1))
+      '@retry/maps':
+        specifier: workspace:^
+        version: link:../../packages/maps
+      '@retry/protocol':
+        specifier: workspace:^
+        version: link:../../packages/protocol
+      '@retry/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@tanstack/react-query':
         specifier: ^5.64.1
         version: 5.101.2(react@18.3.1)
@@ -206,7 +206,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@tailwindcss/vite':
@@ -252,7 +252,7 @@ importers:
         specifier: ^8.13.1
         version: 8.22.0
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../config
       '@types/pg':
@@ -280,7 +280,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../config
       '@types/node':
@@ -302,7 +302,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../config
       typescript:
@@ -318,7 +318,7 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@foundry/config':
+      '@retry/config':
         specifier: workspace:*
         version: link:../config
       typescript:

@@ -20,7 +20,7 @@ import {
   type ServerMessage,
   type TransitionMessage,
   type Zone,
-} from '@foundry/protocol';
+} from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
 import type { AvGrant, AvProvider } from '../av/daily.js';
 import {

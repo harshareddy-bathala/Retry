@@ -3,7 +3,7 @@
 // both sides import only this module. Add new cross-boundary events to
 // RoomEventMap; ad-hoc channels are not allowed.
 
-import type { ServerMessage } from '@foundry/protocol';
+import type { ServerMessage } from '@retry/protocol';
 
 export type RoomSocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 

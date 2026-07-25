@@ -1,4 +1,4 @@
-import { parseServerMessage, type ClientMessage } from '@foundry/protocol';
+import { parseServerMessage, type ClientMessage } from '@retry/protocol';
 import { reportWarning } from '../../../lib/report.js';
 import { roomEvents } from '../event-bus.js';
 

@@ -1,6 +1,6 @@
-# @foundry/maps
+# @retry/maps
 
-Tiled map JSON + tileset assets for Foundry Rooms, plus the map contract
+Tiled map JSON + tileset assets for Retry Rooms, plus the map contract
 validator. Maps are data shared by the client (rendering) and the room server
 (collision, spawns) — both load the **same JSON** so they can never disagree
 about where a wall is.
@@ -13,7 +13,7 @@ about where a wall is.
    (`studio_a.json` → mapId `studio_a`), saved into `maps/`.
 3. Tilesets live in `tilesets/` and are referenced relatively
    (`../tilesets/<name>.png`).
-4. Run `pnpm --filter @foundry/maps validate` before committing. CI runs it on
+4. Run `pnpm --filter @retry/maps validate` before committing. CI runs it on
    every push and fails the build on an invalid map.
 
 ## Required structure — every map, no exceptions

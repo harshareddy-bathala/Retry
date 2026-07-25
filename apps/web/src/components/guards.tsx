@@ -5,7 +5,7 @@ import { useAuth } from '../features/auth/AuthContext.js';
 function BootScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-page">
-      <p className="font-display text-lg font-bold text-ink-muted">Foundry</p>
+      <p className="font-display text-lg font-bold text-ink-muted">Retry</p>
     </div>
   );
 }

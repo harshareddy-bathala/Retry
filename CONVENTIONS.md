@@ -1,4 +1,4 @@
-# CONVENTIONS.md — Foundry
+# CONVENTIONS.md — Retry
 
 > Code style and structural conventions. ESLint + Prettier (configs in `packages/config`) enforce what they can; this doc covers what they can't. When in doubt, match the surrounding code.
 

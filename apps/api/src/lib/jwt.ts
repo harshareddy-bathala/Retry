@@ -1,5 +1,5 @@
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
-import type { Role } from '@foundry/types';
+import type { Role } from '@retry/types';
 import { AppError } from './errors.js';
 
 export type AccessTokenClaims = {

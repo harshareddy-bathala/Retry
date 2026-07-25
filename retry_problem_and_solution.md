@@ -1,4 +1,4 @@
-# Foundry — Problem Statement and Proposed Solution
+# Retry — Problem Statement and Proposed Solution
 
 ---
 
@@ -22,9 +22,9 @@ There is also a secondary problem inside active projects. Teams building somethi
 
 ## Proposed Solution
 
-**Foundry** is a college project archival, collaboration, and evaluation platform built specifically for engineering students and faculty at NTTF NEC Bangalore.
+**Retry** is a college project archival, collaboration, and evaluation platform built specifically for engineering students and faculty at NTTF NEC Bangalore.
 
-The core idea is that projects should be shared throughout a student's academic life, not only at graduation. Foundry gives every project a public post — a persistent record that includes what was built, who built it, what technology was used, and where it sits in the lineage of every related project that came before it.
+The core idea is that projects should be shared throughout a student's academic life, not only at graduation. Retry gives every project a public post — a persistent record that includes what was built, who built it, what technology was used, and where it sits in the lineage of every related project that came before it.
 
 ### Living Archive
 
@@ -32,7 +32,7 @@ Students post projects at any stage — a weekend build after Saturday, a mini p
 
 ### Project Lineage
 
-Every project on Foundry can be forked. When a student builds on or improves an existing project, they fork the original post and write a rationale explaining what they changed and why. This creates a directed lineage — a living family tree of every idea and its descendants across years and departments. A student who built an attendance system in 2022 can watch their project evolve through three generations of forks by 2025 students who added face recognition, offline sync, and a mobile interface. The original work doesn't disappear — it becomes the root of something larger.
+Every project on Retry can be forked. When a student builds on or improves an existing project, they fork the original post and write a rationale explaining what they changed and why. This creates a directed lineage — a living family tree of every idea and its descendants across years and departments. A student who built an attendance system in 2022 can watch their project evolve through three generations of forks by 2025 students who added face recognition, offline sync, and a mobile interface. The original work doesn't disappear — it becomes the root of something larger.
 
 ### AI-Assisted Grading with Human Approval
 
@@ -52,9 +52,9 @@ A dedicated tab surfaces two types of content: unbuilt Open Ideas that anyone at
 
 The feed shows projects across all departments. A computer science student looking for help with embedded systems can find a student in the electronics department. A mechanical student who needs a software dashboard for a hardware prototype can find a frontend developer across the aisle. The institutional wall between departments, which normally means students never meet outside their own cohort, becomes permeable through the platform.
 
-### What Foundry Is Not
+### What Retry Is Not
 
-Foundry is not a learning management system. It does not replace attendance tracking, timetables, or any existing college infrastructure. It is not a grading portal — grading is one feature among many, and the platform is useful to students who are never graded through it at all. It is not a social network built for engagement — there are no algorithms optimising for time-on-site. It is a professional archive and collaboration tool that happens to be built for students.
+Retry is not a learning management system. It does not replace attendance tracking, timetables, or any existing college infrastructure. It is not a grading portal — grading is one feature among many, and the platform is useful to students who are never graded through it at all. It is not a social network built for engagement — there are no algorithms optimising for time-on-site. It is a professional archive and collaboration tool that happens to be built for students.
 
 ---
 
@@ -70,10 +70,10 @@ Foundry is not a learning management system. It does not replace attendance trac
 
 ## Why Now
 
-The problem has always existed. What has changed is that the tools to solve it — large language models capable of structured code analysis, vector similarity for plagiarism detection, real-time collaborative infrastructure, and WebRTC for proximity audio — are now accessible to a small student team without enterprise-level resources. Foundry is built on DigitalOcean infrastructure with open-source tooling, designed to run within the budget of a college pilot deployment.
+The problem has always existed. What has changed is that the tools to solve it — large language models capable of structured code analysis, vector similarity for plagiarism detection, real-time collaborative infrastructure, and WebRTC for proximity audio — are now accessible to a small student team without enterprise-level resources. Retry is built on DigitalOcean infrastructure with open-source tooling, designed to run within the budget of a college pilot deployment.
 
-The other thing that has changed is that faculty willingness to mandate platform usage is the difference between a tool students optionally ignore and an archive that actually fills up. With institutional backing, the archive becomes valuable from the first semester. Without it, it takes years. Foundry is designed to earn that backing by solving a problem faculty feel directly — seeing the same project ideas every cycle — not by asking them to change how they teach.
+The other thing that has changed is that faculty willingness to mandate platform usage is the difference between a tool students optionally ignore and an archive that actually fills up. With institutional backing, the archive becomes valuable from the first semester. Without it, it takes years. Retry is designed to earn that backing by solving a problem faculty feel directly — seeing the same project ideas every cycle — not by asking them to change how they teach.
 
 ---
 
-*Foundry is a final year project by a five-member team at NTTF NEC Bangalore, built over 12 months as a working platform for the college itself.*
+*Retry is a final year project by a five-member team at NTTF NEC Bangalore, built over 12 months as a working platform for the college itself.*

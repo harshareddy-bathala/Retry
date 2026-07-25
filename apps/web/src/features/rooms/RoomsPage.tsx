@@ -7,7 +7,7 @@ import type {
   RoomAccessPolicy,
   RoomSummary,
   RoomVisibility,
-} from '@foundry/types';
+} from '@retry/types';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { cn } from '../../lib/cn.js';

@@ -1,5 +1,5 @@
 {
-  "name": "@foundry/types",
+  "name": "@retry/types",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@foundry/config": "workspace:*",
+    "@retry/config": "workspace:*",
     "typescript": "^5.7.3"
   }
 }

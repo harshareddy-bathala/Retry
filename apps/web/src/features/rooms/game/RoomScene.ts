@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import studioA from '@foundry/maps/studio_a.json';
-import commons from '@foundry/maps/commons.json';
-import tilesetUrl from '@foundry/maps/tilesets/placeholder.png';
-import { TILE_SIZE, pixelToTile } from '@foundry/protocol';
+import studioA from '@retry/maps/studio_a.json';
+import commons from '@retry/maps/commons.json';
+import tilesetUrl from '@retry/maps/tilesets/placeholder.png';
+import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
   Actor,
   ActorMoveMessage,
@@ -10,7 +10,7 @@ import type {
   DoorInfo,
   ServerMessage,
   SnapshotMessage,
-} from '@foundry/protocol';
+} from '@retry/protocol';
 import avatarUrl from '../assets/avatar.png';
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';

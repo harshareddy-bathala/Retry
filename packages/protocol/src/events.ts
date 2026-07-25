@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// The single source of truth for the Foundry Rooms movement protocol.
+// The single source of truth for the Retry Rooms movement protocol.
 // Client and server import ONLY from this package — never redefine an
 // event shape locally (Hard Rule 9, WEBSOCKET_EVENTS.md §"Movement protocol").
 

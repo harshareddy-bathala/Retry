@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { Zone } from '@foundry/protocol';
+import type { Zone } from '@retry/protocol';
 import { avatarScreenPositions } from './avatar-positions.js';
 import { avStore } from './av/av-store.js';
 import { roomEvents } from './event-bus.js';

@@ -3,7 +3,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import type { Db } from '@foundry/db';
+import type { Db } from '@retry/db';
 import type { Env } from './lib/env.js';
 import { createJwt } from './lib/jwt.js';
 import type { Mailer } from './lib/email.js';

@@ -1,14 +1,16 @@
-# PROGRESS.md — Foundry
+# PROGRESS.md — Retry
 
 > Living status tracker. Update in the same PR as the work. `ROADMAP.md` is the plan; this is reality. AI assistants: read this to know what exists before writing code that depends on it.
 
-**Last updated:** 2026-07-19
+**Last updated:** 2026-07-25
 
 ## Current State
 
+**Renamed Foundry → Retry (2026-07-25, ADR-011).** One mechanical pass across 103 files: package scope `@foundry/*` → `@retry/*`, root package, spec filenames (`foundry_srs.md` → `retry_srs.md` and siblings, via `git mv` so history follows), env vars, CI, docker-compose, systemd/deploy paths in `DEPLOYMENT.md`, the `foundry_refresh` cookie, the `foundry.rooms.av` localStorage key, and every user-facing string. **No domain is hard-coded anywhere** — the domain is still unchosen (availability decides), so `API_BASE_URL`/`WEB_BASE_URL` remain env vars and the deploy docs say `<domain>`. The local database was renamed in place (`ALTER DATABASE foundry RENAME TO retry`, same for `foundry_test`, plus `ALTER ROLE`) — no volume wipe, all 10 dev accounts and 5 dev rooms intact. Verified: 7 workspaces typecheck + lint clean, 83 tests green (36 api incl. integration, 41 room-server, 6 maps), and a headless-Edge drive — login → Rooms tab → live world → walk — 9/9 checks. Developers need `pnpm install` (package scope changed) and will be logged out once (cookie name changed).
+
 **Phase 0 — Foundations, code-complete locally.** Monorepo scaffolded, auth vertical slice implemented and unit-tested, frontend shell styled with the Figma design tokens (ADR-010), CI defined. Remaining before phase exit: admin endpoints (create-faculty, suspend-user), droplet provisioning, and the staging exit demo. Nothing is pushed or deployed yet.
 
-**Rooms build plan — Phase 0 (Foundation & Contracts) complete locally (2026-07-18).** The Collaboration Rooms multiplayer track (`foundry_rooms_build_plan.md`) runs on its own phase numbering. Landed: `packages/protocol` (WS event discriminated unions + Zod validators + 32px tile/pixel coord helpers), `packages/maps` (`studio_a` Tiled map, placeholder tileset, contract validator wired into CI), `apps/room-server` (Fastify + @fastify/websocket health-check endpoint: connect → empty snapshot → clean close, unparseable frames dropped with a logged warning; leak-checked in tests). Movement protocol registered in `WEBSOCKET_EVENTS.md` §6.
+**Rooms build plan — Phase 0 (Foundation & Contracts) complete locally (2026-07-18).** The Collaboration Rooms multiplayer track (`retry_rooms_build_plan.md`) runs on its own phase numbering. Landed: `packages/protocol` (WS event discriminated unions + Zod validators + 32px tile/pixel coord helpers), `packages/maps` (`studio_a` Tiled map, placeholder tileset, contract validator wired into CI), `apps/room-server` (Fastify + @fastify/websocket health-check endpoint: connect → empty snapshot → clean close, unparseable frames dropped with a logged warning; leak-checked in tests). Movement protocol registered in `WEBSOCKET_EVENTS.md` §6.
 
 **Rooms build plan — Phase 1 (single-player room) complete locally (2026-07-18).** `apps/web` gains the React–Phaser bridge: typed EventBus (`features/rooms/event-bus.ts`, the only React↔Phaser channel), `<RoomCanvas />` with StrictMode-safe mount/destroy, and `RoomScene` — studio_a rendered from the shared Tiled JSON, arcade-physics movement (4 tiles/s, delta-time, normalised diagonals, per-axis wall sliding), camera follow (lerp 0.1, clamped), DPR-crisp name tag, whiteboard "Press E" affordance emitting `interact:whiteboard`. Demo at `/rooms/sandbox` (Rooms nav item), Phaser code-split behind a lazy route. Verified end-to-end in headless Edge: login → walk to whiteboard → E logged in React → wall slide → route remount with no leaked canvas.
 
@@ -51,7 +53,7 @@
 
 ## Requirement Ledger
 
-P1 requirement checkboxes live per-phase; check them off as each lands. (Full IDs in `foundry_srs.md`.) Convention: a requirement is checked only when its `TESTING.md` coverage exists and it's been exercised on staging (see Definition of Done, `CONTRIBUTING.md` §7).
+P1 requirement checkboxes live per-phase; check them off as each lands. (Full IDs in `retry_srs.md`.) Convention: a requirement is checked only when its `TESTING.md` coverage exists and it's been exercised on staging (see Definition of Done, `CONTRIBUTING.md` §7).
 
 ## Known Deviations from SRS
 

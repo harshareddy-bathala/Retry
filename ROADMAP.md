@@ -1,4 +1,4 @@
-# ROADMAP.md — Foundry 12-Month Development Plan
+# ROADMAP.md — Retry 12-Month Development Plan
 
 > Phase-by-phase plan for the 5-member team. Constraint from the SRS: **all P1 complete by end of Month 10, P2 by end of Month 12, P3 only if time permits.** Months 1–10 therefore carry P1 scope; P2 items are explicitly deferred into Months 10–12 even when they belong to an earlier module. Each phase ends with its features deployed to staging and demoed to the team.
 
@@ -66,7 +66,7 @@ Sprint cadence: 2-week sprints, 2 sprints per month. `PROGRESS.md` tracks requir
 
 ## Phase 4 — Rooms: Workspace (Months 6–7)
 
-**Goal: teams live in Foundry while building — everything except the 2D world.**
+**Goal: teams live in Retry while building — everything except the 2D world.**
 
 - Rooms CRUD, invites, leave/transfer/remove, room list with presence (FR-ROOM-01…06)
 - WS server: ticket auth, presence + heartbeat, Redis pub/sub broadcast (FR-ROOM-07, 08; protocol per `WEBSOCKET_EVENTS.md`)

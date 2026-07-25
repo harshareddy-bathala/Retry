@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link } from 'react-router-dom';
-import { registerSchema, type RegisterInput } from '@foundry/types';
+import { registerSchema, type RegisterInput } from '@retry/types';
 import { AuthLayout, AuthPanel, Button, FormError, TextField } from '../../components/ui.js';
 import { api, ApiError } from '../../lib/api.js';
 

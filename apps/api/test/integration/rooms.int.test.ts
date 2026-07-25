@@ -94,7 +94,6 @@ describe.skipIf(!hasTestDb)('rooms API', () => {
     // Seed 60 messages directly (the WS path owns writes in production).
     for (let i = 0; i < 60; i++) {
       await ctx.db.execute(
-        // eslint-disable-next-line no-await-in-loop -- deterministic createdAt ordering
         `INSERT INTO room_messages (room_id, sender_id, body, created_at)
          VALUES ('${roomId}', (SELECT id FROM users LIMIT 1), 'msg ${i}',
                  now() - interval '${60 - i} seconds')`,

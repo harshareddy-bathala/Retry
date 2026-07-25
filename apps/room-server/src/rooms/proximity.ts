@@ -1,4 +1,4 @@
-import type { Zone } from '@foundry/protocol';
+import type { Zone } from '@retry/protocol';
 
 // Server-side proximity engine (rooms build plan Phase 3, SRS Appendix 11.4).
 // Distances are Euclidean, in TILE units, over server-authoritative positions.

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, isNull } from 'drizzle-orm';
-import { emailTokens, refreshTokens, users, type Db, type UserRow } from '@foundry/db';
+import { emailTokens, refreshTokens, users, type Db, type UserRow } from '@retry/db';
 import type {
   AuthUser,
   LoginInput,
   OnboardingInput,
   RegisterInput,
   ResetPasswordInput,
-} from '@foundry/types';
+} from '@retry/types';
 import type { FastifyBaseLogger } from 'fastify';
 import {
   generateOpaqueToken,

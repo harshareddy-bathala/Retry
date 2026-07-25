@@ -1,4 +1,4 @@
-import { createDb } from '@foundry/db';
+import { createDb } from '@retry/db';
 import { buildApp } from './app.js';
 import { createSmtpMailer } from './lib/email.js';
 import { loadEnv } from './lib/env.js';

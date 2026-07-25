@@ -1,5 +1,5 @@
-import studioA from '@foundry/maps/studio_a.json';
-import commons from '@foundry/maps/commons.json';
+import studioA from '@retry/maps/studio_a.json';
+import commons from '@retry/maps/commons.json';
 import {
   validateMap,
   extractDoorSlots,
@@ -7,8 +7,8 @@ import {
   SPAWN_LAYER,
   type DoorSlot,
   type TiledMap,
-} from '@foundry/maps';
-import { TILE_SIZE } from '@foundry/protocol';
+} from '@retry/maps';
+import { TILE_SIZE } from '@retry/protocol';
 
 // The server owns the collision map too, loaded from the SAME map JSON the
 // client renders — the two sides can never disagree about where a wall is.

@@ -1,4 +1,4 @@
 {
-  "extends": "@foundry/config/tsconfig.base.json",
+  "extends": "@retry/config/tsconfig.base.json",
   "include": ["src", "drizzle.config.ts"]
 }

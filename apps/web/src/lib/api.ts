@@ -1,4 +1,4 @@
-import type { AppErrorCode, AuthUser, ErrorEnvelope } from '@foundry/types';
+import type { AppErrorCode, AuthUser, ErrorEnvelope } from '@retry/types';
 
 // Single API client (CONVENTIONS.md §4): auth header, one refresh-retry on 401,
 // error-envelope unwrap. Components never call fetch directly.

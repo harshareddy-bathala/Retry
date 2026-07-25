@@ -1,4 +1,4 @@
-# TECH_STACK.md — Foundry
+# TECH_STACK.md — Retry
 
 > Authoritative list of every technology in the project, its pinned major version, and why it was chosen. If a library is not on this list, do not introduce it without adding an entry here and a rationale in `DECISIONS.md`.
 

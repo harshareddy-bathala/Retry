@@ -1,3 +1,3 @@
-import base from "@foundry/config/eslint";
+import base from "@retry/config/eslint";
 
 export default base;

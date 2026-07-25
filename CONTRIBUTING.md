@@ -1,6 +1,6 @@
-# CONTRIBUTING.md — Foundry
+# CONTRIBUTING.md — Retry
 
-> Team workflow for the 5-member Foundry team. Optimised for parallel work without stepping on each other, with `main` always deployable.
+> Team workflow for the 5-member Retry team. Optimised for parallel work without stepping on each other, with `main` always deployable.
 
 ---
 
@@ -9,7 +9,7 @@
 Prereqs: Node 20 LTS, pnpm 9, Docker Desktop (for local Postgres + Redis).
 
 ```bash
-git clone <repo-url> && cd foundry
+git clone <repo-url> && cd retry
 pnpm install
 cp .env.example .env            # fill in local values
 docker compose up -d            # postgres:15 + pgvector, redis:7

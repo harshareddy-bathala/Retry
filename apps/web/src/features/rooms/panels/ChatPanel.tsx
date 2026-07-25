@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ChatHistoryResponse, RoomMessageDto } from '@foundry/types';
+import type { ChatHistoryResponse, RoomMessageDto } from '@retry/types';
 import { api, ApiError } from '../../../lib/api.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';

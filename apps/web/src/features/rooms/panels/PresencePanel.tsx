@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { RoomMembersResponse } from '@foundry/types';
+import type { RoomMembersResponse } from '@retry/types';
 import { api, ApiError } from '../../../lib/api.js';
 import { useRoomActors } from '../useRoomActors.js';
 

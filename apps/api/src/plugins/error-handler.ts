@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
-import type { ErrorEnvelope } from '@foundry/types';
+import type { ErrorEnvelope } from '@retry/types';
 import { AppError } from '../lib/errors.js';
 
 // Hard Rule 5: raw DB/stack errors never reach the client.

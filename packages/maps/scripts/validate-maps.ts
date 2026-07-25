@@ -1,7 +1,7 @@
 // CLI: validate map JSON files against the Phase 0 map contract.
 // Usage:
-//   pnpm --filter @foundry/maps validate            # all maps in maps/
-//   pnpm --filter @foundry/maps validate <file...>  # specific files
+//   pnpm --filter @retry/maps validate            # all maps in maps/
+//   pnpm --filter @retry/maps validate <file...>  # specific files
 // Exits 1 with per-file errors if any map is invalid. Run in CI.
 /* eslint-disable no-console -- CLI tool; stdout/stderr is its interface */
 

@@ -1,20 +1,20 @@
 {
-  "name": "foundry",
+  "name": "retry",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @foundry/api --filter @foundry/room-server --filter @foundry/web dev",
+    "dev": "pnpm --parallel --filter @retry/api --filter @retry/room-server --filter @retry/web dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "format": "prettier --write \"**/*.{ts,tsx,md,json,yml,css}\"",
-    "db:generate": "pnpm --filter @foundry/db generate",
-    "db:migrate": "pnpm --filter @foundry/db migrate",
-    "db:seed": "pnpm --filter @foundry/db seed"
+    "db:generate": "pnpm --filter @retry/db generate",
+    "db:migrate": "pnpm --filter @retry/db migrate",
+    "db:seed": "pnpm --filter @retry/db seed"
   },
   "devDependencies": {
     "prettier": "^3.4.2"

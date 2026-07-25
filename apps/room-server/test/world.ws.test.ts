@@ -2,7 +2,7 @@ import { afterEach, beforeAll, afterAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
-import { parseServerMessage, type ServerMessage } from '@foundry/protocol';
+import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 

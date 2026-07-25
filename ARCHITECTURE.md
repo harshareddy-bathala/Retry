@@ -1,4 +1,4 @@
-# ARCHITECTURE.md — Foundry
+# ARCHITECTURE.md — Retry
 
 > System architecture, process model, request flows, and source layout. Read this before touching any route, worker, or WebSocket handler.
 
@@ -36,9 +36,9 @@ Three Node processes run on the droplet under systemd:
 
 | Process | Entry | Responsibility |
 |---------|-------|----------------|
-| `foundry-api` | `apps/api/src/server.ts` | REST API **and** room WebSocket server (same Fastify instance, separate plugin scopes) |
-| `foundry-worker` | `apps/api/src/workers/index.ts` | BullMQ consumers: grading, embeddings, AI feature-request suggestions, email |
-| `foundry-tldraw` | tldraw sync server | Whiteboard CRDT sync; persists documents to PostgreSQL |
+| `retry-api` | `apps/api/src/server.ts` | REST API **and** room WebSocket server (same Fastify instance, separate plugin scopes) |
+| `retry-worker` | `apps/api/src/workers/index.ts` | BullMQ consumers: grading, embeddings, AI feature-request suggestions, email |
+| `retry-tldraw` | tldraw sync server | Whiteboard CRDT sync; persists documents to PostgreSQL |
 
 The API and room server share one process in V1 (200 concurrent users fit comfortably). Redis pub/sub is used for room event broadcast from day one so the room server can be split out and scaled horizontally later without protocol changes (NFR-SCALE-02).
 
@@ -47,7 +47,7 @@ The API and room server share one process in V1 (200 concurrent users fit comfor
 ## 2. Monorepo Layout
 
 ```
-foundry/
+retry/
 ├── apps/
 │   ├── web/
 │   │   └── src/

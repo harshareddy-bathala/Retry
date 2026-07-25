@@ -101,7 +101,7 @@ describe('parseServerMessage', () => {
       {
         t: 'avToken',
         mapId: 'commons',
-        roomUrl: 'https://foundry.daily.co/foundry-commons',
+        roomUrl: 'https://retry.daily.co/retry-commons',
         token: 'jwt-token',
       },
       { t: 'error', code: 'ROOM_FULL', message: 'Room is full' },
