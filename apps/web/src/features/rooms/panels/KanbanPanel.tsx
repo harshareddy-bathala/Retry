@@ -1,66 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { KanbanCard, KanbanColumnKey } from '@retry/protocol';
-import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
+import type { Board } from './use-kanban-board.js';
 
-type KanbanPanelProps = { roomId: string };
-
-type Board = {
-  columns: Array<{ key: KanbanColumnKey; label: string }>;
-  cards: Map<string, KanbanCard>;
-};
+type KanbanPanelProps = { board: Board | null };
 
 // Kanban (FR-ROOM-18..20): mutations go over the world socket; the server
 // persists, then broadcasts — this panel only ever renders server state.
 // Drags write ONE fractional position, so two members dragging at once
-// never fight over a reindex.
-export function KanbanPanel({ roomId }: KanbanPanelProps) {
-  const [board, setBoard] = useState<Board | null>(null);
+// never fight over a reindex. The board itself is tracked by useKanbanBoard
+// above this component, because the snapshot arrives on room entry rather
+// than on panel open.
+export function KanbanPanel({ board }: KanbanPanelProps) {
   const [draft, setDraft] = useState<Partial<Record<KanbanColumnKey, string>>>({});
   const [renaming, setRenaming] = useState<KanbanColumnKey | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-
-  useEffect(
-    () =>
-      roomEvents.on('net:server-message', (msg) => {
-        switch (msg.t) {
-          case 'kanbanState':
-            setBoard({ columns: msg.columns, cards: new Map(msg.cards.map((c) => [c.id, c])) });
-            break;
-          case 'kanbanCard':
-            setBoard((prev) => {
-              if (!prev) return prev;
-              const cards = new Map(prev.cards);
-              cards.set(msg.card.id, msg.card);
-              return { ...prev, cards };
-            });
-            break;
-          case 'kanbanCardRemoved':
-            setBoard((prev) => {
-              if (!prev) return prev;
-              const cards = new Map(prev.cards);
-              cards.delete(msg.cardId);
-              return { ...prev, cards };
-            });
-            break;
-          case 'kanbanColumn':
-            setBoard((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    columns: prev.columns.map((c) =>
-                      c.key === msg.column.key ? msg.column : c,
-                    ),
-                  }
-                : prev,
-            );
-            break;
-          default:
-            break;
-        }
-      }),
-    [roomId],
-  );
 
   if (!board) {
     return <p className="px-3 py-4 text-xs text-ink-muted">Loading board…</p>;

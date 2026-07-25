@@ -3,6 +3,7 @@ import { roomEvents } from '../event-bus.js';
 import { ChatPanel } from './ChatPanel.js';
 import { KanbanPanel } from './KanbanPanel.js';
 import { PresencePanel } from './PresencePanel.js';
+import { useKanbanBoard } from './use-kanban-board.js';
 
 // tldraw is enormous; only pull it when the whiteboard actually opens.
 const WhiteboardPanel = lazy(() => import('./WhiteboardPanel.js'));
@@ -29,6 +30,9 @@ export function RoomPanels({ selfUserId }: RoomPanelsProps) {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [active, setActive] = useState<PanelKind | null>(null);
   const [unread, setUnread] = useState(0);
+  // Tracked here, not in the panel: the board snapshot lands on room entry and
+  // updates keep flowing while the panel is closed.
+  const board = useKanbanBoard(roomId);
 
   useEffect(
     () =>
@@ -99,7 +103,7 @@ export function RoomPanels({ selfUserId }: RoomPanelsProps) {
       {active && active !== 'whiteboard' && (
         <div className="absolute bottom-2 right-14 top-2 z-30 flex w-80 flex-col overflow-hidden rounded-panel border border-edge bg-surface shadow-xl">
           {active === 'chat' && <ChatPanel key={roomId} roomId={roomId} selfUserId={selfUserId} />}
-          {active === 'kanban' && <KanbanPanel key={roomId} roomId={roomId} />}
+          {active === 'kanban' && <KanbanPanel key={roomId} board={board} />}
           {active === 'presence' && <PresencePanel key={roomId} roomId={roomId} />}
         </div>
       )}
