@@ -28,8 +28,8 @@ beforeAll(async () => {
       name: 'Open Lab',
       visibility: 'public',
       accessPolicy: 'open',
-      doorX: 3,
-      doorY: 0,
+      doorX: 2,
+      doorY: 1,
       mapTemplate: 'studio_a',
     },
     ['owner-open'],
@@ -40,8 +40,8 @@ beforeAll(async () => {
       name: 'Knock Studio',
       visibility: 'public',
       accessPolicy: 'knock',
-      doorX: 7,
-      doorY: 0,
+      doorX: 6,
+      doorY: 1,
       mapTemplate: 'studio_a',
     },
     ['member-a'],
@@ -110,7 +110,7 @@ async function connect(userId: string, role = 'student'): Promise<Client> {
 
 async function connectAndJoin(userId: string, mapId?: string, role = 'student'): Promise<Client> {
   const client = await connect(userId, role);
-  client.send({ t: 'join', ...(mapId ? { mapId } : {}), displayName: userId, sprite: 'default' });
+  client.send({ t: 'join', ...(mapId ? { mapId } : {}), displayName: userId, sprite: 'maker' });
   await until(() => ofType(client, 'snapshot').length > 0);
   return client;
 }

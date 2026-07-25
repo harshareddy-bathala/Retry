@@ -3,7 +3,6 @@
 //   pnpm --filter @retry/maps validate            # all maps in maps/
 //   pnpm --filter @retry/maps validate <file...>  # specific files
 // Exits 1 with per-file errors if any map is invalid. Run in CI.
-/* eslint-disable no-console -- CLI tool; stdout/stderr is its interface */
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

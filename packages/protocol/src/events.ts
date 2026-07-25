@@ -163,6 +163,16 @@ export const watchMessageSchema = z.object({
 export type WatchMessage = z.infer<typeof watchMessageSchema>;
 
 export const unwatchMessageSchema = z.object({ t: z.literal('unwatch') });
+
+// Choosing one of the six presets (FR-ROOM-24). The sprite on `join` is a
+// hint; THIS is the deliberate choice, and the server persists it per room.
+// Validity is checked against @retry/maps server-side — a client may not
+// invent a character.
+export const avatarMessageSchema = z.object({
+  t: z.literal('avatar'),
+  sprite: z.string().min(1).max(32),
+});
+export type AvatarMessage = z.infer<typeof avatarMessageSchema>;
 export type UnwatchMessage = z.infer<typeof unwatchMessageSchema>;
 
 // FR-ROOM-09's dropdown values, and FR-POST-02's domain list — the same list is
@@ -229,6 +239,7 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   unwatchMessageSchema,
   contextUpdateMessageSchema,
   blueprintUpdateMessageSchema,
+  avatarMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -413,6 +424,18 @@ export const avTokenMessageSchema = z.object({
 });
 export type AvTokenMessage = z.infer<typeof avTokenMessageSchema>;
 
+// Which character you are in this room, and whether you have ever picked one.
+// `chosen: false` is what makes the picker appear on first entry and never
+// again — the client cannot answer that question on its own, because a student
+// may have chosen months ago on another device.
+export const avatarStateMessageSchema = z.object({
+  t: z.literal('avatarState'),
+  mapId: z.string().min(1),
+  sprite: z.string().min(1),
+  chosen: z.boolean(),
+});
+export type AvatarStateMessage = z.infer<typeof avatarStateMessageSchema>;
+
 // --- Workspace state (R4) ---
 
 // Auto-generated only — never user-authored (FR-ROOM-17). `weekly_done` is
@@ -504,6 +527,7 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
   contextStateMessageSchema,
   blueprintFieldMessageSchema,
   journeyEntryMessageSchema,
+  avatarStateMessageSchema,
   evictedMessageSchema,
   errorMessageSchema,
 ]);

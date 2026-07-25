@@ -72,7 +72,7 @@ async function connectAndJoin(userId: string, displayName = userId): Promise<Cli
     client.socket.once('open', () => resolve());
     client.socket.once('error', reject);
   });
-  client.send({ t: 'join', mapId: 'studio_a', displayName, sprite: 'default' });
+  client.send({ t: 'join', mapId: 'studio_a', displayName, sprite: 'maker' });
   await until(() => client.messages.some((m) => m.t === 'snapshot'));
   return client;
 }
@@ -151,16 +151,16 @@ describe('room-server multiplayer', () => {
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
     const b = await connectAndJoin('user-b');
-    // Walk legally from spawn (10.5,7.5) toward the north-west desk cluster…
-    b.send({ t: 'move', x: 8.5, y: 7.5, dir: 'left', moving: true });
-    b.send({ t: 'move', x: 7.5, y: 6.5, dir: 'left', moving: true });
+    // Walk legally from spawn (10.5,7.5) toward the south-east desk cluster…
+    b.send({ t: 'move', x: 11.5, y: 7.5, dir: 'right', moving: true });
+    b.send({ t: 'move', x: 12.5, y: 7.5, dir: 'right', moving: true });
     const before = ofType(b, 'snapshot').length;
-    // …then step 1.41 tiles into desk tile (6,5) — distance is legal, target is blocked.
-    b.send({ t: 'move', x: 6.5, y: 5.5, dir: 'left', moving: true });
+    // …then step one tile into desk tile (12,8): distance legal, target blocked.
+    b.send({ t: 'move', x: 12.5, y: 8.5, dir: 'down', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
     const resync = ofType(b, 'snapshot').at(-1);
     // Authoritative position is the last legal one, not the desk.
-    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 7.5, y: 6.5 });
+    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 12.5, y: 7.5 });
   });
 
   it('caps move relays at 20/s per connection, dropping the excess silently', async () => {

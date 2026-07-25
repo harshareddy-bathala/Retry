@@ -105,6 +105,11 @@ export interface RoomStore {
   clearPresence(userId: string): Promise<void>;
   /** Bump rooms.last_activity_at; drives room-list ordering (FR-ROOM-06). */
   bumpActivity(roomId: string): Promise<void>;
+  /** The preset this member picked for this room, or null if they never have. */
+  avatarFor(roomId: string, userId: string): Promise<string | null>;
+  /** Their most recent pick anywhere — what a static map like the Commons uses. */
+  lastAvatarFor(userId: string): Promise<string | null>;
+  setAvatar(roomId: string, userId: string, sprite: string): Promise<void>;
   /** Written on transition-out and disconnect only — never a movement log. */
   saveLastPosition(roomId: string, userId: string, pos: LastPosition): Promise<void>;
   lastPosition(roomId: string, userId: string): Promise<LastPosition | null>;
@@ -285,6 +290,23 @@ export class InMemoryRoomStore implements RoomStore {
 
   async bumpActivity(roomId: string): Promise<void> {
     this.activity.set(roomId, new Date());
+  }
+
+  private avatars = new Map<string, string>();
+
+  async avatarFor(roomId: string, userId: string): Promise<string | null> {
+    return this.avatars.get(`${roomId}:${userId}`) ?? null;
+  }
+
+  async lastAvatarFor(userId: string): Promise<string | null> {
+    for (const [key, sprite] of this.avatars) {
+      if (key.endsWith(`:${userId}`)) return sprite;
+    }
+    return null;
+  }
+
+  async setAvatar(roomId: string, userId: string, sprite: string): Promise<void> {
+    this.avatars.set(`${roomId}:${userId}`, sprite);
   }
 
   async saveLastPosition(roomId: string, userId: string, pos: LastPosition): Promise<void> {

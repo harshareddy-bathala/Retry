@@ -35,8 +35,8 @@ beforeAll(async () => {
       name: 'Open Lab',
       visibility: 'public',
       accessPolicy: 'open',
-      doorX: 3,
-      doorY: 0,
+      doorX: 2,
+      doorY: 1,
       mapTemplate: 'studio_a',
     },
     [OWNER, MEMBER],
@@ -108,7 +108,7 @@ async function connect(userId: string, role = 'student'): Promise<Client> {
 
 async function connectAndJoin(userId: string, mapId?: string): Promise<Client> {
   const client = await connect(userId);
-  client.send({ t: 'join', ...(mapId ? { mapId } : {}), displayName: userId, sprite: 'default' });
+  client.send({ t: 'join', ...(mapId ? { mapId } : {}), displayName: userId, sprite: 'maker' });
   await until(() => ofType(client, 'snapshot').length > 0);
   return client;
 }

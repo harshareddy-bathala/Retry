@@ -9,6 +9,7 @@ All notable changes to Retry. Format follows [Keep a Changelog](https://keepacha
 - **Renamed the product Foundry → Retry** (ADR-011): package scope `@foundry/*` → `@retry/*`, spec filenames, env vars, service and deploy names, refresh cookie, localStorage key, all user-facing copy. No domain is hard-coded — base URLs stay environment variables. Local dev needs `pnpm install` and a one-time `ALTER DATABASE`/`ALTER ROLE` (2026-07-25)
 
 ### Added
+- Rooms: real art — a 38-tile hand-authored tileset, both maps rebuilt around it, and six avatars a student picks by personality rather than appearance. The picker appears once per room and the choice is stored server-side (2026-07-26)
 - Rooms: the Workspace view — project context (stage, domain tag), Project Blueprint, Build Journey timeline, and chat/board/whiteboard, all without entering the 2D world. A room is now useful when nobody else is online. Both views of a room share one socket, so an edit in either shows up in the other immediately (2026-07-25)
 - Rooms: lifecycle and membership — invite by college email, accept/decline (a decline notifies nobody), leave, remove member, ownership transfer, rename, visibility flip, delete with cascade. Notification bell and a `/rooms/:id` room detail page. A removal now takes effect live: the room server walks the removed member out to the Commons on the same socket instead of leaving them standing in a room they were removed from (2026-07-25)
 - Rooms: live presence — the room list and roster show who is in a room right now, from a heartbeat into `room_members.presence_seen_at`; no sessions table and no attendance history (2026-07-25)
@@ -21,6 +22,7 @@ All notable changes to Retry. Format follows [Keep a Changelog](https://keepacha
 - `.env.example` environment variable contract (2026-07-03)
 
 ### Fixed
+- The world server accepted any string as an avatar sprite straight off the wire; sprites are now whitelisted against the preset list (2026-07-26)
 - The whiteboard never opened and the Kanban board never loaded. Both WebSocket routes dropped the client's first frame — a `ws` socket emits `message` whether or not a listener is attached — and the board's one-shot state arrived before its lazily-mounted panel subscribed (2026-07-25)
 - Chat sent from the Workspace was attributed to "Anonymous": the `watch` message carried no display name, unlike `join` (2026-07-25)
 - Every bodyless `POST` from the browser returned 400: the API client sent a JSON content-type with no body, which Fastify rejects. Accepting an invite hit this (2026-07-25)

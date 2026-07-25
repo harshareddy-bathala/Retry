@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
+import { DEFAULT_AVATAR } from '@retry/maps';
+import { AvatarPicker } from './AvatarPicker.js';
 import { AVControls } from './AVControls.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
@@ -63,7 +65,7 @@ export default function RoomLivePage() {
       token,
       mapId,
       displayName: user.name,
-      sprite: 'default',
+      sprite: DEFAULT_AVATAR,
     });
     return () => {
       roomSocket.disconnect();
@@ -112,6 +114,7 @@ export default function RoomLivePage() {
       <div className="relative">
         <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
         <KnockLayer />
+        <AvatarPicker />
         <RoomPanels selfUserId={user.id} />
       </div>
       <p className="text-sm text-ink-muted">

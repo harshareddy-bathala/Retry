@@ -4,6 +4,7 @@ import {
   parseClientMessage,
   type Actor,
   type BlueprintUpdateMessage,
+  type AvatarMessage,
   type ChatMessage,
   type ContextUpdateMessage,
   type Dir,
@@ -29,6 +30,7 @@ import {
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
 import type { AvGrant, AvProvider } from '../av/livekit.js';
+import { DEFAULT_AVATAR, isAvatarKey } from '@retry/maps';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
@@ -388,6 +390,11 @@ export class RoomHub {
       case 'unwatch':
         this.stopWatching(session);
         break;
+      case 'avatar':
+        void this.onAvatar(session, parsed.message).catch((err: unknown) => {
+          session.log.error({ err }, 'avatar handler failed');
+        });
+        break;
       case 'contextUpdate':
         void this.onContextUpdate(session, parsed.message).catch((err: unknown) => {
           session.log.error({ err }, 'context handler failed');
@@ -448,7 +455,10 @@ export class RoomHub {
       return;
     }
     if (msg.displayName) session.displayName = msg.displayName;
-    if (msg.sprite) session.sprite = msg.sprite;
+    // The client's sprite is a HINT, not a fact: it used to be written straight
+    // onto the session, so anyone could walk around as any string they liked.
+    // Whitelisted here; the authoritative value is resolved per map on entry.
+    if (isAvatarKey(msg.sprite)) session.sprite = msg.sprite;
 
     // No mapId = "spawn me": last-active room if it still admits them, else Commons.
     const targetId = msg.mapId ?? (await this.spawnMapId(session.userId));
@@ -592,6 +602,9 @@ export class RoomHub {
 
     await this.store.setPresence(session.userId, world.id);
 
+    // Before the snapshot: the sprite has to be right in the actorJoin that
+    // follows, or every peer renders a placeholder and then a correction.
+    await this.resolveAvatar(session, world.id, room);
     this.send(session, this.snapshotOf(world));
     this.broadcast(world.id, { t: 'actorJoin', actor: toActor(session) }, session.userId);
     this.emitProximity(
@@ -606,6 +619,48 @@ export class RoomHub {
 
     this.pushAvToken(session, world);
     if (room) this.pushKanbanState(session, room.id);
+  }
+
+  /**
+   * Decide which of the six presets this session walks around as, and tell the
+   * client whether the student has ever actually chosen (FR-ROOM-24). Stored
+   * per room, because a team room is a place you have a look in; the Commons
+   * is a corridor, so it borrows your most recent pick.
+   */
+  private async resolveAvatar(
+    session: Session,
+    mapId: string,
+    room: RoomRecord | null,
+  ): Promise<void> {
+    let stored: string | null = null;
+    try {
+      stored = room
+        ? await this.store.avatarFor(room.id, session.userId)
+        : await this.store.lastAvatarFor(session.userId);
+    } catch (err: unknown) {
+      session.log.warn({ err }, 'avatar lookup failed; using the default');
+    }
+    // A stored value that is no longer a known preset (a preset was retired)
+    // counts as "not chosen": they get the default and are asked again.
+    const chosen = isAvatarKey(stored);
+    session.sprite = isAvatarKey(stored) ? stored : DEFAULT_AVATAR;
+    this.send(session, { t: 'avatarState', mapId, sprite: session.sprite, chosen });
+  }
+
+  private async onAvatar(session: Session, msg: AvatarMessage): Promise<void> {
+    if (!isAvatarKey(msg.sprite)) {
+      session.log.warn({ sprite: msg.sprite }, 'rejected unknown avatar key');
+      return;
+    }
+    session.sprite = msg.sprite;
+    const roomId = this.roomIdOf(session);
+    if (roomId) await this.store.setAvatar(roomId, session.userId, msg.sprite);
+    const mapId = session.map?.id;
+    if (!mapId) return;
+    this.send(session, { t: 'avatarState', mapId, sprite: msg.sprite, chosen: true });
+    // A changed character is an actor change: re-announce rather than inventing
+    // a second event nobody else would know to listen for.
+    this.broadcast(mapId, { t: 'actorJoin', actor: toActor(session) }, session.userId);
   }
 
   /**

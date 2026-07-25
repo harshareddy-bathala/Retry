@@ -7,14 +7,16 @@
     ".": "./src/index.ts",
     "./studio_a.json": "./maps/studio_a.json",
     "./commons.json": "./maps/commons.json",
-    "./tilesets/placeholder.png": "./tilesets/placeholder.png"
+    "./tilesets/retry.png": "./tilesets/retry.png",
+    "./avatars/*.png": "./avatars/*.png"
   },
   "scripts": {
     "validate": "tsx scripts/validate-maps.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src scripts test",
+    "lint": "eslint src scripts test art",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "art": "tsx scripts/generate-art.ts && tsx scripts/author-maps.ts && tsx scripts/validate-maps.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

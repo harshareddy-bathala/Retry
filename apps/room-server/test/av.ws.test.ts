@@ -43,8 +43,8 @@ beforeAll(async () => {
       name: 'Open Lab',
       visibility: 'public',
       accessPolicy: 'open',
-      doorX: 3,
-      doorY: 0,
+      doorX: 2,
+      doorY: 1,
       mapTemplate: 'studio_a',
     },
     ['owner-open'],
@@ -87,7 +87,7 @@ async function connectAndJoin(userId: string, mapId: string): Promise<Client> {
     socket.once('open', () => resolve());
     socket.once('error', reject);
   });
-  client.send({ t: 'join', mapId, displayName: userId, sprite: 'default' });
+  client.send({ t: 'join', mapId, displayName: userId, sprite: 'maker' });
   await until(() => messages.some((m) => m.t === 'snapshot'));
   return client;
 }

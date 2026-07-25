@@ -57,7 +57,7 @@ async function connectAndJoin(userId: string): Promise<Client> {
     socket.once('open', () => resolve());
     socket.once('error', reject);
   });
-  client.send({ t: 'join', mapId: 'studio_a', displayName: userId, sprite: 'default' });
+  client.send({ t: 'join', mapId: 'studio_a', displayName: userId, sprite: 'maker' });
   await until(() => messages.some((m) => m.t === 'snapshot'));
   return client;
 }

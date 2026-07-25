@@ -253,6 +253,34 @@ export class DrizzleRoomStore implements RoomStore {
       });
   }
 
+  async avatarFor(roomId: string, userId: string): Promise<string | null> {
+    if (!isUuid(roomId) || !isUuid(userId)) return null;
+    const [row] = await this.db
+      .select({ sprite: roomMembers.avatarSprite })
+      .from(roomMembers)
+      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId)))
+      .limit(1);
+    return row?.sprite ?? null;
+  }
+
+  async lastAvatarFor(userId: string): Promise<string | null> {
+    if (!isUuid(userId)) return null;
+    const rows = await this.db
+      .select({ sprite: roomMembers.avatarSprite })
+      .from(roomMembers)
+      .where(and(eq(roomMembers.userId, userId), isNotNull(roomMembers.avatarSprite)))
+      .limit(1);
+    return rows[0]?.sprite ?? null;
+  }
+
+  async setAvatar(roomId: string, userId: string, sprite: string): Promise<void> {
+    if (!isUuid(roomId) || !isUuid(userId)) return;
+    await this.db
+      .update(roomMembers)
+      .set({ avatarSprite: sprite })
+      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId)));
+  }
+
   // --- Workspace (R4) ---
 
   async workspace(roomId: string): Promise<WorkspaceRecord | null> {

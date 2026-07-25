@@ -163,6 +163,10 @@ export const roomMembers = pgTable(
     // without a sessions table — which SRS line 301 forbids. It is a single
     // mutable cell per membership, never an append-only attendance history.
     presenceSeenAt: timestamp('presence_seen_at', { withTimezone: true }),
+    // Which of the six presets this member walks around as (FR-ROOM-24).
+    // Stored as the preset KEY rather than an index: keys survive re-ordering
+    // the list, indexes silently reassign everyone's character.
+    avatarSprite: text('avatar_sprite'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

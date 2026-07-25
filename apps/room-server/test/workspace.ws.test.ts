@@ -102,7 +102,7 @@ async function watch(userId: string, roomId = ROOM): Promise<Client> {
 /** A Live Space session: joined the room's map, with an avatar. */
 async function join(userId: string, mapId = ROOM): Promise<Client> {
   const client = await connect(userId);
-  client.send({ t: 'join', mapId, displayName: userId, sprite: 'default' });
+  client.send({ t: 'join', mapId, displayName: userId, sprite: 'maker' });
   await until(() => ofType(client, 'snapshot').length > 0);
   return client;
 }

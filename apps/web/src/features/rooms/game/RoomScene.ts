@@ -1,7 +1,14 @@
 import Phaser from 'phaser';
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
-import tilesetUrl from '@retry/maps/tilesets/placeholder.png';
+import tilesetUrl from '@retry/maps/tilesets/retry.png';
+import { AVATARS, DEFAULT_AVATAR } from '@retry/maps';
+import makerUrl from '@retry/maps/avatars/maker.png';
+import plannerUrl from '@retry/maps/avatars/planner.png';
+import nightowlUrl from '@retry/maps/avatars/nightowl.png';
+import explorerUrl from '@retry/maps/avatars/explorer.png';
+import tinkererUrl from '@retry/maps/avatars/tinkerer.png';
+import connectorUrl from '@retry/maps/avatars/connector.png';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
   Actor,
@@ -11,7 +18,6 @@ import type {
   ServerMessage,
   SnapshotMessage,
 } from '@retry/protocol';
-import avatarUrl from '../assets/avatar.png';
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
@@ -21,7 +27,19 @@ import { roomSocket } from '../net/room-socket.js';
 const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
 
 const TILES_KEY = 'tiles';
-const AVATAR_KEY = 'avatar';
+
+// One sheet per preset (R5). Keyed by the same string the server stores and
+// the wire carries, so an actor's `sprite` IS its texture key.
+const AVATAR_URLS: Record<string, string> = {
+  maker: makerUrl,
+  planner: plannerUrl,
+  nightowl: nightowlUrl,
+  explorer: explorerUrl,
+  tinkerer: tinkererUrl,
+  connector: connectorUrl,
+};
+const textureFor = (sprite: string): string =>
+  `avatar-${sprite in AVATAR_URLS ? sprite : DEFAULT_AVATAR}`;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -59,6 +77,8 @@ type Remote = {
   dir: Dir;
   moving: boolean;
   lastUpdateAt: number;
+  /** Which preset they chose; part of every animation key. */
+  sprite_key: string;
 };
 
 type Interactable = {
@@ -76,6 +96,8 @@ export class RoomScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: MoveKeys;
   private facing: Facing = 'down';
+  /** Which of the six presets this player is; the server decides it. */
+  private selfSprite = DEFAULT_AVATAR;
   private nameTag!: Phaser.GameObjects.Container;
   private remotes = new Map<string, Remote>();
   private wasMoving = false;
@@ -107,34 +129,44 @@ export class RoomScene extends Phaser.Scene {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
     this.load.image(TILES_KEY, tilesetUrl);
-    this.load.spritesheet(AVATAR_KEY, avatarUrl, { frameWidth: 32, frameHeight: 32 });
+    for (const spec of AVATARS) {
+      this.load.spritesheet(textureFor(spec.key), AVATAR_URLS[spec.key]!, {
+        frameWidth: 32,
+        frameHeight: 32,
+      });
+    }
   }
 
   create(): void {
     // Everything map-independent boots here; the world itself is built from
     // the first snapshot (the server decides where this user spawns).
-    this.player = this.physics.add.sprite(0, 0, AVATAR_KEY, 0).setVisible(false);
+    this.player = this.physics.add.sprite(0, 0, textureFor(DEFAULT_AVATAR), 0).setVisible(false);
     const body = this.player.body as Phaser.Physics.Arcade.Body | null;
     if (!body) throw new Error('player has no arcade body');
     this.playerBody = body;
     // Feet-box collision so the avatar's head can overlap wall tiles top-down style.
     this.playerBody.setSize(18, 12).setOffset(7, 18);
 
-    DIRS.forEach((dir, row) => {
-      this.anims.create({
-        key: `walk-${dir}`,
-        frames: this.anims.generateFrameNumbers(AVATAR_KEY, {
-          frames: [row * 4 + 1, row * 4 + 2, row * 4 + 3, row * 4 + 2],
-        }),
-        frameRate: 8,
-        repeat: -1,
+    // Every preset gets its own eight animations; the sprite key is part of the
+    // animation key so a character change is a texture swap, not a re-rig.
+    for (const spec of AVATARS) {
+      const key = textureFor(spec.key);
+      DIRS.forEach((dir, row) => {
+        this.anims.create({
+          key: `walk-${spec.key}-${dir}`,
+          frames: this.anims.generateFrameNumbers(key, {
+            frames: [row * 4 + 1, row * 4 + 2, row * 4 + 3, row * 4 + 2],
+          }),
+          frameRate: 8,
+          repeat: -1,
+        });
+        this.anims.create({
+          key: `idle-${spec.key}-${dir}`,
+          frames: [{ key, frame: row * 4 }],
+        });
       });
-      this.anims.create({
-        key: `idle-${dir}`,
-        frames: [{ key: AVATAR_KEY, frame: row * 4 }],
-      });
-    });
-    this.player.anims.play('idle-down');
+    }
+    this.player.anims.play(`idle-${this.selfSprite}-down`);
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
     this.nameTag.setVisible(false);
@@ -198,9 +230,9 @@ export class RoomScene extends Phaser.Scene {
     const moving = vx !== 0 || vy !== 0;
     if (moving) {
       this.facing = vy < 0 ? 'up' : vy > 0 ? 'down' : vx < 0 ? 'left' : 'right';
-      this.player.anims.play(`walk-${this.facing}`, true);
+      this.player.anims.play(`walk-${this.selfSprite}-${this.facing}`, true);
     } else {
-      this.player.anims.play(`idle-${this.facing}`, true);
+      this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
     }
 
     // Fixed 50ms send tick while input is active, plus one final message when
@@ -238,6 +270,12 @@ export class RoomScene extends Phaser.Scene {
     switch (msg.t) {
       case 'snapshot':
         this.onSnapshot(msg);
+        break;
+      case 'avatarState':
+        // The server owns which preset we are; the scene just wears it.
+        this.selfSprite = msg.sprite in AVATAR_URLS ? msg.sprite : DEFAULT_AVATAR;
+        this.player.setTexture(textureFor(this.selfSprite));
+        this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
         break;
       case 'actorJoin':
         if (msg.actor.userId !== this.userId) this.upsertRemote(msg.actor);
@@ -326,7 +364,7 @@ export class RoomScene extends Phaser.Scene {
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
     const row = DIRS.indexOf(actor.dir);
-    const sprite = this.add.sprite(x, y, AVATAR_KEY, (row < 0 ? 0 : row) * 4);
+    const sprite = this.add.sprite(x, y, textureFor(actor.sprite), (row < 0 ? 0 : row) * 4);
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
     tag.setPosition(x, y - 26);
     this.remotes.set(actor.userId, {
@@ -340,6 +378,7 @@ export class RoomScene extends Phaser.Scene {
       dir: actor.dir,
       moving: actor.moving,
       lastUpdateAt: this.time.now,
+      sprite_key: actor.sprite in AVATAR_URLS ? actor.sprite : DEFAULT_AVATAR,
     });
   }
 
@@ -378,9 +417,9 @@ export class RoomScene extends Phaser.Scene {
         remote.moving = false;
       }
       if (remote.moving) {
-        remote.sprite.anims.play(`walk-${remote.dir}`, true);
+        remote.sprite.anims.play(`walk-${remote.sprite_key}-${remote.dir}`, true);
       } else {
-        remote.sprite.anims.play(`idle-${remote.dir}`, true);
+        remote.sprite.anims.play(`idle-${remote.sprite_key}-${remote.dir}`, true);
       }
     }
   }
@@ -403,8 +442,8 @@ export class RoomScene extends Phaser.Scene {
     this.clearDoorVisuals();
 
     const map = this.make.tilemap({ key: template });
-    const tiles = map.addTilesetImage('placeholder', TILES_KEY);
-    if (!tiles) throw new Error('tileset "placeholder" missing from map');
+    const tiles = map.addTilesetImage('retry', TILES_KEY);
+    if (!tiles) throw new Error('tileset "retry" missing from map');
 
     const ground = map.createLayer('ground', tiles, 0, 0);
     const objects = map.createLayer('objects', tiles, 0, 0);
