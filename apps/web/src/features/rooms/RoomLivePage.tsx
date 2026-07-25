@@ -23,7 +23,6 @@ export default function RoomLivePage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const mapId = searchParams.get('map') ?? undefined;
-  const [interactions, setInteractions] = useState<string[]>([]);
   const [av, setAv] = useState<AvState>(loadAvState);
   const avRef = useRef(av);
   avRef.current = av;
@@ -40,17 +39,6 @@ export default function RoomLivePage() {
             ? 'That room was deleted. You are back in the Commons.'
             : 'You are no longer a member of that room. You are back in the Commons.',
         );
-      }),
-    [],
-  );
-
-  useEffect(
-    () =>
-      roomEvents.on('interact:whiteboard', () => {
-        setInteractions((prev) => [
-          ...prev,
-          `interact:whiteboard — ${new Date().toLocaleTimeString()}`,
-        ]);
       }),
     [],
   );
@@ -102,7 +90,7 @@ export default function RoomLivePage() {
           </Link>
         </div>
         <p className="font-mono text-xs text-ink-muted">
-          WASD / arrows to move · E at a door to walk through · phase 4 · multi-map
+          WASD or arrows to move · E at a door to walk through
         </p>
       </div>
       {notice && (
@@ -126,24 +114,11 @@ export default function RoomLivePage() {
         <KnockLayer />
         <RoomPanels selfUserId={user.id} />
       </div>
-      <div className="rounded-panel border border-edge bg-surface px-4 py-3">
-        <p className="font-mono text-[11px] uppercase text-ink-muted">EventBus log</p>
-        {interactions.length === 0 ? (
-          <p className="mt-1 text-sm text-ink-muted">
-            You spawn in your last room (or the Commons). Doors along the Commons&apos; north wall
-            lead into public rooms — locked ones make you knock. Rooms have an exit door on the
-            south wall.
-          </p>
-        ) : (
-          <ul className="mt-1 space-y-0.5">
-            {interactions.map((entry, i) => (
-              <li key={i} className="font-mono text-xs text-ink">
-                {entry}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <p className="text-sm text-ink-muted">
+        You spawn in your last room, or the Commons. Doors along the Commons&apos; north wall lead
+        into public rooms — locked ones make you knock. Each room has an exit door on its south
+        wall.
+      </p>
     </div>
   );
 }

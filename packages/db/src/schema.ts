@@ -80,6 +80,26 @@ export const emailTokens = pgTable(
 // Rooms multi-map world (rooms build plan Phase 4)
 // ---------------------------------------------------------------------------
 
+// Canonical definitions live in packages/protocol/src/events.ts (the wire
+// contract); these mirror them, exactly as kanbanColumnKey already does.
+export const projectStage = pgEnum('project_stage', [
+  'ideation',
+  'planning',
+  'building',
+  'testing',
+  'complete',
+]);
+export const domainTag = pgEnum('domain_tag', [
+  'Education',
+  'Healthcare',
+  'Fintech',
+  'Logistics',
+  'Government',
+  'Social',
+  'Productivity',
+  'Other',
+]);
+
 export const roomVisibility = pgEnum('room_visibility', ['public', 'private']);
 export const roomAccessPolicy = pgEnum('room_access_policy', ['open', 'knock', 'invite_only']);
 export const roomMemberRole = pgEnum('room_member_role', ['owner', 'member']);
@@ -106,6 +126,10 @@ export const rooms = pgTable('rooms', {
   doorX: integer('door_x'),
   doorY: integer('door_y'),
   mapTemplate: text('map_template').notNull().default('studio_a'),
+  // Project context header (FR-ROOM-09). The room's own `name` doubles as the
+  // project name — two editable names for one thing would only ever disagree.
+  projectStage: projectStage('project_stage').notNull().default('ideation'),
+  domainTag: domainTag('domain_tag'),
   // tldraw document (FR-ROOM-38), written by the whiteboard sync server only.
   whiteboardState: jsonb('whiteboard_state'),
   // Denormalised "something happened in here" clock for the room list ordering
@@ -229,6 +253,68 @@ export const notifications = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Workspace (R4)
+// ---------------------------------------------------------------------------
+
+// One row per room, created on first edit. Kept off `rooms` deliberately: that
+// row is read on every join and door-plaque rebuild, and blueprint prose is
+// neither small nor needed there.
+export const roomBlueprint = pgTable('room_blueprint', {
+  roomId: uuid('room_id')
+    .primaryKey()
+    .references(() => rooms.id, { onDelete: 'cascade' }),
+  // FR-ROOM-11: all three optional, never validated, empty is a real answer.
+  problem: text('problem'),
+  audience: text('audience'),
+  existing: text('existing'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const blueprintField = pgEnum('blueprint_field', ['problem', 'audience', 'existing']);
+
+// FR-ROOM-12: "how our thinking evolved", for the team's own reference only —
+// never shown to faculty and never an input to grading.
+export const roomBlueprintEdits = pgTable(
+  'room_blueprint_edits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    field: blueprintField('field').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    value: text('value').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('room_blueprint_edits_room_idx').on(t.roomId, t.createdAt)],
+);
+
+export const journeyKind = pgEnum('journey_kind', [
+  'room_created',
+  'blueprint_first_edit',
+  'stage_change',
+]);
+
+// FR-ROOM-17. Append-only and server-generated — a member can never write one
+// directly. The weekly "Done" rollup is NOT stored: it is computed from the
+// board at read time, so it stays true when cards move afterwards.
+export const roomJourneyEntries = pgTable(
+  'room_journey_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    kind: journeyKind('kind').notNull(),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('room_journey_entries_room_idx').on(t.roomId, t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
 // Persistent panels (rooms build plan Phase 6)
 // ---------------------------------------------------------------------------
 
@@ -293,6 +379,8 @@ export type NewRoomRow = typeof rooms.$inferInsert;
 export type RoomMemberRow = typeof roomMembers.$inferSelect;
 export type RoomAccessRequestRow = typeof roomAccessRequests.$inferSelect;
 export type RoomInviteRow = typeof roomInvites.$inferSelect;
+export type RoomBlueprintRow = typeof roomBlueprint.$inferSelect;
+export type RoomJourneyEntryRow = typeof roomJourneyEntries.$inferSelect;
 export type NotificationRow = typeof notifications.$inferSelect;
 export type RoomMessageRow = typeof roomMessages.$inferSelect;
 export type KanbanCardRow = typeof kanbanCards.$inferSelect;

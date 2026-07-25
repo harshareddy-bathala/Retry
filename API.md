@@ -106,7 +106,7 @@
 |---|---|---|---|
 | GET `/rooms` | S | built | `{ mine, discover }`, newest activity first, each room carrying `memberCount`, `lastActivityAt` and `presentMembers` (who is in the live space right now) |
 | POST `/rooms` | S | built | Create; public rooms claim the lowest free Commons door slot, private rooms get none |
-| GET `/rooms/:id` | S (member; public rooms visible to all) | built | Room detail. Grows into the full Workspace payload (context, blueprint, journey) in R4 |
+| GET `/rooms/:id` | S (member; public rooms visible to all) | built | Room summary for the Workspace header, incl. `projectStage` and `domainTag`. The live Workspace payload — blueprint, journey, presence — arrives over the **WebSocket** in reply to `watch`, not here: one read path, and it stays live (R4) |
 | PATCH `/rooms/:id` | S (owner) | built | Rename / description / visibility. Flipping to public claims a door slot (409 `NO_FREE_DOOR_SLOT`), to private releases it and forces `invite_only` |
 | DELETE `/rooms/:id` | S (owner) | built | Permanent cascade — chat, board and whiteboard go too (FR-ROOM-36) |
 | POST `/rooms/:id/invites` | S (owner) | built | `{ email }` or `{ userId }` → `{ inviteId }`. 404 unknown, 403 non-student, 409 already a member / already invited |

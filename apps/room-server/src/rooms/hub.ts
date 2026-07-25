@@ -3,10 +3,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import {
   parseClientMessage,
   type Actor,
+  type BlueprintUpdateMessage,
   type ChatMessage,
+  type ContextUpdateMessage,
   type Dir,
   type DoorInfo,
   type EvictReason,
+  type JourneyEntry,
+  type ProjectStage,
   type JoinMessage,
   type KanbanCard,
   type KanbanCreateMessage,
@@ -20,6 +24,7 @@ import {
   type MoveMessage,
   type ServerMessage,
   type TransitionMessage,
+  type WatchMessage,
   type Zone,
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
@@ -32,7 +37,13 @@ import {
   isBlocked,
   type WorldMap,
 } from '../world/maps.js';
-import type { KanbanCardRecord, LastPosition, RoomRecord, RoomStore } from '../world/store.js';
+import type {
+  JourneyEntryRecord,
+  KanbanCardRecord,
+  LastPosition,
+  RoomRecord,
+  RoomStore,
+} from '../world/store.js';
 import { ProximityEngine, type PairChange } from './proximity.js';
 
 const MOVES_PER_SECOND = 20;
@@ -47,6 +58,42 @@ export const KNOCK_TIMEOUT_MS = 60_000;
  * frame disappears from "who's here" within that window.
  */
 const PRESENCE_HEARTBEAT_MS = 20_000;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * What a Workspace watcher receives from a room's broadcast channel (R4).
+ *
+ * Deliberately not everything: movement and proximity are the highest-volume
+ * messages on the wire and mean nothing to a page with no canvas, so they stop
+ * at the map boundary. Panels, workspace edits and who-is-in-the-room do cross.
+ */
+const WATCHER_EVENTS: ReadonlySet<ServerMessage['t']> = new Set([
+  'chatMessage',
+  'kanbanState',
+  'kanbanCard',
+  'kanbanCardRemoved',
+  'kanbanColumn',
+  'workspaceState',
+  'contextState',
+  'blueprintField',
+  'journeyEntry',
+  'actorJoin',
+  'actorLeave',
+]);
+
+const STAGE_LABEL: Record<ProjectStage, string> = {
+  ideation: 'Ideation',
+  planning: 'Planning',
+  building: 'Building',
+  testing: 'Testing',
+  complete: 'Complete',
+};
+
+const BLUEPRINT_LABEL = {
+  problem: 'What problem are we solving',
+  audience: 'Who experiences this problem',
+  existing: 'What already exists',
+} as const;
 
 type Session = {
   socket: WebSocket;
@@ -68,6 +115,12 @@ type Session = {
   granted: Set<string>;
   /** Serializes join/transition — overlapping async ops are dropped, not queued. */
   busy: boolean;
+  /**
+   * The room whose Workspace this session is subscribed to, if any (R4). A
+   * session watches at most one room: the Workspace is one page. Watching is
+   * orthogonal to standing in a map — a member can do either, both, or neither.
+   */
+  watching: string | null;
   /** Last AV grant, so a resync re-sends it without minting a new token. */
   avGrant: { mapId: string; grant: AvGrant } | null;
   /** First avToken timestamp — participant-time accounting (SRS §3.4). */
@@ -98,6 +151,8 @@ export type RoomHubDeps = {
 // door, the session simply moves between map registries.
 export class RoomHub {
   private mapSessions = new Map<string, Map<string, Session>>();
+  /** roomId → sessions subscribed to its Workspace without standing in it (R4). */
+  private watchers = new Map<string, Set<Session>>();
   private all = new Set<Session>();
   private proximity = new ProximityEngine();
   private ticker: ReturnType<typeof setInterval> | null = null;
@@ -183,10 +238,15 @@ export class RoomHub {
     target: { userIds?: string[]; except?: string[] },
     reason: EvictReason,
   ): Promise<number> {
-    const inRoom = [...(this.mapSessions.get(roomId)?.values() ?? [])];
+    // Watchers hold the room's Workspace open with no avatar; losing access
+    // has to close that too, or a removed member keeps reading the chat.
+    const affected = new Set([
+      ...(this.mapSessions.get(roomId)?.values() ?? []),
+      ...(this.watchers.get(roomId) ?? []),
+    ]);
     const wanted = target.userIds ? new Set(target.userIds) : null;
     const spared = target.except ? new Set(target.except) : null;
-    const targets = inRoom.filter(
+    const targets = [...affected].filter(
       (s) => (wanted ? wanted.has(s.userId) : true) && !spared?.has(s.userId),
     );
     if (targets.length === 0) return 0;
@@ -196,8 +256,11 @@ export class RoomHub {
       // A knock grant was permission to be in a room they have now lost.
       session.granted.delete(roomId);
       this.send(session, { t: 'evicted', roomId, reason });
-      if (commons) await this.enterMap(session, commons.world, null);
-      else this.leaveMap(session);
+      if (session.watching === roomId) this.stopWatching(session);
+      if (session.map?.id === roomId) {
+        if (commons) await this.enterMap(session, commons.world, null);
+        else this.leaveMap(session);
+      }
       session.log.info({ userId: session.userId, roomId, reason }, 'evicted from room');
     }
     return targets.length;
@@ -235,6 +298,7 @@ export class RoomHub {
       movesInWindow: 0,
       granted: new Set(),
       busy: false,
+      watching: null,
       avGrant: null,
       avStartedAt: null,
     };
@@ -254,6 +318,7 @@ export class RoomHub {
       }
       void this.persistPosition(session);
       this.leaveMap(session);
+      this.stopWatching(session);
       this.all.delete(session);
       // Static-map positions are for within-session door round-trips only —
       // a fresh connection starts at the spawn (rooms restore from the store).
@@ -315,6 +380,22 @@ export class RoomHub {
       case 'kanbanRenameColumn':
         void this.onKanban(session, parsed.message).catch((err: unknown) => {
           session.log.error({ err }, 'kanban handler failed');
+        });
+        break;
+      case 'watch':
+        this.runExclusive(session, parsed.message, (msg) => this.onWatch(session, msg));
+        break;
+      case 'unwatch':
+        this.stopWatching(session);
+        break;
+      case 'contextUpdate':
+        void this.onContextUpdate(session, parsed.message).catch((err: unknown) => {
+          session.log.error({ err }, 'context handler failed');
+        });
+        break;
+      case 'blueprintUpdate':
+        void this.onBlueprintUpdate(session, parsed.message).catch((err: unknown) => {
+          session.log.error({ err }, 'blueprint handler failed');
         });
         break;
     }
@@ -472,9 +553,12 @@ export class RoomHub {
    * rule; re-handshaking would make doors feel like page loads).
    */
   private async enterMap(session: Session, world: WorldMap, room: RoomRecord | null): Promise<void> {
-    // One presence per user: supersede every other connection of this user.
+    // One AVATAR per user: supersede every other connection of this user that
+    // is standing on a map. A watch-only session (the Workspace, R4) has no
+    // avatar to duplicate, so opening the Live Space in a second tab must not
+    // tear down the Workspace you left open in the first.
     for (const other of [...this.all]) {
-      if (other !== session && other.userId === session.userId) {
+      if (other !== session && other.userId === session.userId && other.map !== null) {
         void this.persistPosition(other);
         this.leaveMap(other);
         this.all.delete(other);
@@ -739,13 +823,210 @@ export class RoomHub {
   }
 
   // ---------------------------------------------------------------------------
+  // Workspace (R4): the room without the map
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Subscribe a member to a room's panel channel with no actor, no proximity
+   * and no AV. This is what makes a room usable when nobody else is online:
+   * the Workspace reuses the same socket and the same panel components as the
+   * Live Space, so chat, the board and the Blueprint are live in both views
+   * (FR-ROOM-33, FR-ROOM-10) without a second transport.
+   */
+  private async onWatch(session: Session, msg: WatchMessage): Promise<void> {
+    if (session.role !== 'student') {
+      this.send(session, {
+        t: 'error',
+        code: 'FORBIDDEN',
+        message: 'Rooms are a student space.',
+      });
+      return;
+    }
+    if (!(await this.store.isMember(msg.roomId, session.userId))) {
+      this.send(session, {
+        t: 'error',
+        code: 'FORBIDDEN',
+        message: 'Only room members can open this workspace.',
+      });
+      return;
+    }
+    if (msg.displayName) session.displayName = msg.displayName;
+    this.stopWatching(session);
+    session.watching = msg.roomId;
+    let set = this.watchers.get(msg.roomId);
+    if (!set) {
+      set = new Set();
+      this.watchers.set(msg.roomId, set);
+    }
+    set.add(session);
+
+    await this.pushWorkspaceState(session, msg.roomId);
+    this.pushKanbanState(session, msg.roomId);
+  }
+
+  private stopWatching(session: Session): void {
+    const roomId = session.watching;
+    if (!roomId) return;
+    session.watching = null;
+    const set = this.watchers.get(roomId);
+    if (!set) return;
+    set.delete(session);
+    if (set.size === 0) this.watchers.delete(roomId);
+  }
+
+  private async pushWorkspaceState(session: Session, roomId: string): Promise<void> {
+    const workspace = await this.store.workspace(roomId);
+    if (!workspace) {
+      this.send(session, { t: 'error', code: 'UNKNOWN_MAP', message: 'No such room.' });
+      return;
+    }
+    if (session.watching !== roomId) return; // moved on while loading
+    this.send(session, {
+      t: 'workspaceState',
+      roomId,
+      name: workspace.name,
+      stage: workspace.stage,
+      domainTag: workspace.domainTag,
+      blueprint: workspace.blueprint,
+      journey: await this.journeyWithRollup(roomId, workspace.journey),
+      present: this.actorsIn(roomId).map((a) => ({
+        userId: a.userId,
+        displayName: a.displayName,
+      })),
+    });
+  }
+
+  /**
+   * Stored entries plus the weekly Done count (FR-ROOM-17), which is computed
+   * here rather than stored: a card can move out of Done after the fact, and a
+   * frozen row would keep claiming otherwise.
+   */
+  private async journeyWithRollup(
+    roomId: string,
+    stored: JourneyEntryRecord[],
+  ): Promise<JourneyEntry[]> {
+    const entries: JourneyEntry[] = stored.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      body: e.body,
+      createdAt: e.createdAt.toISOString(),
+    }));
+    const since = new Date(Date.now() - WEEK_MS);
+    const done = await this.store.doneSince(roomId, since).catch(() => 0);
+    if (done > 0) {
+      entries.push({
+        id: `weekly-done-${since.toISOString().slice(0, 10)}`,
+        kind: 'weekly_done',
+        body: `This week — ${done} ${done === 1 ? 'task' : 'tasks'} in Done`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return entries;
+  }
+
+  private async onContextUpdate(session: Session, msg: ContextUpdateMessage): Promise<void> {
+    const roomId = this.roomIdOf(session);
+    if (!roomId) return;
+    if (!(await this.requireMember(session, roomId, 'Only room members can edit this room.'))) {
+      return;
+    }
+    const before = await this.store.workspace(roomId);
+    await this.store.updateContext(roomId, {
+      ...(msg.stage !== undefined ? { stage: msg.stage } : {}),
+      ...(msg.domainTag !== undefined ? { domainTag: msg.domainTag } : {}),
+    });
+    this.touchRoom(roomId);
+
+    const after = await this.store.workspace(roomId);
+    if (!after) return;
+    this.broadcast(roomId, {
+      t: 'contextState',
+      roomId,
+      stage: after.stage,
+      domainTag: after.domainTag,
+    });
+    // A stage change is a milestone; picking a domain tag is not.
+    if (before && before.stage !== after.stage) {
+      await this.appendJourney(roomId, 'stage_change', `Stage moved to ${STAGE_LABEL[after.stage]}`);
+    }
+  }
+
+  private async onBlueprintUpdate(
+    session: Session,
+    msg: BlueprintUpdateMessage,
+  ): Promise<void> {
+    const roomId = this.roomIdOf(session);
+    if (!roomId) return;
+    if (!(await this.requireMember(session, roomId, 'Only room members can edit the blueprint.'))) {
+      return;
+    }
+    // Free text, never validated (FR-ROOM-11) — an empty value is a real
+    // answer meaning "we cleared this", so only control characters are removed.
+    const value = sanitizeText(msg.value);
+    const { firstEdit } = await this.store.saveBlueprintField(
+      roomId,
+      msg.field,
+      value,
+      session.userId,
+    );
+    this.touchRoom(roomId);
+    this.broadcast(roomId, {
+      t: 'blueprintField',
+      field: msg.field,
+      value,
+      editedBy: session.userId,
+      editedByName: session.displayName,
+      at: new Date().toISOString(),
+    });
+    if (firstEdit && value.length > 0) {
+      await this.appendJourney(
+        roomId,
+        'blueprint_first_edit',
+        `${BLUEPRINT_LABEL[msg.field]}: ${value.length > 140 ? `${value.slice(0, 140)}…` : value}`,
+      );
+    }
+  }
+
+  private async appendJourney(
+    roomId: string,
+    kind: 'stage_change' | 'blueprint_first_edit',
+    body: string,
+  ): Promise<void> {
+    const entry = await this.store.addJourneyEntry(roomId, kind, body);
+    this.broadcast(roomId, {
+      t: 'journeyEntry',
+      entry: {
+        id: entry.id,
+        kind: entry.kind,
+        body: entry.body,
+        createdAt: entry.createdAt.toISOString(),
+      },
+    });
+  }
+
+  private async requireMember(
+    session: Session,
+    roomId: string,
+    message: string,
+  ): Promise<boolean> {
+    if (await this.store.isMember(roomId, session.userId)) return true;
+    this.send(session, { t: 'error', code: 'FORBIDDEN', message });
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Persistent panels (Phase 6): chat + kanban over the same socket
   // ---------------------------------------------------------------------------
 
-  /** The room instance this session is inside, or null on static maps. */
+  /**
+   * The room this session is acting on: the room instance it is standing in,
+   * or — for a Workspace with no avatar — the room it is watching. Static maps
+   * are corridors and own nothing.
+   */
   private roomIdOf(session: Session): string | null {
     const mapId = session.map?.id;
-    return mapId && !STATIC_MAP_IDS.has(mapId) ? mapId : null;
+    if (mapId && !STATIC_MAP_IDS.has(mapId)) return mapId;
+    return session.watching;
   }
 
   private async onChat(session: Session, msg: ChatMessage): Promise<void> {
@@ -834,12 +1115,13 @@ export class RoomHub {
     }
   }
 
-  /** Board snapshot for a session that just entered a room's map. */
+  /** Board snapshot for a session that just entered a room — by door or by watch. */
   private pushKanbanState(session: Session, roomId: string): void {
     this.store
       .kanbanBoard(roomId)
       .then((board) => {
-        if (session.map?.id !== roomId) return; // moved on while loading
+        // Moved on while loading. A watcher has no map, so both bindings count.
+        if (session.map?.id !== roomId && session.watching !== roomId) return;
         this.send(session, {
           t: 'kanbanState',
           columns: board.columns,
@@ -983,11 +1265,26 @@ export class RoomHub {
     }
   }
 
+  /**
+   * The single fan-out point for a room. Reaches everyone standing in the map
+   * AND, for the subset of events a Workspace cares about, everyone watching it
+   * (R4). Keeping this as one choke point is also what keeps the deferred
+   * Redis multi-node work a contained change.
+   */
   private broadcast(mapId: string, msg: ServerMessage, exceptUserId?: string): void {
     const payload = JSON.stringify(msg);
+    const delivered = new Set<Session>();
     for (const peer of this.mapSessions.get(mapId)?.values() ?? []) {
       if (peer.userId === exceptUserId) continue;
+      delivered.add(peer);
       if (peer.socket.readyState === peer.socket.OPEN) peer.socket.send(payload);
+    }
+    if (!WATCHER_EVENTS.has(msg.t)) return;
+    for (const watcher of this.watchers.get(mapId) ?? []) {
+      // A user with the Workspace open in one tab and the map in another holds
+      // two sessions; both should hear it, and neither twice.
+      if (watcher.userId === exceptUserId || delivered.has(watcher)) continue;
+      if (watcher.socket.readyState === watcher.socket.OPEN) watcher.socket.send(payload);
     }
   }
 

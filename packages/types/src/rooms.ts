@@ -13,6 +13,11 @@ export type RoomAccessPolicy = (typeof ROOM_ACCESS_POLICIES)[number];
 export const ROOM_MEMBER_ROLES = ['owner', 'member'] as const;
 export type RoomMemberRole = (typeof ROOM_MEMBER_ROLES)[number];
 
+// Mirrors packages/protocol (the wire contract owns the canonical list); the
+// REST layer only ever reads these.
+export const PROJECT_STAGES = ['ideation', 'planning', 'building', 'testing', 'complete'] as const;
+export type ProjectStage = (typeof PROJECT_STAGES)[number];
+
 export const createRoomSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
@@ -51,6 +56,9 @@ export type RoomSummary = {
   mapTemplate: string;
   ownerId: string;
   memberRole: RoomMemberRole | null;
+  /** Project context (FR-ROOM-09); edited live over the WS, read here. */
+  projectStage: ProjectStage;
+  domainTag: string | null;
   memberCount: number;
   /** ISO; drives room-list ordering (FR-ROOM-06). */
   lastActivityAt: string;

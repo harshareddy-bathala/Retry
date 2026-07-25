@@ -101,8 +101,8 @@ Unlike the namespaced envelope above, these are flat messages discriminated on `
 
 | Direction | Events |
 |---|---|
-| Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel`, `kanbanCreate`, `kanbanUpdate`, `kanbanMove`, `kanbanDelete`, `kanbanRenameColumn` |
-| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `evicted`, `error` |
+| Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel`, `kanbanCreate`, `kanbanUpdate`, `kanbanMove`, `kanbanDelete`, `kanbanRenameColumn`, `watch`, `unwatch`, `contextUpdate`, `blueprintUpdate` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `workspaceState`, `contextState`, `blueprintField`, `journeyEntry`, `evicted`, `error` |
 
 Proximity (rooms Phase 3): the server computes pairwise Euclidean tile distance on every accepted move — `≤ 2` close, `≤ 5` near (SRS §11.4) — with 0.5-tile exit hysteresis and a 300 ms debounce before any transition is emitted. `proximity` goes only to the two clients whose pair changed, carrying only their own pairs. `media` reports the sender's mic/camera toggles; the server broadcasts `mediaState` to the rest of the map and folds current state into `snapshot` actors.
 
@@ -117,6 +117,30 @@ Persistent panels (rooms Phase 6): chat and Kanban ride the **same world socket*
 Whiteboard (rooms Phase 6): its own endpoint, `ws://<room-server>/whiteboard?roomId=&token=&sessionId=`, speaking the tldraw sync protocol (`@tldraw/sync-core` `TLSocketRoom`, one per room, lazily created) rather than our envelope. Same JWT auth; **membership is required** (4403 otherwise, 4401 for a missing or non-student token). The document is persisted to `rooms.whiteboard_state` debounced to at most one write per 5 s, flushed on shutdown, and reloaded for the next reader; a corrupt stored document warns and starts empty rather than bricking the board.
 
 **Both WS routes pause the socket while their handler awaits.** A `ws` socket emits `message` whether or not a listener is attached and the event is then lost forever, so any handler that awaits (JWT verification, a membership query) before attaching its listener races the client's first frame. The whiteboard lost its entire handshake this way — the tldraw client sends `connect` the instant the socket opens, it arrived during the membership query and vanished, and the board spun forever with no error on either side. `socket.pause()`/`resume()` around handler setup is mandatory for every new WS route.
+
+Workspace, i.e. watch mode (R4): a room is two views of one thing, and only one of
+them needs a canvas. `{t:'watch', roomId, displayName}` subscribes a **member** to a room's channel
+with no actor, no proximity and no AV — the socket is the same one the Live Space uses, which is
+what lets the Workspace reuse the chat, board and whiteboard components unchanged (FR-ROOM-33). A
+session watches at most one room, because the Workspace is one page; `unwatch`, a second `watch`,
+or the socket closing all release it. Non-members get `FORBIDDEN` and learn nothing else about the
+room. The reply is `workspaceState` — name, stage, domain tag, blueprint, journey, and who is
+standing in the live map right now — followed by `kanbanState`.
+
+`RoomHub.broadcast` is still the single fan-out point; it now reaches map sessions **and** watchers,
+but only for the events a page with no canvas can use: chat, board, workspace edits, and
+`actorJoin`/`actorLeave`. Movement and proximity stop at the map boundary — they are the
+highest-volume messages on the wire and mean nothing to a Workspace. `contextUpdate` (stage, domain
+tag) and `blueprintUpdate` (three optional free-text fields, FR-ROOM-11) are member-gated exactly
+like kanban and work identically from either view; the server broadcasts `contextState` /
+`blueprintField` and, for milestones only, `journeyEntry`. A Build Journey entry is written for a
+room's creation, a **field's first-ever answer**, and each stage change — never for a re-edit, and
+never by a client (FR-ROOM-17). The weekly Done count is computed from the board at read time
+rather than stored, so a card moving out of Done stops being counted.
+
+Watching is not presence: opening a room's page must never put your avatar in it. Relatedly, the
+"one presence per user" supersede rule now only closes other sessions **standing on a map** — a
+Workspace open in a second tab is not a competing avatar and must survive.
 
 Membership changes reaching the live world (R3): the API owns membership and runs in a different
 process, so a removal that only lands in Postgres leaves the removed member walking around the room.

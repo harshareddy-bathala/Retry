@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -8,14 +8,25 @@ import type {
   RoomSummary,
   RoomVisibility,
 } from '@retry/types';
-import { api, ApiError } from '../../lib/api.js';
+import { api, ApiError, getAccessToken } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatWhen } from '../../lib/when.js';
 import { useAuth } from '../auth/AuthContext.js';
+import { roomSocket } from './net/room-socket.js';
+import { ContextHeader } from './workspace/ContextHeader.js';
+import { BlueprintPanel } from './workspace/BlueprintPanel.js';
+import { JourneyTimeline } from './workspace/JourneyTimeline.js';
+import { WorkspacePanels } from './workspace/WorkspacePanels.js';
+import { useWorkspace } from './workspace/use-workspace.js';
 
-// Room detail (R3). The Workspace view fills this shell in R4 — for now it is
-// the home of everything a room needs that is not the live 2D space: who is in
-// it, who is being invited, and the owner's controls.
+const ROOM_WS_URL =
+  (import.meta.env.VITE_ROOM_WS_URL as string | undefined) ?? 'ws://localhost:4100/ws';
+
+// The Workspace (R4) — the half of a room that works when nobody else is
+// online, and the view a member lands on (FR-ROOM-09). Project context,
+// Blueprint, Build Journey, chat, board and whiteboard, all without entering
+// the 2D world. It subscribes to the room over the SAME socket the Live Space
+// uses, in `watch` mode: live updates, no avatar.
 
 const POLICY_LABEL: Record<RoomAccessPolicy, string> = {
   open: 'anyone may walk in',
@@ -31,11 +42,38 @@ export default function RoomDetailPage() {
   const { roomId = '' } = useParams();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { state: workspace, status: workspaceStatus } = useWorkspace(roomId);
+
+  // One socket per page, in watch mode. Opening a room's Workspace must never
+  // put your avatar in its live map — reading the board is not presence.
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!user || !token || !roomId) return;
+    roomSocket.connect({
+      url: ROOM_WS_URL,
+      token,
+      mode: 'watch',
+      roomId,
+      displayName: user.name,
+      sprite: 'default',
+    });
+    return () => roomSocket.disconnect();
+  }, [user, roomId]);
+
+  // Removed from the room while looking at it.
+  useEffect(() => {
+    if (workspaceStatus === 'gone') navigate('/rooms');
+  }, [workspaceStatus, navigate]);
 
   const room = useQuery({
     queryKey: ['room', roomId],
     queryFn: () => api.get<{ room: RoomSummary }>(`/rooms/${roomId}`),
     enabled: roomId.length > 0,
+    // Member count and last-activity move while you are looking at the page —
+    // someone accepting an invite should not leave the header saying "1 member".
+    refetchInterval: 15_000,
+    staleTime: 0,
   });
   const roster = useQuery({
     queryKey: ['room', roomId, 'members'],
@@ -68,7 +106,9 @@ export default function RoomDetailPage() {
 
   const detail = room.data.room;
   const isOwner = detail.ownerId === user.id;
+  const isMember = detail.memberRole !== null;
   const members = roster.data?.members ?? [];
+  const presentIds = new Set(workspace?.present.map((p) => p.userId) ?? []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -87,23 +127,61 @@ export default function RoomDetailPage() {
             Last active {formatWhen(detail.lastActivityAt)}
           </p>
         </div>
-        <Link
-          to={`/rooms/live?map=${detail.id}`}
-          className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-accent-ink hover:opacity-90"
-        >
-          Enter live space
-        </Link>
+        <div className="flex flex-col items-end gap-2">
+          <Link
+            to={`/rooms/live?map=${detail.id}`}
+            className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-accent-ink hover:opacity-90"
+          >
+            Enter live space
+          </Link>
+          {workspace && workspace.present.length > 0 && (
+            <p className="font-mono text-[11px] text-accent">
+              {workspace.present.map((p) => p.displayName.split(' ')[0]).join(', ')}{' '}
+              {workspace.present.length === 1 ? 'is' : 'are'} in there now
+            </p>
+          )}
+        </div>
       </div>
 
-      <MemberList
-        members={members}
-        selfId={user.id}
-        isOwner={isOwner}
-        roomId={roomId}
-        onChanged={refresh}
-      />
+      {isMember && (
+        <ContextHeader
+          stage={workspace?.stage ?? 'ideation'}
+          domainTag={workspace?.domainTag ?? null}
+          disabled={workspaceStatus !== 'ready'}
+        />
+      )}
 
-      {isOwner && <InviteForm roomId={roomId} onInvited={refresh} />}
+      {isMember ? (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-6">
+            <WorkspacePanels roomId={roomId} selfUserId={user.id} />
+            <JourneyTimeline entries={workspace?.journey ?? []} />
+          </div>
+          <div className="flex flex-col gap-6">
+            <BlueprintPanel
+              blueprint={
+                workspace?.blueprint ?? { problem: null, audience: null, existing: null }
+              }
+              lastEdit={workspace?.lastEdit ?? {}}
+            />
+            <MemberList
+              members={members}
+              presentIds={presentIds}
+              selfId={user.id}
+              isOwner={isOwner}
+              roomId={roomId}
+              onChanged={refresh}
+            />
+            {isOwner && <InviteForm roomId={roomId} onInvited={refresh} />}
+          </div>
+        </div>
+      ) : (
+        <p className="rounded-panel border border-edge bg-surface px-4 py-6 text-sm text-ink-muted">
+          You are not a member of this room. Public rooms can be visited from the Commons, but the
+          workspace — chat, board, blueprint — is for members.
+        </p>
+      )}
+
       {isOwner && <OwnerSettings room={detail} onChanged={refresh} />}
     </div>
   );
@@ -111,12 +189,15 @@ export default function RoomDetailPage() {
 
 function MemberList({
   members,
+  presentIds,
   selfId,
   isOwner,
   roomId,
   onChanged,
 }: {
   members: RoomMemberDto[];
+  /** Live from the socket; the REST flag is only a fallback between polls. */
+  presentIds: Set<string>;
   selfId: string;
   isOwner: boolean;
   roomId: string;
@@ -149,16 +230,15 @@ function MemberList({
     <section className="flex flex-col gap-2">
       <h3 className="font-mono text-[11px] uppercase text-ink-muted">Members</h3>
       <ul className="divide-y divide-edge rounded-panel border border-edge bg-surface">
-        {members.map((member) => (
+        {members.map((member) => {
+          const present = presentIds.has(member.userId) || member.present;
+          return (
           <li key={member.userId} className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2">
               <span
                 aria-hidden
-                title={member.present ? 'in the live space now' : 'not online'}
-                className={cn(
-                  'h-2 w-2 rounded-full',
-                  member.present ? 'bg-accent' : 'bg-edge',
-                )}
+                title={present ? 'in the live space now' : 'not online'}
+                className={cn('h-2 w-2 rounded-full', present ? 'bg-accent' : 'bg-edge')}
               />
               <div>
                 <p className="font-display text-sm text-ink">
@@ -202,7 +282,8 @@ function MemberList({
               )}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
       {error && <p className="text-sm text-danger">{error}</p>}
     </section>

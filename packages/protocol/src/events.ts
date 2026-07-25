@@ -142,6 +142,75 @@ export const mediaMessageSchema = z.object({
 });
 export type MediaMessage = z.infer<typeof mediaMessageSchema>;
 
+// ---------------------------------------------------------------------------
+// Workspace (R4): the half of a room that works when nobody else is online
+// ---------------------------------------------------------------------------
+
+// `watch` subscribes a MEMBER to a room's panel channel with no actor, no
+// proximity and no AV — the Workspace view. It is how chat, the board and the
+// Blueprint stay live for someone who is not walking around the map, over the
+// same socket rather than a second transport (FR-ROOM-33, FR-ROOM-10).
+export const watchMessageSchema = z.object({
+  t: z.literal('watch'),
+  roomId: z.string().uuid(),
+  /**
+   * Cosmetic, exactly as on `join`: identity always comes from the token. A
+   * watcher can chat, so without this their messages would be attributed to
+   * the "Anonymous" default the session starts with.
+   */
+  displayName: z.string().min(1).max(60).optional(),
+});
+export type WatchMessage = z.infer<typeof watchMessageSchema>;
+
+export const unwatchMessageSchema = z.object({ t: z.literal('unwatch') });
+export type UnwatchMessage = z.infer<typeof unwatchMessageSchema>;
+
+// FR-ROOM-09's dropdown values, and FR-POST-02's domain list — the same list is
+// used for post domain tags and feed filters. Mirrored as pgEnums in
+// packages/db/src/schema.ts; this is the canonical definition (same
+// arrangement as kanbanColumnKey).
+export const projectStageSchema = z.enum([
+  'ideation',
+  'planning',
+  'building',
+  'testing',
+  'complete',
+]);
+export type ProjectStage = z.infer<typeof projectStageSchema>;
+
+export const DOMAIN_TAGS = [
+  'Education',
+  'Healthcare',
+  'Fintech',
+  'Logistics',
+  'Government',
+  'Social',
+  'Productivity',
+  'Other',
+] as const;
+export const domainTagSchema = z.enum(DOMAIN_TAGS);
+export type DomainTag = z.infer<typeof domainTagSchema>;
+
+export const contextUpdateMessageSchema = z.object({
+  t: z.literal('contextUpdate'),
+  stage: projectStageSchema.optional(),
+  /** null clears the tag; omitted leaves it alone. */
+  domainTag: domainTagSchema.nullable().optional(),
+});
+export type ContextUpdateMessage = z.infer<typeof contextUpdateMessageSchema>;
+
+export const blueprintFieldKeySchema = z.enum(['problem', 'audience', 'existing']);
+export type BlueprintFieldKey = z.infer<typeof blueprintFieldKeySchema>;
+
+// All three Blueprint fields are optional and never validated (FR-ROOM-11) —
+// an empty string is a legitimate value, meaning "we cleared this".
+export const blueprintUpdateMessageSchema = z.object({
+  t: z.literal('blueprintUpdate'),
+  field: blueprintFieldKeySchema,
+  value: z.string().max(4000),
+});
+export type BlueprintUpdateMessage = z.infer<typeof blueprintUpdateMessageSchema>;
+
 export const clientMessageSchema = z.discriminatedUnion('t', [
   joinMessageSchema,
   moveMessageSchema,
@@ -156,6 +225,10 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   kanbanMoveMessageSchema,
   kanbanDeleteMessageSchema,
   kanbanRenameColumnMessageSchema,
+  watchMessageSchema,
+  unwatchMessageSchema,
+  contextUpdateMessageSchema,
+  blueprintUpdateMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -340,6 +413,64 @@ export const avTokenMessageSchema = z.object({
 });
 export type AvTokenMessage = z.infer<typeof avTokenMessageSchema>;
 
+// --- Workspace state (R4) ---
+
+// Auto-generated only — never user-authored (FR-ROOM-17). `weekly_done` is
+// computed at read time from the board rather than stored, so it stays true
+// when cards move after the fact.
+export const journeyEntrySchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['room_created', 'blueprint_first_edit', 'stage_change', 'weekly_done']),
+  body: z.string(),
+  createdAt: z.string(),
+});
+export type JourneyEntry = z.infer<typeof journeyEntrySchema>;
+
+export const blueprintSchema = z.object({
+  problem: z.string().nullable(),
+  audience: z.string().nullable(),
+  existing: z.string().nullable(),
+});
+export type Blueprint = z.infer<typeof blueprintSchema>;
+
+/** Everything the Workspace needs, sent once in reply to `watch`. */
+export const workspaceStateMessageSchema = z.object({
+  t: z.literal('workspaceState'),
+  roomId: z.string().min(1),
+  name: z.string(),
+  stage: projectStageSchema,
+  domainTag: domainTagSchema.nullable(),
+  blueprint: blueprintSchema,
+  journey: z.array(journeyEntrySchema),
+  /** Members currently in the room's live map — the Workspace shows who to go find. */
+  present: z.array(z.object({ userId: z.string(), displayName: z.string() })),
+});
+export type WorkspaceStateMessage = z.infer<typeof workspaceStateMessageSchema>;
+
+export const contextStateMessageSchema = z.object({
+  t: z.literal('contextState'),
+  roomId: z.string().min(1),
+  stage: projectStageSchema,
+  domainTag: domainTagSchema.nullable(),
+});
+export type ContextStateMessage = z.infer<typeof contextStateMessageSchema>;
+
+export const blueprintFieldMessageSchema = z.object({
+  t: z.literal('blueprintField'),
+  field: blueprintFieldKeySchema,
+  value: z.string(),
+  editedBy: z.string(),
+  editedByName: z.string(),
+  at: z.string(),
+});
+export type BlueprintFieldMessage = z.infer<typeof blueprintFieldMessageSchema>;
+
+export const journeyEntryMessageSchema = z.object({
+  t: z.literal('journeyEntry'),
+  entry: journeyEntrySchema,
+});
+export type JourneyEntryMessage = z.infer<typeof journeyEntryMessageSchema>;
+
 // You are no longer in this room (R3). Sent immediately before the server
 // walks the session out to the Commons, so the client can say why rather than
 // making the teleport look like a bug. `removed` = the owner removed you (or
@@ -369,6 +500,10 @@ export const serverMessageSchema = z.discriminatedUnion('t', [
   kanbanCardBroadcastSchema,
   kanbanCardRemovedSchema,
   kanbanColumnBroadcastSchema,
+  workspaceStateMessageSchema,
+  contextStateMessageSchema,
+  blueprintFieldMessageSchema,
+  journeyEntryMessageSchema,
   evictedMessageSchema,
   errorMessageSchema,
 ]);

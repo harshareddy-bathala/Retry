@@ -1,4 +1,11 @@
-import type { AccessPolicy, Dir, KanbanColumnKey } from '@retry/protocol';
+import type {
+  AccessPolicy,
+  BlueprintFieldKey,
+  Dir,
+  DomainTag,
+  KanbanColumnKey,
+  ProjectStage,
+} from '@retry/protocol';
 
 // Persistence boundary of the world server (rooms build plan Phase 4). The hub
 // never touches the database directly — it talks to this interface, so tests
@@ -34,11 +41,41 @@ export type KanbanCardRecord = {
   moveNote: string | null;
   position: number;
   createdAt: Date;
+  /** Last touched — the weekly Done rollup counts by this. */
+  updatedAt: Date;
 };
 
 export type KanbanColumnLabel = { key: KanbanColumnKey; label: string };
 
 export type KanbanBoard = { columns: KanbanColumnLabel[]; cards: KanbanCardRecord[] };
+
+// --- Workspace (R4) ---
+
+export type BlueprintRecord = {
+  problem: string | null;
+  audience: string | null;
+  existing: string | null;
+};
+
+export type JourneyKind = 'room_created' | 'blueprint_first_edit' | 'stage_change';
+
+export type JourneyEntryRecord = {
+  id: string;
+  kind: JourneyKind;
+  body: string;
+  createdAt: Date;
+};
+
+export type WorkspaceRecord = {
+  roomId: string;
+  name: string;
+  stage: ProjectStage;
+  domainTag: DomainTag | null;
+  blueprint: BlueprintRecord;
+  journey: JourneyEntryRecord[];
+};
+
+export type ContextPatch = { stage?: ProjectStage; domainTag?: DomainTag | null };
 
 export type KanbanCardPatch = {
   title?: string;
@@ -93,6 +130,23 @@ export interface RoomStore {
   renameColumn(roomId: string, key: KanbanColumnKey, label: string): Promise<void>;
   whiteboardState(roomId: string): Promise<unknown | null>;
   saveWhiteboardState(roomId: string, doc: unknown): Promise<void>;
+  // Workspace (R4)
+  workspace(roomId: string): Promise<WorkspaceRecord | null>;
+  updateContext(roomId: string, patch: ContextPatch): Promise<void>;
+  /**
+   * Persists the field and appends to its edit log. Reports whether this was
+   * the field's first-ever edit, which is what earns a Build Journey entry
+   * (FR-ROOM-17) — every later edit is just an edit.
+   */
+  saveBlueprintField(
+    roomId: string,
+    field: BlueprintFieldKey,
+    value: string,
+    userId: string,
+  ): Promise<{ firstEdit: boolean }>;
+  addJourneyEntry(roomId: string, kind: JourneyKind, body: string): Promise<JourneyEntryRecord>;
+  /** Cards sitting in Done that were last touched within the window. */
+  doneSince(roomId: string, since: Date): Promise<number>;
 }
 
 // Default labels (FR-ROOM-18); kanban_columns rows exist only for renames.
@@ -312,6 +366,7 @@ export class InMemoryRoomStore implements RoomStore {
       moveNote: null,
       position: max + 1,
       createdAt: new Date(),
+      updatedAt: new Date(),
     };
     list.push(card);
     this.cards.set(roomId, list);
@@ -328,6 +383,7 @@ export class InMemoryRoomStore implements RoomStore {
     if (patch.title !== undefined) card.title = patch.title;
     if (patch.description !== undefined) card.description = patch.description;
     if (patch.moveNote !== undefined) card.moveNote = patch.moveNote;
+    card.updatedAt = new Date();
     return card;
   }
 
@@ -341,6 +397,7 @@ export class InMemoryRoomStore implements RoomStore {
     if (!card) return null;
     card.column = column;
     card.position = position;
+    card.updatedAt = new Date();
     return card;
   }
 
@@ -364,5 +421,72 @@ export class InMemoryRoomStore implements RoomStore {
 
   async saveWhiteboardState(roomId: string, doc: unknown): Promise<void> {
     this.whiteboards.set(roomId, doc);
+  }
+
+  // --- Workspace ---
+
+  private context = new Map<string, { stage: ProjectStage; domainTag: DomainTag | null }>();
+  private blueprints = new Map<string, BlueprintRecord>();
+  private journeys = new Map<string, JourneyEntryRecord[]>();
+
+  async workspace(roomId: string): Promise<WorkspaceRecord | null> {
+    const room = this.rooms.get(roomId);
+    if (!room) return null;
+    const context = this.context.get(roomId) ?? { stage: 'ideation' as const, domainTag: null };
+    return {
+      roomId,
+      name: room.name,
+      stage: context.stage,
+      domainTag: context.domainTag,
+      blueprint: this.blueprints.get(roomId) ?? { problem: null, audience: null, existing: null },
+      journey: [...(this.journeys.get(roomId) ?? [])],
+    };
+  }
+
+  async updateContext(roomId: string, patch: ContextPatch): Promise<void> {
+    const current = this.context.get(roomId) ?? { stage: 'ideation' as const, domainTag: null };
+    this.context.set(roomId, {
+      stage: patch.stage ?? current.stage,
+      domainTag: patch.domainTag !== undefined ? patch.domainTag : current.domainTag,
+    });
+  }
+
+  async saveBlueprintField(
+    roomId: string,
+    field: BlueprintFieldKey,
+    value: string,
+    _userId: string,
+  ): Promise<{ firstEdit: boolean }> {
+    const current = this.blueprints.get(roomId) ?? {
+      problem: null,
+      audience: null,
+      existing: null,
+    };
+    const firstEdit = current[field] === null;
+    this.blueprints.set(roomId, { ...current, [field]: value });
+    return { firstEdit };
+  }
+
+  async addJourneyEntry(
+    roomId: string,
+    kind: JourneyKind,
+    body: string,
+  ): Promise<JourneyEntryRecord> {
+    const entry: JourneyEntryRecord = {
+      id: `journey-${++this.idCounter}`,
+      kind,
+      body,
+      createdAt: new Date(),
+    };
+    const list = this.journeys.get(roomId) ?? [];
+    list.push(entry);
+    this.journeys.set(roomId, list);
+    return entry;
+  }
+
+  async doneSince(roomId: string, since: Date): Promise<number> {
+    return (this.cards.get(roomId) ?? []).filter(
+      (c) => c.column === 'done' && c.updatedAt >= since,
+    ).length;
   }
 }

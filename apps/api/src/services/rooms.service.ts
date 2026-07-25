@@ -4,6 +4,7 @@ import { extractDoorSlots, validateMap, type DoorSlot } from '@retry/maps';
 import {
   notifications,
   roomInvites,
+  roomJourneyEntries,
   roomMembers,
   roomMessages,
   rooms,
@@ -79,6 +80,13 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
         .returning();
       if (!room) throw new Error('insert returned no room row');
       await tx.insert(roomMembers).values({ roomId: room.id, userId: ownerId, role: 'owner' });
+      // First Build Journey entry (FR-ROOM-17). Entries are server-generated
+      // only, so the timeline starts here rather than on the first edit.
+      await tx.insert(roomJourneyEntries).values({
+        roomId: room.id,
+        kind: 'room_created',
+        body: `${room.name} was created`,
+      });
       return room;
     });
 
@@ -707,6 +715,8 @@ function toSummary(
     mapTemplate: row.mapTemplate,
     ownerId: row.ownerId,
     memberRole,
+    projectStage: row.projectStage,
+    domainTag: row.domainTag,
     memberCount: stats.memberCount,
     lastActivityAt: row.lastActivityAt.toISOString(),
     presentMembers: stats.presentMembers,

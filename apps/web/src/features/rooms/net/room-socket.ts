@@ -11,6 +11,14 @@ import { roomEvents } from '../event-bus.js';
 export type RoomSocketOptions = {
   url: string;
   token: string;
+  /**
+   * 'world' puts an avatar on a map (the Live Space). 'watch' subscribes to a
+   * room's Workspace channel with no avatar at all — same socket, same
+   * protocol, no presence in the 2D world (R4).
+   */
+  mode?: 'world' | 'watch';
+  /** Required for 'watch'. */
+  roomId?: string;
   /** Omit to let the server resolve the spawn map (last-active room, else Commons). */
   mapId?: string;
   displayName: string;
@@ -58,6 +66,8 @@ class RoomSocket {
   requestResync(): void {
     const options = this.options;
     if (!options || this.ws?.readyState !== WebSocket.OPEN) return;
+    // A watching session has no scene and no avatar; a join here would give it one.
+    if (options.mode === 'watch') return;
     this.send({ t: 'join', displayName: options.displayName, sprite: options.sprite });
   }
 
@@ -90,17 +100,24 @@ class RoomSocket {
 
     ws.onopen = () => {
       this.attempt = 0;
-      // join first, then announce open — listeners react to 'open' by sending
-      // (e.g. media state), which must never precede the join. The explicit
-      // mapId applies to the FIRST join only: after door transitions it is
-      // stale, so reconnects use a bare join (server-side spawn resolution).
-      this.send({
-        t: 'join',
-        ...(options.mapId && !this.joinedOnce ? { mapId: options.mapId } : {}),
-        displayName: options.displayName,
-        sprite: options.sprite,
-      });
-      this.joinedOnce = true;
+      // Subscribe first, then announce open — listeners react to 'open' by
+      // sending (e.g. media state), which must never precede the subscription.
+      if (options.mode === 'watch' && options.roomId) {
+        // The Workspace never joins a map: opening a room's page must not put
+        // your avatar in it, or "reading the board" would look like presence.
+        this.send({ t: 'watch', roomId: options.roomId, displayName: options.displayName });
+      } else {
+        // The explicit mapId applies to the FIRST join only: after door
+        // transitions it is stale, so reconnects use a bare join (server-side
+        // spawn resolution).
+        this.send({
+          t: 'join',
+          ...(options.mapId && !this.joinedOnce ? { mapId: options.mapId } : {}),
+          displayName: options.displayName,
+          sprite: options.sprite,
+        });
+        this.joinedOnce = true;
+      }
       roomEvents.emit('net:status', 'open');
     };
 

@@ -1,26 +1,33 @@
-import { and, eq, inArray, isNotNull, max } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNotNull, max } from 'drizzle-orm';
 import {
   createDb,
   kanbanCards,
   kanbanColumns,
   roomAccessRequests,
+  roomBlueprint,
+  roomBlueprintEdits,
+  roomJourneyEntries,
   roomMembers,
   roomMessages,
   rooms,
   type Db,
   type KanbanCardRow,
 } from '@retry/db';
-import { dirSchema, type KanbanColumnKey } from '@retry/protocol';
+import { dirSchema, type BlueprintFieldKey, type KanbanColumnKey } from '@retry/protocol';
 import { z } from 'zod';
 import {
   mergeColumnLabels,
   type ChatMessageRecord,
+  type ContextPatch,
+  type JourneyEntryRecord,
+  type JourneyKind,
   type KanbanBoard,
   type KanbanCardPatch,
   type KanbanCardRecord,
   type LastPosition,
   type RoomRecord,
   type RoomStore,
+  type WorkspaceRecord,
 } from './store.js';
 
 // Production RoomStore backed by Postgres via Drizzle (Hard Rule 7). The room
@@ -246,6 +253,116 @@ export class DrizzleRoomStore implements RoomStore {
       });
   }
 
+  // --- Workspace (R4) ---
+
+  async workspace(roomId: string): Promise<WorkspaceRecord | null> {
+    if (!isUuid(roomId)) return null;
+    const [room] = await this.db
+      .select({
+        name: rooms.name,
+        stage: rooms.projectStage,
+        domainTag: rooms.domainTag,
+      })
+      .from(rooms)
+      .where(eq(rooms.id, roomId))
+      .limit(1);
+    if (!room) return null;
+
+    const [[blueprint], journey] = await Promise.all([
+      this.db.select().from(roomBlueprint).where(eq(roomBlueprint.roomId, roomId)).limit(1),
+      this.db
+        .select()
+        .from(roomJourneyEntries)
+        .where(eq(roomJourneyEntries.roomId, roomId))
+        .orderBy(roomJourneyEntries.createdAt),
+    ]);
+
+    return {
+      roomId,
+      name: room.name,
+      stage: room.stage,
+      domainTag: room.domainTag,
+      blueprint: {
+        problem: blueprint?.problem ?? null,
+        audience: blueprint?.audience ?? null,
+        existing: blueprint?.existing ?? null,
+      },
+      journey: journey.map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        body: e.body,
+        createdAt: e.createdAt,
+      })),
+    };
+  }
+
+  async updateContext(roomId: string, patch: ContextPatch): Promise<void> {
+    if (!isUuid(roomId)) return;
+    await this.db
+      .update(rooms)
+      .set({
+        ...(patch.stage !== undefined ? { projectStage: patch.stage } : {}),
+        ...(patch.domainTag !== undefined ? { domainTag: patch.domainTag } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(rooms.id, roomId));
+  }
+
+  async saveBlueprintField(
+    roomId: string,
+    field: BlueprintFieldKey,
+    value: string,
+    userId: string,
+  ): Promise<{ firstEdit: boolean }> {
+    if (!isUuid(roomId) || !isUuid(userId)) return { firstEdit: false };
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(roomBlueprint)
+        .where(eq(roomBlueprint.roomId, roomId))
+        .limit(1);
+      const firstEdit = (existing?.[field] ?? null) === null;
+      await tx
+        .insert(roomBlueprint)
+        .values({ roomId, [field]: value })
+        .onConflictDoUpdate({
+          target: roomBlueprint.roomId,
+          set: { [field]: value, updatedAt: new Date() },
+        });
+      // The edit log is append-only and for the team's eyes only (FR-ROOM-12).
+      await tx.insert(roomBlueprintEdits).values({ roomId, field, userId, value });
+      return { firstEdit };
+    });
+  }
+
+  async addJourneyEntry(
+    roomId: string,
+    kind: JourneyKind,
+    body: string,
+  ): Promise<JourneyEntryRecord> {
+    const [row] = await this.db
+      .insert(roomJourneyEntries)
+      .values({ roomId, kind, body })
+      .returning();
+    if (!row) throw new Error('journey entry insert returned no row');
+    return { id: row.id, kind: row.kind, body: row.body, createdAt: row.createdAt };
+  }
+
+  async doneSince(roomId: string, since: Date): Promise<number> {
+    if (!isUuid(roomId)) return 0;
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(kanbanCards)
+      .where(
+        and(
+          eq(kanbanCards.roomId, roomId),
+          eq(kanbanCards.column, 'done'),
+          gte(kanbanCards.updatedAt, since),
+        ),
+      );
+    return row?.n ?? 0;
+  }
+
   async whiteboardState(roomId: string): Promise<unknown | null> {
     if (!isUuid(roomId)) return null;
     const [row] = await this.db
@@ -276,6 +393,7 @@ function toCardRecord(row: KanbanCardRow): KanbanCardRecord {
     moveNote: row.moveNote,
     position: row.position,
     createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
