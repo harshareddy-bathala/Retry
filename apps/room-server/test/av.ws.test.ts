@@ -5,10 +5,11 @@ import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
-import type { AvGrant, AvProvider } from '../src/av/daily.js';
+import type { AvGrant, AvProvider } from '../src/av/livekit.js';
 
-// Phase 5: Daily orchestration — one Daily room per map, per-session tokens
-// pushed with map entry, cached grants on resync, graceful degradation.
+// Phase 5: AV orchestration — one LiveKit room per map instance, tokens
+// pushed with map entry, cached grants on resync, graceful degradation. The
+// provider is faked here; LiveKitAvProvider itself is pure token signing.
 
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
 
@@ -18,11 +19,12 @@ class FakeAv implements AvProvider {
   async grantFor(mapId: string, userId: string, userName: string): Promise<AvGrant> {
     if (this.failNext) {
       this.failNext = false;
-      throw new Error('daily is down');
+      throw new Error('av provider is down');
     }
     this.calls.push({ mapId, userId, userName });
     return {
-      roomUrl: `https://fake.daily.co/retry-${mapId}`,
+      serverUrl: `wss://fake.livekit.local`,
+      room: `retry-${mapId}`,
       token: `tok-${mapId}-${userId}-${this.calls.length}`,
     };
   }
@@ -101,16 +103,16 @@ async function until(predicate: () => boolean, ms = 3000): Promise<void> {
 const avTokensOf = (c: Client) =>
   c.messages.filter((m): m is Extract<ServerMessage, { t: 'avToken' }> => m.t === 'avToken');
 
-describe('daily av flow', () => {
+describe('livekit av flow', () => {
   it('pushes an avToken for the joined map, minted for this user', async () => {
     const c = await connectAndJoin('av-user', 'commons');
     await until(() => avTokensOf(c).length > 0);
     const msg = avTokensOf(c)[0];
-    expect(msg).toMatchObject({ mapId: 'commons', roomUrl: 'https://fake.daily.co/retry-commons' });
+    expect(msg).toMatchObject({ mapId: 'commons', room: 'retry-commons', serverUrl: 'wss://fake.livekit.local' });
     expect(fakeAv.calls.at(-1)).toMatchObject({ mapId: 'commons', userId: 'av-user' });
   });
 
-  it('transition hands over to the NEW map\'s Daily room with a fresh token', async () => {
+  it('transition hands over to the NEW map\'s LiveKit room with a fresh token', async () => {
     const c = await connectAndJoin('owner-open', 'room-open');
     await until(() => avTokensOf(c).length > 0);
     c.send({ t: 'transition', toMapId: 'commons' });
@@ -118,7 +120,7 @@ describe('daily av flow', () => {
     const [inRoom, inCommons] = avTokensOf(c);
     expect(inRoom?.mapId).toBe('room-open');
     expect(inCommons?.mapId).toBe('commons');
-    expect(inRoom?.roomUrl).not.toBe(inCommons?.roomUrl);
+    expect(inRoom?.room).not.toBe(inCommons?.room);
     expect(inRoom?.token).not.toBe(inCommons?.token);
   });
 
@@ -132,7 +134,7 @@ describe('daily av flow', () => {
     expect(fakeAv.calls.length).toBe(mints);
   });
 
-  it('a Daily outage degrades to no avToken — entry itself still works', async () => {
+  it('an AV provider outage degrades to no avToken — entry itself still works', async () => {
     fakeAv.failNext = true;
     const c = await connectAndJoin('av-user', 'commons');
     await new Promise((r) => setTimeout(r, 200));

@@ -22,7 +22,7 @@ import {
   type Zone,
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
-import type { AvGrant, AvProvider } from '../av/daily.js';
+import type { AvGrant, AvProvider } from '../av/livekit.js';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
@@ -60,7 +60,7 @@ type Session = {
   granted: Set<string>;
   /** Serializes join/transition — overlapping async ops are dropped, not queued. */
   busy: boolean;
-  /** Last Daily grant, so resyncs re-send it without another REST mint. */
+  /** Last AV grant, so a resync re-sends it without minting a new token. */
   avGrant: { mapId: string; grant: AvGrant } | null;
   /** First avToken timestamp — participant-time accounting (SRS §3.4). */
   avStartedAt: number | null;
@@ -77,7 +77,7 @@ type PendingKnock = {
 export type RoomHubDeps = {
   store: RoomStore;
   knockTimeoutMs?: number;
-  /** Daily.co orchestration; absent = AV disabled, placeholder bubbles remain. */
+  /** LiveKit orchestration; absent = AV disabled, placeholder bubbles remain. */
   av?: AvProvider;
 };
 
@@ -435,9 +435,11 @@ export class RoomHub {
   }
 
   /**
-   * Mint and push Daily credentials for the map just entered (Phase 5). Runs
-   * detached — the snapshot must never wait on a Daily REST round-trip, and a
-   * Daily outage degrades to placeholder bubbles instead of blocking entry.
+   * Mint and push LiveKit credentials for the map just entered (Phase 5).
+   * Still runs detached even though minting is now local JWT signing with no
+   * network call: entry must never depend on the AV layer, so a provider that
+   * throws for any reason degrades to placeholder bubbles instead of blocking
+   * the door.
    */
   private pushAvToken(session: Session, world: WorldMap): void {
     const av = this.av;
@@ -451,12 +453,13 @@ export class RoomHub {
         this.send(session, {
           t: 'avToken',
           mapId: world.id,
-          roomUrl: grant.roomUrl,
+          serverUrl: grant.serverUrl,
+          room: grant.room,
           token: grant.token,
         });
       })
       .catch((err: unknown) => {
-        session.log.warn({ err, mapId: world.id }, 'daily grant failed; AV off for this entry');
+        session.log.warn({ err, mapId: world.id }, 'av grant failed; AV off for this entry');
       });
   }
 
@@ -880,7 +883,8 @@ export class RoomHub {
       this.send(session, {
         t: 'avToken',
         mapId: world.id,
-        roomUrl: session.avGrant.grant.roomUrl,
+        serverUrl: session.avGrant.grant.serverUrl,
+        room: session.avGrant.grant.room,
         token: session.avGrant.grant.token,
       });
     }

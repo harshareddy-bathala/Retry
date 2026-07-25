@@ -324,14 +324,18 @@ export const kanbanColumnBroadcastSchema = z.object({
 });
 export type KanbanColumnBroadcast = z.infer<typeof kanbanColumnBroadcastSchema>;
 
-// Daily.co credentials for the CURRENT map's call (rooms Phase 5). Minted
-// server-side per room, per user, per session with a short TTL (SRS
-// NFR-SEC-02) — the Daily API key never reaches a client. Pushed after the
-// snapshot on every map entry; absent entirely when AV is not configured.
+// LiveKit credentials for the CURRENT map's call (rooms Phase 5). Minted
+// server-side per room, per user, with a short TTL (SRS NFR-SEC-02) — the
+// LiveKit API secret never reaches a client. Pushed after the snapshot on
+// every map entry; absent entirely when AV is not configured, which is the
+// supported "no AV yet" state, not an error.
 export const avTokenMessageSchema = z.object({
   t: z.literal('avToken'),
   mapId: z.string().min(1),
-  roomUrl: z.string().url(),
+  /** wss:// URL of the self-hosted LiveKit server. */
+  serverUrl: z.string().url(),
+  /** LiveKit room name backing this map instance. */
+  room: z.string().min(1),
   token: z.string().min(1),
 });
 export type AvTokenMessage = z.infer<typeof avTokenMessageSchema>;

@@ -1,6 +1,6 @@
 // Local mic/camera toggle state (rooms build plan Phase 3, SRS FR-ROOM-21):
 // persists in localStorage and is restored on rejoin. No real capture happens
-// until Daily.co lands in Phase 5 — this is the state the badges and future
+// until AV lands in Phase 5 — this is the state the badges and future
 // tracks key off.
 export type AvState = { audio: boolean; video: boolean };
 

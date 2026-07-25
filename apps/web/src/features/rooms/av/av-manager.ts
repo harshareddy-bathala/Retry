@@ -1,22 +1,29 @@
-import Daily, {
-  type DailyCall,
-  type DailyEventObjectActiveSpeakerChange,
-  type DailyEventObjectParticipant,
-  type DailyEventObjectParticipantLeft,
-  type DailyParticipant,
-} from '@daily-co/daily-js';
+import {
+  RemoteAudioTrack,
+  RemoteVideoTrack,
+  Room,
+  RoomEvent,
+  Track,
+  type RemoteParticipant,
+  type RemoteTrack,
+  type RemoteTrackPublication,
+} from 'livekit-client';
 import type { ServerMessage, Zone } from '@retry/protocol';
 import { reportWarning } from '../../../lib/report.js';
 import { roomEvents } from '../event-bus.js';
 import type { AvState } from '../av-state.js';
 import { avStore } from './av-store.js';
 
-// Daily.co session manager (rooms build plan Phase 5). One call object for the
-// whole live-space visit; door transitions leave the old Daily room and join
-// the new one on the same object. THE mechanic: the call is joined with all
-// tracks unsubscribed, and a peer's tracks are subscribed only while the
+// LiveKit session manager (rooms Phase 5; migrated from Daily.co — ADR-012).
+// One Room connection per map instance; a door transition disconnects the old
+// one and connects the new. THE mechanic is unchanged: the room is joined with
+// autoSubscribe OFF, and a peer's tracks are subscribed only while the
 // proximity engine says 'close' or 'near' — bandwidth scales with proximity,
-// not room population. Never a full mesh hidden with CSS.
+// not with room population. Never a full mesh hidden with CSS.
+//
+// LiveKit participant identity IS the Retry userId (set server-side on the
+// token), so no session-id bookkeeping is needed to map a participant onto an
+// actor — that was two maps' worth of state under Daily.
 
 const GAIN_BY_ZONE: Record<Zone, number> = { close: 1.0, near: 0.5, out: 0 };
 // An abrupt gain change is audible; ramp over 200ms (plan §3).
@@ -27,19 +34,17 @@ type AudioChain = {
   source: MediaStreamAudioSourceNode;
   gain: GainNode;
   // Chrome quirk: a remote WebRTC track is silent in WebAudio unless it is
-  // also attached to an (muted) HTMLAudioElement. Long-standing crbug/121673.
+  // also attached to a (muted) HTMLAudioElement. Long-standing crbug/121673.
   el: HTMLAudioElement;
 };
 
 class AvManager {
-  private call: DailyCall | null = null;
+  private room: Room | null = null;
   private unsub: (() => void) | null = null;
   private local: AvState = { audio: true, video: true };
   private zones = new Map<string, Zone>();
-  private sessionByUser = new Map<string, string>();
-  private userBySession = new Map<string, string>();
-  private currentUrl: string | null = null;
-  /** Serializes join/leave — a fast double door press must not interleave them. */
+  private currentRoomName: string | null = null;
+  /** Serializes connect/disconnect — a fast double door press must not interleave them. */
   private ops: Promise<void> = Promise.resolve();
   private audioCtx: AudioContext | null = null;
   private chains = new Map<string, AudioChain>();
@@ -54,29 +59,32 @@ class AvManager {
     this.unsub = null;
     this.zones.clear();
     this.enqueue(async () => {
-      const call = this.call;
-      this.call = null;
-      this.currentUrl = null;
-      if (call) {
-        await call.leave().catch(() => undefined);
-        await call.destroy().catch(() => undefined);
-      }
+      const room = this.room;
+      this.room = null;
+      this.currentRoomName = null;
+      if (room) await room.disconnect().catch(() => undefined);
     });
     for (const userId of [...this.chains.keys()]) this.dropAudioChain(userId);
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = null;
-    this.sessionByUser.clear();
-    this.userBySession.clear();
     avStore.clear();
   }
 
   /** Mic/cam toggles — state carries unchanged across every map transition. */
   setLocal(next: AvState): void {
     this.local = next;
-    const call = this.call;
-    if (call) {
-      call.setLocalAudio(next.audio);
-      call.setLocalVideo(next.video);
+    const room = this.room;
+    if (room) {
+      void room.localParticipant
+        .setMicrophoneEnabled(next.audio)
+        .catch((err: unknown) =>
+          reportWarning('rooms: microphone unavailable; continuing without it', err),
+        );
+      void room.localParticipant.setCameraEnabled(next.video).catch((err: unknown) =>
+        // No camera permission is a fully supported state: audio (or nothing)
+        // continues and bubbles fall back to initials — never a black rectangle.
+        reportWarning('rooms: camera unavailable; continuing without video', err),
+      );
     }
     this.resumeAudio();
   }
@@ -84,8 +92,8 @@ class AvManager {
   private onMessage(msg: ServerMessage): void {
     switch (msg.t) {
       case 'avToken':
-        // Resyncs re-send the same grant — only an actual room change moves the call.
-        if (msg.roomUrl !== this.currentUrl) this.switchRoom(msg.roomUrl, msg.token);
+        // Resyncs re-send the same grant — only an actual room change reconnects.
+        if (msg.room !== this.currentRoomName) this.switchRoom(msg.serverUrl, msg.room, msg.token);
         break;
       case 'proximity':
         for (const pair of msg.pairs) {
@@ -109,94 +117,91 @@ class AvManager {
     }
   }
 
-  /** Map-transition handoff: unsubscribe all (implicit in leave), rejoin, resubscribe. */
-  private switchRoom(url: string, token: string): void {
-    this.currentUrl = url;
+  /** Map-transition handoff: disconnect, reconnect to the new room, resubscribe. */
+  private switchRoom(serverUrl: string, roomName: string, token: string): void {
+    this.currentRoomName = roomName;
     this.enqueue(async () => {
-      if (this.currentUrl !== url) return; // superseded by a later door
+      if (this.currentRoomName !== roomName) return; // superseded by a later door
       try {
-        const call = this.ensureCall();
-        if (call.meetingState() !== 'new' && call.meetingState() !== 'left-meeting') {
-          await call.leave();
+        const old = this.room;
+        if (old) {
+          this.room = null;
+          await old.disconnect().catch(() => undefined);
         }
-        await call.join({
-          url,
-          token,
-          startAudioOff: !this.local.audio,
-          startVideoOff: !this.local.video,
-        });
-        // Subscriptions for peers already close/near re-apply as Daily reports
-        // participants (syncParticipant), completing the handoff.
+        for (const userId of [...this.chains.keys()]) this.dropAudioChain(userId);
+        avStore.clear();
+
+        const room = this.createRoom();
+        this.room = room;
+        await room.connect(serverUrl, token, { autoSubscribe: false });
+        await room.localParticipant.setMicrophoneEnabled(this.local.audio).catch(() => undefined);
+        await room.localParticipant.setCameraEnabled(this.local.video).catch(() => undefined);
+        // Peers already close/near are subscribed as LiveKit reports their
+        // publications; anyone already present is handled here.
+        for (const participant of room.remoteParticipants.values()) {
+          this.applySubscription(participant.identity);
+        }
       } catch (err) {
-        reportWarning('rooms: daily join failed; placeholder bubbles remain', err);
+        reportWarning('rooms: livekit connect failed; placeholder bubbles remain', err);
       }
     });
   }
 
-  private ensureCall(): DailyCall {
-    if (this.call) return this.call;
-    const call = Daily.createCallObject({ subscribeToTracksAutomatically: false });
-    call.on('participant-joined', (e: DailyEventObjectParticipant) => this.syncParticipant(e.participant));
-    call.on('participant-updated', (e: DailyEventObjectParticipant) => this.syncParticipant(e.participant));
-    call.on('participant-left', (e: DailyEventObjectParticipantLeft) => {
-      const userId = this.userBySession.get(e.participant.session_id);
-      this.userBySession.delete(e.participant.session_id);
-      if (userId) {
-        this.sessionByUser.delete(userId);
-        this.dropAudioChain(userId);
-        avStore.remove(userId);
-      }
-    });
-    call.on('active-speaker-change', (e: DailyEventObjectActiveSpeakerChange) => {
-      avStore.setSpeaking(this.userBySession.get(e.activeSpeaker.peerId) ?? null);
-    });
-    call.on('camera-error', (e) => {
-      // No camera permission is a fully supported state: audio (or nothing)
-      // continues, bubbles fall back to initials — never a black rectangle.
-      reportWarning('rooms: camera unavailable; continuing without video', e);
-    });
-    call.on('error', (e) => reportWarning('rooms: daily call error', e));
-    this.call = call;
-    return call;
-  }
+  private createRoom(): Room {
+    // adaptiveStream would size streams by element visibility; our bubbles are
+    // tiny and proximity already governs what is subscribed, so it stays off.
+    // dynacast lets the SFU stop forwarding layers nobody subscribes to.
+    const room = new Room({ adaptiveStream: false, dynacast: true });
 
-  private syncParticipant(p: DailyParticipant): void {
-    if (p.local) return;
-    const userId = p.user_id;
-    if (!userId) return;
-    this.sessionByUser.set(userId, p.session_id);
-    this.userBySession.set(p.session_id, userId);
-
-    // A peer can appear AFTER proximity already said 'close' (WS beats WebRTC);
-    // apply the pending subscription the moment Daily knows about them.
-    this.applySubscription(userId);
-
-    const video = p.tracks.video;
-    avStore.setVideoTrack(
-      userId,
-      video.state === 'playable' && video.persistentTrack ? video.persistentTrack : null,
+    room.on(RoomEvent.TrackPublished, (_pub: RemoteTrackPublication, p: RemoteParticipant) =>
+      this.applySubscription(p.identity),
     );
+    room.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) =>
+      // A peer can appear AFTER proximity already said 'close' (our socket
+      // beats WebRTC); apply the pending subscription the moment they exist.
+      this.applySubscription(p.identity),
+    );
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) =>
+      this.attachTrack(p.identity, track),
+    );
+    room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
+      if (track.kind === Track.Kind.Video) avStore.setVideoTrack(p.identity, null);
+      else this.dropAudioChain(p.identity);
+    });
+    room.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
+      this.dropAudioChain(p.identity);
+      avStore.remove(p.identity);
+    });
+    room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+      const remote = speakers.find((s) => s.identity !== room.localParticipant.identity);
+      avStore.setSpeaking(remote?.identity ?? null);
+    });
+    room.on(RoomEvent.MediaDevicesError, (err: Error) =>
+      reportWarning('rooms: media device unavailable; continuing without it', err),
+    );
+    return room;
+  }
 
-    const audio = p.tracks.audio;
-    if (audio.state === 'playable' && audio.persistentTrack) {
-      this.ensureAudioChain(userId, audio.persistentTrack);
+  private attachTrack(userId: string, track: RemoteTrack): void {
+    if (track instanceof RemoteVideoTrack) {
+      avStore.setVideoTrack(userId, track.mediaStreamTrack);
+    } else if (track instanceof RemoteAudioTrack) {
+      // Routed through WebAudio rather than LiveKit's setVolume so a zone
+      // change can be RAMPED — an instant volume step is audible.
+      this.ensureAudioChain(userId, track.mediaStreamTrack);
       this.applyGain(userId);
-    } else {
-      this.dropAudioChain(userId);
     }
   }
 
+  /** Subscribe/unsubscribe every publication of a peer according to its zone. */
   private applySubscription(userId: string): void {
-    const call = this.call;
-    const sessionId = this.sessionByUser.get(userId);
-    if (!call || !sessionId) return;
+    const participant = this.room?.remoteParticipants.get(userId);
+    if (!participant) return;
     const zone = this.zones.get(userId);
     const wanted = zone === 'close' || zone === 'near';
-    const current = call.participants()[sessionId]?.tracks.audio.subscribed;
-    if (wanted === (current === true)) return;
-    call.updateParticipant(sessionId, {
-      setSubscribedTracks: wanted ? { audio: true, video: true } : false,
-    });
+    for (const publication of participant.trackPublications.values()) {
+      if (publication.isSubscribed !== wanted) publication.setSubscribed(wanted);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -250,7 +255,7 @@ class AvManager {
 
   private enqueue(op: () => Promise<void>): void {
     this.ops = this.ops.then(op).catch((err: unknown) => {
-      reportWarning('rooms: daily operation failed', err);
+      reportWarning('rooms: livekit operation failed', err);
     });
   }
 }

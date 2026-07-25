@@ -1,16 +1,17 @@
-import { loadEnv } from './lib/env.js';
+import { livekitConfig, loadEnv } from './lib/env.js';
 import { buildApp } from './app.js';
 import { DrizzleRoomStore } from './world/drizzle-store.js';
 
 const env = loadEnv();
 
 const store = env.DATABASE_URL ? new DrizzleRoomStore(env.DATABASE_URL) : undefined;
+const livekit = livekitConfig(env);
 
 const app = await buildApp({
   jwtSecret: env.JWT_SECRET,
   pretty: env.NODE_ENV === 'development',
   store,
-  dailyApiKey: env.DAILY_API_KEY,
+  livekit,
 });
 
 if (!store) {
@@ -18,8 +19,10 @@ if (!store) {
     'DATABASE_URL is not set — running with an empty in-memory room store; only the static maps (commons, studio_a) will work',
   );
 }
-if (!env.DAILY_API_KEY) {
-  app.log.warn('DAILY_API_KEY is not set — AV is off; proximity bubbles stay placeholder');
+if (!livekit) {
+  app.log.warn(
+    'LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET are not all set — AV is off; proximity bubbles stay placeholder',
+  );
 }
 
 app.addHook('onClose', async () => {

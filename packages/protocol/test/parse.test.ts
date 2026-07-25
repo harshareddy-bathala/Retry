@@ -101,7 +101,8 @@ describe('parseServerMessage', () => {
       {
         t: 'avToken',
         mapId: 'commons',
-        roomUrl: 'https://retry.daily.co/retry-commons',
+        serverUrl: 'wss://livekit.example.com',
+        room: 'retry-commons',
         token: 'jwt-token',
       },
       { t: 'error', code: 'ROOM_FULL', message: 'Room is full' },

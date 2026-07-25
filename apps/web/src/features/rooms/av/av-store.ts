@@ -1,6 +1,6 @@
 // Per-peer AV render state (rooms build plan Phase 5), published by the
 // AvManager and consumed by the bubble overlay via useSyncExternalStore.
-// Kept outside React so Daily's event storm never causes render churn beyond
+// Kept outside React so LiveKit's event storm never causes render churn beyond
 // actual track/speaking changes.
 
 export type PeerAv = {

@@ -6,7 +6,7 @@ import { createTokenVerifier } from './lib/auth.js';
 import { RoomHub } from './rooms/hub.js';
 import { WhiteboardHub } from './rooms/whiteboard.js';
 import { InMemoryRoomStore, type RoomStore } from './world/store.js';
-import { DailyAvProvider, type AvProvider } from './av/daily.js';
+import { LiveKitAvProvider, type AvProvider, type LiveKitConfig } from './av/livekit.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -22,9 +22,9 @@ export type BuildAppOptions = {
   store?: RoomStore;
   /** Override the 60s knock timeout (tests). */
   knockTimeoutMs?: number;
-  /** Daily.co API key (Phase 5); absent = AV disabled. */
-  dailyApiKey?: string;
-  /** Test seam: inject a fake AV provider instead of the real Daily client. */
+  /** Self-hosted LiveKit credentials (Phase 5); absent = AV disabled. */
+  livekit?: LiveKitConfig;
+  /** Test seam: inject a fake AV provider instead of signing real tokens. */
   av?: AvProvider;
 };
 
@@ -40,8 +40,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const verifyToken = createTokenVerifier(options.jwtSecret);
   const store = options.store ?? new InMemoryRoomStore();
   const av =
-    options.av ??
-    (options.dailyApiKey ? new DailyAvProvider(options.dailyApiKey, app.log) : undefined);
+    options.av ?? (options.livekit ? new LiveKitAvProvider(options.livekit) : undefined);
   const hub = new RoomHub({
     store,
     knockTimeoutMs: options.knockTimeoutMs,
