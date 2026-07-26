@@ -43,9 +43,14 @@ type Sheet = { key: string; file: string; note: string };
  */
 export const TILESETS: Sheet[] = [
   {
-    key: 'room_builder',
-    file: '1_Interiors/32x32/Room_Builder_32x32.png',
-    note: 'walls, floors, ceilings — the shell of every room',
+    key: 'floors',
+    file: '1_Interiors/32x32/Room_Bulder_subfiles_32x32/Room_Builder_Floors_32x32.png',
+    note: 'floor materials, 3x2 tileable blocks',
+  },
+  {
+    key: 'walls',
+    file: '1_Interiors/32x32/Room_Bulder_subfiles_32x32/Room_Builder_Walls_32x32.png',
+    note: 'wall runs, 2 tiles tall: capped upper, skirted lower',
   },
   {
     key: 'generic',
