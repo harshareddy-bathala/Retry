@@ -1,7 +1,9 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TILE_NAMES, TILE, COLUMNS, TILES } from '../art/tiles.js';
+import { readFileSync } from 'node:fs';
+import { TILE } from '../assets.config.js';
+import { FLOORS, PROPS, WALLS, type TileRef } from '../tiles.catalog.js';
 
 // Authors the Tiled JSON for both maps from an ASCII layout.
 //
@@ -14,73 +16,114 @@ import { TILE_NAMES, TILE, COLUMNS, TILES } from '../art/tiles.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 
-const GID = new Map(TILE_NAMES.map((name, i) => [name, i + 1]));
-const gid = (name: string): number => {
-  const g = GID.get(name);
-  if (g === undefined) throw new Error(`unknown tile '${name}'`);
-  return g;
+type ManifestSheet = {
+  key: string;
+  file: string;
+  width: number;
+  height: number;
+  columns: number;
+  rows: number;
+};
+const manifest = JSON.parse(
+  readFileSync(resolve(root, 'generated', 'manifest.json'), 'utf8'),
+) as { source: string; tilesets: ManifestSheet[] };
+
+/**
+ * Tiled addresses tiles by a GLOBAL id: each tileset declares a `firstgid` and
+ * its own tiles run consecutively from there. With one sheet that was just
+ * `index + 1`; with ten it has to be computed, and getting it wrong turns every
+ * desk into a wall.
+ */
+let nextGid = 1;
+const SHEETS = manifest.tilesets.map((sheet) => {
+  const firstgid = nextGid;
+  nextGid += sheet.columns * sheet.rows;
+  return { ...sheet, firstgid };
+});
+const sheetByKey = new Map(SHEETS.map((sheet) => [sheet.key, sheet]));
+
+const gidOf = (ref: TileRef): number => {
+  const sheet = sheetByKey.get(ref.sheet);
+  if (!sheet) throw new Error(`no tileset '${ref.sheet}' in the manifest — run assets:build`);
+  if (ref.col >= sheet.columns || ref.row >= sheet.rows) {
+    throw new Error(`${ref.sheet} ${ref.col},${ref.row} is outside ${sheet.columns}x${sheet.rows}`);
+  }
+  return sheet.firstgid + ref.row * sheet.columns + ref.col;
 };
 
 // Legend shared by both maps. Ground and objects are separate pictures so a
 // desk can stand on floor and a wall can stand on nothing.
-const GROUND: Record<string, string[]> = {
-  '.': ['floor_wood_a', 'floor_wood_b', 'floor_wood_c'],
-  ',': ['floor_pale_a', 'floor_pale_b'],
-  s: ['floor_stone'],
-  ' ': [],
+/**
+ * Floors come as 3x2 tileable blocks, so which tile a cell gets depends on its
+ * position in the grid — that is what stops a large floor showing a seam every
+ * three tiles.
+ */
+const FLOOR_BLOCKS: Record<string, readonly (readonly TileRef[])[]> = {
+  '.': FLOORS.wood,
+  ',': FLOORS.stone,
 };
 
-const OBJECTS: Record<string, string> = {
-  '#': 'wall_top',
-  '=': 'wall_face',
-  '-': 'wall_face_plain',
-  n: 'wall_window',
-  B: 'whiteboard_l',
-  b: 'whiteboard_r',
-  D: 'door_closed_l',
-  d: 'door_closed_r',
-  X: 'exit_l',
-  x: 'exit_r',
-  E: 'desk_l',
-  e: 'desk_r',
-  c: 'chair_up',
-  C: 'chair_down',
-  S: 'sofa_l',
-  s: 'sofa_r',
-  t: 'table',
-  P: 'plant_big',
-  p: 'plant_small',
-  h: 'shelf',
-  l: 'lamp',
+/**
+ * One character per TILE. Most LimeZu furniture is two or three tiles tall — a
+ * PC desk is monitor over desktop over desk-front — so a prop is drawn as a
+ * vertical run of characters, top to bottom, not a single glyph.
+ */
+const OBJECTS: Record<string, TileRef> = {
+  // Walls: the upper row carries the cap you look down on, the lower row the
+  // skirting that meets the floor.
+  Q: WALLS.plain.upperL,
+  W: WALLS.plain.upperM,
+  Y: WALLS.plain.upperR,
+  A: WALLS.plain.lowerL,
+  S: WALLS.plain.lowerM,
+  D: WALLS.plain.lowerR,
+  // Props, read top-to-bottom.
+  '1': PROPS.deskPc[0]!,
+  '2': PROPS.deskPc[1]!,
+  '3': PROPS.deskPc[2]!,
+  '4': PROPS.deskPc2[0]!,
+  '5': PROPS.deskPc2[1]!,
+  '6': PROPS.deskPc2[2]!,
+  h: PROPS.shelf[0]!,
+  i: PROPS.shelf[1]!,
+  j: PROPS.shelf[2]!,
+  k: PROPS.shelf2[0]!,
+  l: PROPS.shelf2[1]!,
+  m: PROPS.shelf2[2]!,
+  B: PROPS.board[0]!,
+  b: PROPS.board[1]!,
+  E: PROPS.desk[0]!,
+  e: PROPS.desk[1]!,
+  P: PROPS.printer[0]!,
+  p: PROPS.printer[1]!,
+  n: PROPS.notice[0]!,
 };
 
-/** Which object tiles stop a body. Everything else is decoration you walk past. */
-const SOLID = new Set([
-  'wall_top',
-  'wall_face',
-  'wall_face_plain',
-  'wall_window',
-  'whiteboard_l',
-  'whiteboard_r',
-  'door_closed_l',
-  'door_closed_r',
-  'exit_l',
-  'exit_r',
-  'desk_l',
-  'desk_r',
-  'sofa_l',
-  'sofa_r',
-  'table',
-  'plant_big',
-  'shelf',
+/**
+ * Which glyphs stop a body. Only the BOTTOM tile of a tall prop blocks: the
+ * upper tiles are the part you walk behind, which is what gives a top-down
+ * room its depth.
+ */
+const SOLID_GLYPHS = new Set([
+  'Q',
+  'W',
+  'Y',
+  'A',
+  'S',
+  'D',
+  '3',
+  '6',
+  'j',
+  'm',
+  'b',
+  'e',
+  'p',
 ]);
 
 type MapSpec = {
   name: string;
   ground: string;
   objects: string;
-  /** Rug top-left corner in tiles, 3x3. */
-  rug?: { x: number; y: number };
   spawn: { x: number; y: number };
   interactables: Array<{
     name: string;
@@ -111,26 +154,17 @@ function build(spec: MapSpec): unknown {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const gKey = groundRows[y]![x]!;
-      const variants = GROUND[gKey] ?? [];
-      // Deterministic variant pick — a fixed hash, so the floor never reshuffles
-      // between runs and the JSON diff stays empty when nothing changed.
-      ground.push(variants.length === 0 ? 0 : gid(variants[(x * 7 + y * 13) % variants.length]!));
+      const block = FLOOR_BLOCKS[gKey];
+      // A floor block is 3 wide by 2 tall and tiles seamlessly, so which tile a
+      // cell gets is decided by its position in the grid, not at random —
+      // random picks show a visible seam every few tiles.
+      ground.push(block ? gidOf(block[y % block.length]![x % block[0]!.length]!) : 0);
 
       const oKey = objectRows[y]![x]!;
-      const name = oKey === '.' || oKey === ' ' ? null : OBJECTS[oKey];
-      if (oKey !== '.' && oKey !== ' ' && !name) throw new Error(`${spec.name}: unknown object '${oKey}'`);
-      objects.push(name ? gid(name) : 0);
-      collision.push(name && SOLID.has(name) ? gid(name) : 0);
-    }
-  }
-
-  // Rug: nine tiles laid over the ground, picked by position in the block.
-  if (spec.rug) {
-    const edges = ['rug_tl', 'rug_t', 'rug_tr', 'rug_l', 'rug_c', 'rug_r', 'rug_bl', 'rug_b', 'rug_br'];
-    for (let dy = 0; dy < 3; dy++) {
-      for (let dx = 0; dx < 3; dx++) {
-        ground[(spec.rug.y + dy) * width + spec.rug.x + dx] = gid(edges[dy * 3 + dx]!);
-      }
+      const ref = oKey === '.' || oKey === ' ' ? null : OBJECTS[oKey];
+      if (oKey !== '.' && oKey !== ' ' && !ref) throw new Error(`${spec.name}: unknown object '${oKey}'`);
+      objects.push(ref ? gidOf(ref) : 0);
+      collision.push(ref && SOLID_GLYPHS.has(oKey) ? gidOf(ref) : 0);
     }
   }
 
@@ -212,21 +246,22 @@ function build(spec: MapSpec): unknown {
     renderorder: 'right-down',
     tiledversion: '1.11.0',
     tileheight: TILE,
-    tilesets: [
-      {
-        columns: COLUMNS,
-        firstgid: 1,
-        image: '../tilesets/retry.png',
-        imageheight: Math.ceil(TILES.length / COLUMNS) * TILE,
-        imagewidth: COLUMNS * TILE,
-        margin: 0,
-        name: 'retry',
-        spacing: 0,
-        tilecount: TILES.length,
-        tileheight: TILE,
-        tilewidth: TILE,
-      },
-    ],
+    // Every sheet the build produced, each with its own firstgid. Declaring
+    // them all keeps the gid arithmetic here identical to what Tiled and Phaser
+    // compute, so a map opens correctly in both.
+    tilesets: SHEETS.map((sheet) => ({
+      columns: sheet.columns,
+      firstgid: sheet.firstgid,
+      image: `../generated/${sheet.file}`,
+      imageheight: sheet.height,
+      imagewidth: sheet.width,
+      margin: 0,
+      name: sheet.key,
+      spacing: 0,
+      tilecount: sheet.columns * sheet.rows,
+      tileheight: TILE,
+      tilewidth: TILE,
+    })),
     tilewidth: TILE,
     type: 'map',
     version: '1.10',
@@ -256,20 +291,19 @@ const commons = build({
 ,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 `,
   objects: `
-############################
-##Dd==Dd==Dd==Dd==Dd==Dd=n=#
-#..........................#
-#.P......h..........h....P.#
-#..........................#
-#..........................#
-#..........................#
-#....Ss..............Ss....#
-#....................t.....#
-#.l.......p.......p......l.#
-#..........................#
-############################
+QWWWWWWWWWWWWWWWWWWWWWWWWWWY
+ASSSSSSSSSSSSSSSSSSSSSSSSSSD
+A..........................D
+A.hk....................hk.D
+A.il....................il.D
+A.jm....................jm.D
+A..........................D
+A..........................D
+A..........................D
+A.....n...............n....D
+A..........................D
+ASSSSSSSSSSSSSSSSSSSSSSSSSSD
 `,
-  rug: { x: 12, y: 4 },
   spawn: { x: 14, y: 9 },
   interactables: [0, 1, 2, 3, 4, 5].map((slot) => ({
     name: `door_${slot}`,
@@ -308,30 +342,29 @@ const studio = build({
 ....................
 `,
   objects: `
-####################
-#====Bb====n=======#
-#..................#
-#.h...............P#
-#..Ee.......Ee.....#
-#..cc.......cc.....#
-#..................#
-#..................#
-#..Ee.......Ee.....#
-#..cc.......cc.....#
-#.P................#
-#......Ss..t......h#
-#..................#
-#..................#
-#########Xx#########
+QWWWWWWWWWWWWWWWWWWY
+ASSSSSSSSSSSSSSSSSSD
+A..B...............D
+A..b...............D
+A..................D
+A.14.........14....D
+A.25.........25....D
+A.36.........36....D
+A..................D
+A..................D
+A.14.........14..hkD
+A.25.........25..ilD
+A.36.........36..jmD
+A.Pn...............D
+ASSSSSSSSSSSSSSSSSSD
 `,
-  rug: { x: 8, y: 6 },
   spawn: { x: 10, y: 7 },
   interactables: [
     {
       name: 'whiteboard',
-      x: 5,
-      y: 1,
-      w: 2,
+      x: 3,
+      y: 2,
+      w: 1,
       props: [{ name: 'interactive', type: 'string', value: 'whiteboard' }],
     },
     {

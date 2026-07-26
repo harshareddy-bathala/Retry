@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
-import tilesetUrl from '@retry/maps/tilesets/retry.png';
+import { TILESET_URLS } from '@retry/maps/generated/tilesets';
 import { AVATARS, DEFAULT_AVATAR } from '@retry/maps';
 import makerUrl from '@retry/maps/avatars/maker.png';
 import plannerUrl from '@retry/maps/avatars/planner.png';
@@ -26,7 +26,8 @@ import { roomSocket } from '../net/room-socket.js';
 // one to render (mapId is the instance — a room uuid — template is the file).
 const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
 
-const TILES_KEY = 'tiles';
+/** Texture key per tileset — a map may draw on several sheets at once. */
+const tilesKey = (name: string): string => `tiles-${name}`;
 
 // One sheet per preset (R5). Keyed by the same string the server stores and
 // the wire carries, so an actor's `sprite` IS its texture key.
@@ -146,7 +147,9 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, data] of Object.entries(TEMPLATES)) {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
-    this.load.image(TILES_KEY, tilesetUrl);
+    for (const [key, url] of Object.entries(TILESET_URLS)) {
+      this.load.image(tilesKey(key), url);
+    }
     for (const spec of AVATARS) {
       this.load.spritesheet(textureFor(spec.key), AVATAR_URLS[spec.key]!, {
         frameWidth: 32,
@@ -508,8 +511,16 @@ export class RoomScene extends Phaser.Scene {
     this.clearDoorVisuals();
 
     const map = this.make.tilemap({ key: template });
-    const tiles = map.addTilesetImage('retry', TILES_KEY);
-    if (!tiles) throw new Error('tileset "retry" missing from map');
+    // A room draws on several sheets — floors, walls and one or more themed
+    // furniture sets — so every tileset the map declares has to be registered,
+    // and each layer is given all of them. Tiled's firstgid decides which sheet
+    // any given tile actually comes from.
+    const tiles = map.tilesets.map((tileset) => {
+      const image = map.addTilesetImage(tileset.name, tilesKey(tileset.name));
+      if (!image) throw new Error(`tileset "${tileset.name}" missing — run pnpm assets:build`);
+      return image;
+    });
+    if (tiles.length === 0) throw new Error(`map '${template}' declares no tilesets`);
 
     const ground = map.createLayer('ground', tiles, 0, 0);
     const objects = map.createLayer('objects', tiles, 0, 0);

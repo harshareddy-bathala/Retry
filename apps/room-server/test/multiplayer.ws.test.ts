@@ -151,12 +151,12 @@ describe('room-server multiplayer', () => {
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
     const b = await connectAndJoin('user-b');
-    // Walk legally from spawn (10.5,7.5) toward the south-east desk cluster…
+    // Walk legally from spawn (10.5,7.5) toward the east desk cluster…
     b.send({ t: 'move', x: 11.5, y: 7.5, dir: 'right', moving: true });
     b.send({ t: 'move', x: 12.5, y: 7.5, dir: 'right', moving: true });
     const before = ofType(b, 'snapshot').length;
-    // …then step one tile into desk tile (12,8): distance legal, target blocked.
-    b.send({ t: 'move', x: 12.5, y: 8.5, dir: 'down', moving: true });
+    // …then step one tile into the desk at (13,7): distance legal, target blocked.
+    b.send({ t: 'move', x: 13.5, y: 7.5, dir: 'right', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
     const resync = ofType(b, 'snapshot').at(-1);
     // Authoritative position is the last legal one, not the desk.

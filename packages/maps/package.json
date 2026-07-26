@@ -8,7 +8,9 @@
     "./studio_a.json": "./maps/studio_a.json",
     "./commons.json": "./maps/commons.json",
     "./tilesets/retry.png": "./tilesets/retry.png",
-    "./avatars/*.png": "./avatars/*.png"
+    "./avatars/*.png": "./avatars/*.png",
+    "./generated/tilesets": "./generated/tilesets.ts",
+    "./generated/manifest.json": "./generated/manifest.json"
   },
   "scripts": {
     "validate": "tsx scripts/validate-maps.ts",
