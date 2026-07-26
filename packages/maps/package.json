@@ -7,9 +7,9 @@
     ".": "./src/index.ts",
     "./studio_a.json": "./maps/studio_a.json",
     "./commons.json": "./maps/commons.json",
-    "./tilesets/retry.png": "./tilesets/retry.png",
     "./avatars/*.png": "./avatars/*.png",
     "./generated/tilesets": "./generated/tilesets.ts",
+    "./generated/characters": "./generated/characters.ts",
     "./generated/manifest.json": "./generated/manifest.json"
   },
   "scripts": {
@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "art": "pnpm assets:build && tsx scripts/author-maps.ts && tsx scripts/validate-maps.ts",
-    "assets:build": "tsx scripts/build-assets.ts"
+    "assets:build": "tsx scripts/build-assets.ts",
+    "assets:check": "tsx scripts/check-assets.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

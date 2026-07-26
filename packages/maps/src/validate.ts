@@ -7,9 +7,20 @@ import { z } from 'zod';
 // room server can reuse it.
 
 export const REQUIRED_TILE_LAYERS = ['ground', 'objects', 'collision'] as const;
+/** Recognised but not required — validated when present. */
+export const OPTIONAL_TILE_LAYERS = ['ground_overlay', 'objects_above'] as const;
 export const SPAWN_LAYER = 'spawns';
 export const DEFAULT_SPAWN = 'default';
 export const EXPECTED_TILE_SIZE = 32;
+
+/** The `interactive` values the renderer knows how to activate. */
+export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit'] as const;
+
+/**
+ * Tiled sets the top three bits of a gid for flipped/rotated placements.
+ * Masking them off recovers the tile id for range checks.
+ */
+export const GID_FLAG_MASK = 0x1fffffff;
 
 const tileLayerSchema = z.object({
   type: z.literal('tilelayer'),
@@ -44,6 +55,15 @@ const objectLayerSchema = z.object({
 
 const layerSchema = z.discriminatedUnion('type', [tileLayerSchema, objectLayerSchema]);
 
+// Declared tilesets carry the gid space. Once maps are hand-authored in Tiled
+// a human can reference a tile that no declared sheet contains — the gid-range
+// check below is what catches that before the renderer draws garbage.
+const tilesetRefSchema = z.object({
+  name: z.string(),
+  firstgid: z.number().int().positive(),
+  tilecount: z.number().int().positive(),
+});
+
 export const tiledMapSchema = z.object({
   type: z.literal('map'),
   orientation: z.literal('orthogonal'),
@@ -51,6 +71,7 @@ export const tiledMapSchema = z.object({
   height: z.number().int().positive(),
   tilewidth: z.number().int().positive(),
   tileheight: z.number().int().positive(),
+  tilesets: z.array(tilesetRefSchema),
   layers: z.array(layerSchema),
 });
 
@@ -93,6 +114,64 @@ export function validateMap(raw: unknown): ValidationResult {
       errors.push(
         `tile layer '${name}' has ${layer.data.length} tiles, expected ${map.width * map.height} (${map.width}x${map.height})`,
       );
+    }
+  }
+
+  // Optional layers are validated when present — a wrong-sized objects_above
+  // is a bug, not a feature the map opted out of.
+  for (const name of OPTIONAL_TILE_LAYERS) {
+    const layer = tileLayers.get(name);
+    if (layer && layer.data.length !== map.width * map.height) {
+      errors.push(
+        `tile layer '${name}' has ${layer.data.length} tiles, expected ${map.width * map.height} (${map.width}x${map.height})`,
+      );
+    }
+  }
+
+  // Every non-zero gid must land inside a declared tileset's range. Sorting by
+  // firstgid lets one binary-search-free pass find the owning sheet.
+  const ranges = [...map.tilesets]
+    .sort((a, b) => a.firstgid - b.firstgid)
+    .map((t) => ({ name: t.name, from: t.firstgid, to: t.firstgid + t.tilecount - 1 }));
+  const maxGid = ranges.length > 0 ? ranges[ranges.length - 1]!.to : 0;
+  for (const layer of tileLayers.values()) {
+    let bad: number | null = null;
+    for (const raw of layer.data) {
+      const gid = raw & GID_FLAG_MASK;
+      if (gid === 0) continue;
+      if (gid > maxGid || !ranges.some((r) => gid >= r.from && gid <= r.to)) {
+        bad = gid;
+        break;
+      }
+    }
+    if (bad !== null) {
+      errors.push(
+        `tile layer '${layer.name}' references gid ${bad}, outside every declared tileset (max valid gid ${maxGid})`,
+      );
+    }
+  }
+
+  // Interactables must be activatable: a kind the renderer knows, and doors
+  // need an integer slot. A GUI author can typo a property name and the object
+  // silently becomes scenery — this is the check that makes it loud.
+  const interactables = map.layers.find(
+    (l): l is ObjectLayer => l.type === 'objectgroup' && l.name === INTERACTABLES_LAYER,
+  );
+  for (const obj of interactables?.objects ?? []) {
+    const props = obj.properties ?? [];
+    const kind = props.find((p) => p.name === 'interactive')?.value;
+    if (kind === undefined) continue; // plain decoration on the layer is fine
+    if (typeof kind !== 'string' || !(INTERACTIVE_KINDS as readonly string[]).includes(kind)) {
+      errors.push(
+        `interactable '${obj.name || '(unnamed)'}' has unknown interactive kind ${JSON.stringify(kind)}; expected one of ${INTERACTIVE_KINDS.join(', ')}`,
+      );
+      continue;
+    }
+    if (kind === 'door') {
+      const slot = props.find((p) => p.name === 'door_slot')?.value;
+      if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
+        errors.push(`door '${obj.name || '(unnamed)'}' needs a non-negative integer door_slot`);
+      }
     }
   }
 

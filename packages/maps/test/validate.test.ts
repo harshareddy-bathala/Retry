@@ -42,6 +42,67 @@ describe('validateMap', () => {
       expect(result.errors.some((e) => e.startsWith("tile layer 'ground'"))).toBe(true);
     }
   });
+
+  // Once maps are authored by a human in Tiled, a gid pointing outside every
+  // declared tileset is the likeliest way to break the world silently.
+  it('fails when a gid falls outside every declared tileset', () => {
+    const map = loadJson(studioA) as {
+      tilesets: Array<{ firstgid: number; tilecount: number }>;
+      layers: Array<{ name: string; data?: number[] }>;
+    };
+    const maxGid = Math.max(...map.tilesets.map((t) => t.firstgid + t.tilecount - 1));
+    const ground = map.layers.find((l) => l.name === 'ground');
+    ground!.data![0] = maxGid + 1;
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes(`gid ${maxGid + 1}`))).toBe(true);
+    }
+  });
+
+  it('ignores Tiled flip flags when range-checking gids', () => {
+    const map = loadJson(studioA) as { layers: Array<{ name: string; data?: number[] }> };
+    const ground = map.layers.find((l) => l.name === 'ground');
+    // Horizontal-flip bit on an otherwise valid gid must still validate.
+    ground!.data![0] = (ground!.data![0]! | 0x80000000) >>> 0;
+    expect(validateMap(map).ok).toBe(true);
+  });
+
+  it('fails an interactable with an unknown kind, and a door without a slot', () => {
+    const map = loadJson(studioA) as {
+      layers: Array<{
+        type: string;
+        name: string;
+        objects?: Array<{
+          name: string;
+          x?: number;
+          y?: number;
+          properties?: Array<{ name: string; value: unknown }>;
+        }>;
+      }>;
+    };
+    const layer = map.layers.find((l) => l.name === 'interactables');
+    layer!.objects!.push(
+      { name: 'bad_kind', x: 0, y: 0, properties: [{ name: 'interactive', value: 'teleporter' }] },
+      { name: 'bad_door', x: 0, y: 0, properties: [{ name: 'interactive', value: 'door' }] },
+    );
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("'bad_kind'") && e.includes('teleporter'))).toBe(
+        true,
+      );
+      expect(result.errors.some((e) => e.includes("'bad_door'") && e.includes('door_slot'))).toBe(
+        true,
+      );
+    }
+  });
+
+  it('fails a map that declares no tilesets array', () => {
+    const map = loadJson(studioA) as Record<string, unknown>;
+    delete map['tilesets'];
+    expect(validateMap(map).ok).toBe(false);
+  });
 });
 
 describe('validate-maps CLI', () => {

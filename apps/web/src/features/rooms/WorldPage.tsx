@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { DEFAULT_AVATAR } from '@retry/maps';
+import { ART_SOURCE } from '@retry/maps/generated/tilesets';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { AvatarPicker } from './AvatarPicker.js';
@@ -101,6 +102,33 @@ export default function WorldPage() {
   };
 
   if (!user) return null;
+
+  // No licensed art, no world. The pack cannot be committed (its licence
+  // forbids redistribution), so a fresh clone reaches here with typed stubs —
+  // explain the one-time setup instead of throwing inside Phaser.
+  if (ART_SOURCE !== 'limezu') {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-page">
+        <div className="max-w-md rounded-panel border border-edge bg-surface p-6 shadow-lg">
+          <h1 className="font-display text-lg text-ink">The world's art is not built</h1>
+          <p className="mt-2 text-sm text-ink-muted">
+            Rooms are drawn from a licensed art pack that is not in the repository. Follow{' '}
+            <code className="font-mono text-xs">docs/assets-setup.md</code> to get the pack, then
+            run:
+          </p>
+          <pre className="mt-3 rounded-card border border-edge bg-page px-3 py-2 font-mono text-xs text-ink">
+            pnpm --filter @retry/maps assets:build
+          </pre>
+          <Link
+            to="/rooms"
+            className="mt-4 inline-block rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+          >
+            ← Back to rooms
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-page">
