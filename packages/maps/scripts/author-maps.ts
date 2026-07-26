@@ -120,6 +120,15 @@ const SOLID_GLYPHS = new Set([
   'p',
 ]);
 
+/**
+ * The upper tiles of tall props — the part you walk BEHIND. These go to the
+ * `objects_above` layer, which the renderer draws over every actor; the
+ * solid bottom tile stays in `objects` below them. Walls are deliberately
+ * not here: an avatar's head overlapping a wall face reads as standing in
+ * front of the wall plane, which is right.
+ */
+const ABOVE_GLYPHS = new Set(['1', '2', '4', '5', 'h', 'i', 'k', 'l', 'B', 'E', 'P']);
+
 type MapSpec = {
   name: string;
   ground: string;
@@ -149,6 +158,7 @@ function build(spec: MapSpec): unknown {
 
   const ground: number[] = [];
   const objects: number[] = [];
+  const objectsAbove: number[] = [];
   const collision: number[] = [];
 
   for (let y = 0; y < height; y++) {
@@ -163,7 +173,9 @@ function build(spec: MapSpec): unknown {
       const oKey = objectRows[y]![x]!;
       const ref = oKey === '.' || oKey === ' ' ? null : OBJECTS[oKey];
       if (oKey !== '.' && oKey !== ' ' && !ref) throw new Error(`${spec.name}: unknown object '${oKey}'`);
-      objects.push(ref ? gidOf(ref) : 0);
+      const above = ref !== null && ref !== undefined && ABOVE_GLYPHS.has(oKey);
+      objects.push(ref && !above ? gidOf(ref) : 0);
+      objectsAbove.push(ref && above ? gidOf(ref) : 0);
       collision.push(ref && SOLID_GLYPHS.has(oKey) ? gidOf(ref) : 0);
     }
   }
@@ -189,9 +201,10 @@ function build(spec: MapSpec): unknown {
     layers: [
       layer('ground', ground, 1),
       layer('objects', objects, 2),
+      layer('objects_above', objectsAbove, 3),
       // Kept as a tile layer so the contract in validate.ts is unchanged; the
       // renderer hides it and both sides read it as a boolean grid.
-      { ...(layer('collision', collision, 3) as object), visible: false },
+      { ...(layer('collision', collision, 6) as object), visible: false },
       {
         draworder: 'topdown',
         id: 4,
@@ -240,7 +253,7 @@ function build(spec: MapSpec): unknown {
         y: 0,
       },
     ],
-    nextlayerid: 6,
+    nextlayerid: 7,
     nextobjectid: 200,
     orientation: 'orthogonal',
     renderorder: 'right-down',

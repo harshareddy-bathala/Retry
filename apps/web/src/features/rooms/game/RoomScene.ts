@@ -64,6 +64,13 @@ const REMOTE_IDLE_TIMEOUT_MS = 200;
 // Phase 4 door transition: 100ms out + 100ms in = the plan's 200ms fade.
 const FADE_MS = 100;
 
+// Depth bands. Actors y-sort within [0, map height in px]; the objects_above
+// layer (wall caps, furniture tops — "the part you walk behind") draws over
+// every actor, and UI pills float over the lot.
+const DEPTH_ABOVE = 5000;
+const DEPTH_UI = 10000;
+const DEPTH_HINT = 10001;
+
 type Facing = 'down' | 'left' | 'right' | 'up';
 
 export type RoomSceneData = { userId: string; displayName: string };
@@ -285,6 +292,8 @@ export class RoomScene extends Phaser.Scene {
     }
     this.wasMoving = moving;
 
+    // Y-sort: whoever stands further south draws in front (feet decide).
+    this.player.setDepth(this.player.y + FEET_OFFSET_Y);
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
@@ -404,7 +413,9 @@ export class RoomScene extends Phaser.Scene {
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
     const textureKey = ensureAvatarTexture(this, actor.sprite);
-    const sprite = this.add.sprite(x, y, textureKey, frameFor('idle', actor.dir));
+    const sprite = this.add
+      .sprite(x, y, textureKey, frameFor('idle', actor.dir))
+      .setDepth(y + FEET_OFFSET_Y);
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
     tag.setPosition(x, y - TAG_OFFSET_Y);
     this.remotes.set(actor.userId, {
@@ -454,7 +465,7 @@ export class RoomScene extends Phaser.Scene {
       const t = Phaser.Math.Clamp((now - remote.startedAt) / INTERPOLATION_MS, 0, 1);
       const x = Phaser.Math.Linear(remote.fromX, remote.toX, t);
       const y = Phaser.Math.Linear(remote.fromY, remote.toY, t);
-      remote.sprite.setPosition(x, y);
+      remote.sprite.setPosition(x, y).setDepth(y + FEET_OFFSET_Y);
       remote.tag.setPosition(Math.round(x), Math.round(y) - TAG_OFFSET_Y);
 
       // Stop the walk cycle when updates dry up rather than looping in place.
@@ -499,15 +510,28 @@ export class RoomScene extends Phaser.Scene {
     if (tiles.length === 0) throw new Error(`map '${template}' declares no tilesets`);
 
     const ground = map.createLayer('ground', tiles, 0, 0);
+    const overlay = map.getLayerIndexByName('ground_overlay') !== null
+      ? map.createLayer('ground_overlay', tiles, 0, 0)
+      : null;
     const objects = map.createLayer('objects', tiles, 0, 0);
     const collision = map.createLayer('collision', tiles, 0, 0);
     if (!ground || !objects || !collision) throw new Error(`layers missing from map '${template}'`);
+    // The walk-behind layer: wall caps and the upper tiles of tall furniture.
+    // Only a prop's BOTTOM tile blocks (author convention), so an avatar can
+    // stand behind a bookshelf and be drawn behind its top half.
+    const above = map.getLayerIndexByName('objects_above') !== null
+      ? map.createLayer('objects_above', tiles, 0, 0)
+      : null;
     collision.setVisible(false);
     // Map contract: any non-empty tile in 'collision' blocks movement.
     collision.setCollisionByExclusion([-1]);
+    ground.setDepth(-3);
+    overlay?.setDepth(-2);
+    objects.setDepth(-1);
+    above?.setDepth(DEPTH_ABOVE);
     this.mapLayers = [ground, objects, collision];
-    // Player renders above tiles.
-    this.player.setDepth(1);
+    if (overlay) this.mapLayers.push(overlay);
+    if (above) this.mapLayers.push(above);
 
     this.mapSize = { width: map.widthInPixels, height: map.heightInPixels };
     this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
@@ -548,7 +572,7 @@ export class RoomScene extends Phaser.Scene {
       const hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
       hint.setPosition(x + width / 2, kindProp === 'door' ? y + height + 10 : y - 8);
       hint.setVisible(false);
-      hint.setDepth(11);
+      hint.setDepth(DEPTH_HINT);
       this.interactables.push({
         kind: kindProp,
         doorSlot: typeof slotProp === 'number' ? slotProp : null,
@@ -631,7 +655,7 @@ export class RoomScene extends Phaser.Scene {
           '#2d2926',
         );
         plaque.setPosition(px + TILE_SIZE, py + TILE_SIZE + 12);
-        plaque.setDepth(10);
+        plaque.setDepth(DEPTH_UI);
         this.doorVisuals.push(plaque);
       }
     }
@@ -656,7 +680,7 @@ export class RoomScene extends Phaser.Scene {
     const bg = this.add.graphics();
     bg.fillStyle(bgColor, 0.95);
     bg.fillRoundedRect(-width / 2, -height / 2, width, height, height / 2);
-    return this.add.container(0, 0, [bg, text]).setDepth(10);
+    return this.add.container(0, 0, [bg, text]).setDepth(DEPTH_UI);
   }
 }
 
