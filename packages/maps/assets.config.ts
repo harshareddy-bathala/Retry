@@ -165,6 +165,77 @@ export const TILESETS: Sheet[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Animated objects
+// ---------------------------------------------------------------------------
+
+/**
+ * Horizontal frame strips from `3_Animated_objects`. The pack ships each object
+ * twice — as a gif preview and as a spritesheet — and only the spritesheets are
+ * usable. Two quirks are handled here rather than at runtime: some filenames
+ * contain SPACES and encode their loop range (`..._6-9 loop_32x32.png`), and
+ * these sheets are palette-indexed PNGs rather than RGBA (browsers do not care;
+ * our preview tools needed teaching).
+ *
+ * `loop` is [firstFrame, lastFrame] for objects that idle on a sub-range;
+ * omitted means the whole strip loops. Doors do not loop at all — the renderer
+ * plays them forwards to open and backwards to close.
+ */
+export type AnimatedObject = {
+  key: string;
+  file: string;
+  frameHeight: number;
+  loop?: readonly [number, number];
+  note: string;
+};
+
+const ANIM_DIR = '3_Animated_objects/32x32/spritesheets';
+
+export const ANIMATED_OBJECTS: AnimatedObject[] = [
+  {
+    key: 'door',
+    file: `${ANIM_DIR}/animated_door_1_32x32.png`,
+    frameHeight: 64,
+    note: '5 frames: 0 shut, 4 wide open. The Commons doors.',
+  },
+  {
+    key: 'doorLocked',
+    file: `${ANIM_DIR}/animated_door_1_locked_32x32.png`,
+    frameHeight: 64,
+    note: 'the same door with a lock plate — knock / invite-only rooms',
+  },
+  {
+    key: 'coffee',
+    file: `${ANIM_DIR}/animated_coffee_32x32.png`,
+    frameHeight: 64,
+    note: 'coffee machine, brewing — the lounge bar',
+  },
+  {
+    key: 'server',
+    file: `${ANIM_DIR}/animated_control_room_server_32x32.png`,
+    frameHeight: 96,
+    note: 'server rack with blinking lights — the studio',
+  },
+  {
+    key: 'cat',
+    file: `${ANIM_DIR}/animated_cat_32x32.png`,
+    frameHeight: 32,
+    note: 'a cat. Every good virtual space has one.',
+  },
+  {
+    key: 'candle',
+    file: `${ANIM_DIR}/animated_candle_32x32.png`,
+    frameHeight: 64,
+    note: 'candle flame — the lounge',
+  },
+  {
+    key: 'sprout',
+    file: `${ANIM_DIR}/animated_sprout_32x32.png`,
+    frameHeight: 64,
+    note: 'a small plant swaying — anywhere that needs life',
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Character generator — the curated catalogue
 // ---------------------------------------------------------------------------
 

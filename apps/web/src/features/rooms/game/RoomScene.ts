@@ -5,6 +5,7 @@ import classroom from '@retry/maps/classroom.json';
 import lounge from '@retry/maps/lounge.json';
 import conference from '@retry/maps/conference.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
+import { ANIMATED } from '@retry/maps/generated/animated';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
@@ -45,6 +46,14 @@ const REQUIRED_TILESETS: string[] = [
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
+/** Texture key per animated object strip. */
+const animKey = (name: string): string => `anim-${name}`;
+
+// Commons doors. Frame 0 is shut and the last frame is a clear doorway, so
+// opening is the strip played forwards and closing is the same strip reversed.
+const DOOR_FPS = 14;
+/** How close (in tiles, Chebyshev) a person must be for a door to swing open. */
+const DOOR_OPEN_RANGE = 2;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -151,6 +160,13 @@ export class RoomScene extends Phaser.Scene {
   private interactables: Interactable[] = [];
   private doorVisuals: Phaser.GameObjects.GameObject[] = [];
   private doorsInfo: DoorInfo[] = [];
+  /** Swing state per assigned door slot, so a door animates only on change. */
+  private doorSprites = new Map<
+    number,
+    { sprite: Phaser.GameObjects.Sprite; kind: string; open: boolean }
+  >();
+  /** Looping ambient objects for the current map. */
+  private propSprites: Phaser.GameObjects.Sprite[] = [];
   private fading = false;
   private pendingSnapshot: SnapshotMessage | null = null;
 
@@ -174,6 +190,12 @@ export class RoomScene extends Phaser.Scene {
       if (!url) throw new Error(`map declares tileset "${key}" — run pnpm assets:build`);
       this.load.image(tilesKey(key), url);
     }
+    for (const [key, sheet] of Object.entries(ANIMATED)) {
+      this.load.spritesheet(animKey(key), sheet.url, {
+        frameWidth: sheet.frameWidth,
+        frameHeight: sheet.frameHeight,
+      });
+    }
     // Characters composite at runtime from these curated layer strips
     // (~240 KB for the whole catalogue) — there is no per-character asset.
     preloadCharacterLayers(this);
@@ -196,6 +218,29 @@ export class RoomScene extends Phaser.Scene {
       .setSize(FEET_BOX.width, FEET_BOX.height)
       .setOffset(FEET_BOX.offsetX, FEET_BOX.offsetY);
     this.player.anims.play(`idle-${this.selfSprite}-down`);
+
+    // Ambient loops (a brewing coffee machine, a blinking server, a cat) and
+    // the door swings. Registered once; every placement shares them.
+    for (const [key, sheet] of Object.entries(ANIMATED)) {
+      const texture = animKey(key);
+      const [from, to] = sheet.loop ?? [0, sheet.frames - 1];
+      this.anims.create({
+        key: `loop-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: from, end: to }),
+        frameRate: 6,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `open-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: 0, end: sheet.frames - 1 }),
+        frameRate: DOOR_FPS,
+      });
+      this.anims.create({
+        key: `shut-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: sheet.frames - 1, end: 0 }),
+        frameRate: DOOR_FPS,
+      });
+    }
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
     this.nameTag.setVisible(false);
@@ -328,6 +373,7 @@ export class RoomScene extends Phaser.Scene {
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
     this.updateInteractables();
+    this.updateDoors();
   }
 
   // ---------------------------------------------------------------------------
@@ -525,6 +571,8 @@ export class RoomScene extends Phaser.Scene {
     this.mapLayers = [];
     for (const i of this.interactables) i.hint.destroy();
     this.interactables = [];
+    for (const p of this.propSprites) p.destroy();
+    this.propSprites = [];
     this.clearDoorVisuals();
 
     const map = this.make.tilemap({ key: template });
@@ -574,6 +622,7 @@ export class RoomScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     this.collectInteractables(map);
+    this.spawnProps(map);
     this.currentTemplate = template;
     this.player.setVisible(true);
     this.nameTag.setVisible(true);
@@ -660,34 +709,83 @@ export class RoomScene extends Phaser.Scene {
   private clearDoorVisuals(): void {
     for (const v of this.doorVisuals) v.destroy();
     this.doorVisuals = [];
+    this.doorSprites.clear();
   }
 
+  /**
+   * Real doors from the pack, one sprite per slot, standing in the wall: the
+   * frame is 32x64 so it covers both the wall's cap and face rows. A door with
+   * no room behind it is a shut door, and stays shut.
+   */
   private renderDoors(): void {
     if (this.currentTemplate !== 'commons') return;
     this.clearDoorVisuals();
+    this.doorSprites.clear();
     for (const door of this.doorsInfo) {
       const px = door.x * TILE_SIZE;
       const py = door.y * TILE_SIZE;
-      const g = this.add.graphics();
-      // Door leaf: assigned doors look warm and inviting, unassigned stay plain.
-      g.fillStyle(door.room ? 0x8a5a33 : 0x4a4440, 1);
-      g.fillRoundedRect(px + 6, py + 4, 2 * TILE_SIZE - 12, TILE_SIZE - 6, 4);
-      g.fillStyle(door.room ? 0xd9b06c : 0x5d564f, 1);
-      g.fillCircle(px + 2 * TILE_SIZE - 18, py + TILE_SIZE / 2 + 2, 2);
-      g.setDepth(0.5);
-      this.doorVisuals.push(g);
+      // Non-open rooms get the door with a lock plate; the policy is legible
+      // from across the room instead of only in the plaque's text.
+      const kind = door.room && door.room.accessPolicy !== 'open' ? 'doorLocked' : 'door';
+      const sprite = this.add
+        .sprite(px + TILE_SIZE / 2, py + TILE_SIZE, animKey(kind), 0)
+        .setOrigin(0.5, 1)
+        // Doors sit in the wall, behind everyone — an avatar walking past the
+        // Commons' north wall passes in front of it.
+        .setDepth(-0.5);
+      this.doorVisuals.push(sprite);
+      if (door.room) this.doorSprites.set(door.slot, { sprite, kind, open: false });
 
       if (door.room) {
-        const lock = door.room.accessPolicy !== 'open' ? ' 🔒' : '';
         const plaque = this.buildPill(
-          `${door.room.roomName} · ${door.room.occupancy}${lock}`,
+          `${door.room.roomName} · ${door.room.occupancy}`,
           0xf5f3ee,
           '#2d2926',
         );
-        plaque.setPosition(px + TILE_SIZE, py + TILE_SIZE + 12);
+        plaque.setPosition(px + TILE_SIZE / 2, py + TILE_SIZE + 12);
         plaque.setDepth(DEPTH_UI);
         this.doorVisuals.push(plaque);
       }
+    }
+  }
+
+  /** Swing doors open when someone is near them, shut when they leave. */
+  private updateDoors(): void {
+    if (this.doorSprites.size === 0) return;
+    const feetX = pixelToTile(this.player.x);
+    const feetY = pixelToTile(this.player.y + FEET_OFFSET_Y);
+    for (const door of this.doorsInfo) {
+      const entry = this.doorSprites.get(door.slot);
+      if (!entry) continue;
+      const near =
+        Math.max(Math.abs(door.x - feetX), Math.abs(door.y - feetY)) <= DOOR_OPEN_RANGE;
+      if (near === entry.open) continue;
+      entry.open = near;
+      entry.sprite.anims.play(`${near ? 'open' : 'shut'}-${entry.kind}`, true);
+    }
+  }
+
+  /**
+   * Ambient animated objects placed on a map's optional `props` object layer:
+   * a coffee machine brewing, a server blinking, a cat. Each object's `name`
+   * is the animation key; unknown keys are skipped rather than fatal, so a map
+   * can name an object the build has not been told to take yet.
+   */
+  private spawnProps(map: Phaser.Tilemaps.Tilemap): void {
+    for (const obj of map.getObjectLayer('props')?.objects ?? []) {
+      const key = obj.name;
+      const sheet = ANIMATED[key];
+      if (!sheet) continue;
+      // Tiled anchors rectangles at their top-left; a strip taller than one
+      // tile hangs upward from the tile it stands on.
+      const x = (obj.x ?? 0) + TILE_SIZE / 2;
+      const y = (obj.y ?? 0) + TILE_SIZE;
+      const sprite = this.add
+        .sprite(x, y, animKey(key), 0)
+        .setOrigin(0.5, 1)
+        .setDepth(y);
+      sprite.anims.play(`loop-${key}`);
+      this.propSprites.push(sprite);
     }
   }
 

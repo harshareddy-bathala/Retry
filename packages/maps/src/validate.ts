@@ -17,6 +17,15 @@ export const EXPECTED_TILE_SIZE = 32;
 export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit'] as const;
 
 /**
+ * Animated ambience. Each object's NAME on this layer is an animation key from
+ * assets.config.ts's ANIMATED_OBJECTS; the renderer skips a key it does not
+ * know, so `validateMap` takes the valid set as an argument and reports the
+ * typo instead of leaving a prop invisibly absent. Callers without the
+ * generated manifest (the room server, which never draws) simply omit it.
+ */
+export const PROPS_LAYER = 'props';
+
+/**
  * Tiled sets the top three bits of a gid for flipped/rotated placements.
  * Masking them off recovers the tile id for range checks.
  */
@@ -83,7 +92,12 @@ export type ValidationResult =
   | { ok: true; map: TiledMap }
   | { ok: false; errors: string[] };
 
-export function validateMap(raw: unknown): ValidationResult {
+export type ValidateOptions = {
+  /** Known animation keys; when given, `props` object names are checked. */
+  animationKeys?: readonly string[];
+};
+
+export function validateMap(raw: unknown, options: ValidateOptions = {}): ValidationResult {
   const parsed = tiledMapSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -171,6 +185,20 @@ export function validateMap(raw: unknown): ValidationResult {
       const slot = props.find((p) => p.name === 'door_slot')?.value;
       if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
         errors.push(`door '${obj.name || '(unnamed)'}' needs a non-negative integer door_slot`);
+      }
+    }
+  }
+
+  if (options.animationKeys) {
+    const known = new Set(options.animationKeys);
+    const props = map.layers.find(
+      (l): l is ObjectLayer => l.type === 'objectgroup' && l.name === PROPS_LAYER,
+    );
+    for (const obj of props?.objects ?? []) {
+      if (!known.has(obj.name)) {
+        errors.push(
+          `props object '${obj.name}' is not a known animation (add it to ANIMATED_OBJECTS, or fix the name)`,
+        );
       }
     }
   }

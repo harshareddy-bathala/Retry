@@ -1641,9 +1641,20 @@
       "visible": true,
       "x": 0,
       "y": 0
+    },
+    {
+      "draworder": "topdown",
+      "id": 8,
+      "name": "props",
+      "objects": [],
+      "opacity": 1,
+      "type": "objectgroup",
+      "visible": true,
+      "x": 0,
+      "y": 0
     }
   ],
-  "nextlayerid": 8,
+  "nextlayerid": 9,
   "nextobjectid": 200,
   "orientation": "orthogonal",
   "renderorder": "right-down",

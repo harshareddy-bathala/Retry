@@ -50,6 +50,8 @@ type MapSpec = {
   floor: FloorKey;
   wall: WallKey;
   props: Placement[];
+  /** Animated objects: an ANIMATED key from the build, at a tile position. */
+  animated?: Array<{ key: string; x: number; y: number }>;
   spawn: { x: number; y: number };
   interactables: Array<{
     name: string;
@@ -225,8 +227,31 @@ function build(spec: MapSpec): unknown {
         x: 0,
         y: 0,
       },
+      {
+        draworder: 'topdown',
+        id: 8,
+        name: 'props',
+        objects: (spec.animated ?? []).map((o) => ({
+          height: TILE,
+          id: 300 + nextId++,
+          // The object's NAME is the animation key the renderer looks up.
+          name: o.key,
+          point: false,
+          rotation: 0,
+          type: '',
+          visible: true,
+          width: TILE,
+          x: o.x * TILE,
+          y: o.y * TILE,
+        })),
+        opacity: 1,
+        type: 'objectgroup',
+        visible: true,
+        x: 0,
+        y: 0,
+      },
     ],
-    nextlayerid: 8,
+    nextlayerid: 9,
     nextobjectid: 200,
     orientation: 'orthogonal',
     renderorder: 'right-down',
@@ -300,6 +325,10 @@ const commons: MapSpec = {
     p('notice', 6, 1),
     p('notice', 21, 1),
   ],
+  animated: [
+    { key: 'cat', x: 23, y: 9 },
+    { key: 'sprout', x: 4, y: 3 },
+  ],
   interactables: [0, 1, 2, 3, 4, 5].map((slot) => ({
     name: `door_${slot}`,
     x: 2 + slot * 4,
@@ -347,6 +376,10 @@ const studioA: MapSpec = {
     p('printer', 1, 2),
     p('globe', 18, 8),
   ],
+  animated: [
+    { key: 'server', x: 18, y: 5 },
+    { key: 'sprout', x: 12, y: 2 },
+  ],
   interactables: [whiteboardAt(2, 1, 3), exitDoor(9, 14)],
 };
 
@@ -377,6 +410,7 @@ const classroom: MapSpec = {
     p('plantBush2', 18, 12),
     p('deskBook', 16, 5),
   ],
+  animated: [{ key: 'sprout', x: 17, y: 10 }],
   interactables: [whiteboardAt(8, 1, 3), exitDoor(9, 14)],
 };
 
@@ -421,6 +455,11 @@ const lounge: MapSpec = {
     p('pouf2', 6, 12),
     p('pouf2', 13, 12),
     p('tableRound', 3, 8),
+  ],
+  animated: [
+    { key: 'coffee', x: 3, y: 2 },
+    { key: 'candle', x: 10, y: 4 },
+    { key: 'cat', x: 16, y: 11 },
   ],
   interactables: [whiteboardAt(9, 1, 2), exitDoor(9, 14)],
 };

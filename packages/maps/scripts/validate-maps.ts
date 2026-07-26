@@ -4,12 +4,23 @@
 //   pnpm --filter @retry/maps validate <file...>  # specific files
 // Exits 1 with per-file errors if any map is invalid. Run in CI.
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateMap } from '../src/validate.js';
 
-const mapsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'maps');
+const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
+const mapsDir = join(pkgRoot, 'maps');
+
+// Animation keys come from the build's manifest, so a `props` object naming a
+// typo is caught here. Without the pack there is no manifest and that one
+// check is skipped — everything else in the contract still applies.
+const manifestPath = join(pkgRoot, 'generated', 'manifest.json');
+const animationKeys = existsSync(manifestPath)
+  ? (
+      JSON.parse(readFileSync(manifestPath, 'utf8')) as { animations?: Array<{ key: string }> }
+    ).animations?.map((a) => a.key)
+  : undefined;
 
 const args = process.argv.slice(2);
 const files =
@@ -34,7 +45,7 @@ for (const file of files) {
     console.error(`✗ ${file}\n    unreadable or invalid JSON: ${String(err)}`);
     continue;
   }
-  const result = validateMap(raw);
+  const result = validateMap(raw, animationKeys ? { animationKeys } : {});
   if (result.ok) {
     console.log(`✓ ${file}`);
   } else {

@@ -12,6 +12,7 @@
     "./conference.json": "./maps/conference.json",
     "./generated/tilesets": "./generated/tilesets.ts",
     "./generated/characters": "./generated/characters.ts",
+    "./generated/animated": "./generated/animated.ts",
     "./generated/manifest.json": "./generated/manifest.json"
   },
   "scripts": {

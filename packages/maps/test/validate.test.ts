@@ -98,6 +98,31 @@ describe('validateMap', () => {
     }
   });
 
+  // A props object whose name is not a known animation renders as nothing at
+  // all — the quietest possible failure, so the validator has to be loud.
+  it('fails a props object naming an unknown animation, when keys are supplied', () => {
+    const map = loadJson(studioA) as {
+      layers: Array<{ type: string; name: string; objects?: Array<{ name: string; x: number; y: number }> }>;
+    };
+    const props = map.layers.find((l) => l.name === 'props');
+    expect(props, 'studio_a should carry a props layer').toBeDefined();
+    props!.objects!.push({ name: 'not_an_animation', x: 0, y: 0 });
+
+    // Without the key list the check is skipped (the room server never draws).
+    expect(validateMap(map).ok).toBe(true);
+
+    const result = validateMap(map, { animationKeys: ['server', 'sprout'] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("'not_an_animation'"))).toBe(true);
+    }
+  });
+
+  it('accepts the shipped props against the built animation keys', () => {
+    const map = loadJson(studioA);
+    expect(validateMap(map, { animationKeys: ['server', 'sprout', 'cat'] }).ok).toBe(true);
+  });
+
   it('fails a map that declares no tilesets array', () => {
     const map = loadJson(studioA) as Record<string, unknown>;
     delete map['tilesets'];
