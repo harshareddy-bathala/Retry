@@ -55,6 +55,14 @@ const DOOR_FPS = 14;
 /** How close (in tiles, Chebyshev) a person must be for a door to swing open. */
 const DOOR_OPEN_RANGE = 2;
 
+/**
+ * Contact shadow under every avatar. Without one a 32x64 sprite reads as a
+ * sticker floating over the floor rather than a person standing on it — the
+ * pack's own furniture is drawn with shadows, so characters need them to sit
+ * in the same world.
+ */
+const SHADOW = { radiusX: 8, radiusY: 3, alpha: 0.28, offsetY: 22 } as const;
+
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
 const WALK_SPEED = 4 * TILE_SIZE;
@@ -127,6 +135,7 @@ type Remote = {
   lastUpdateAt: number;
   /** Composited texture key for their appearance; part of every animation key. */
   sprite_key: string;
+  shadow: Phaser.GameObjects.Ellipse;
 };
 
 type Interactable = {
@@ -147,6 +156,14 @@ export class RoomScene extends Phaser.Scene {
   /** This player's composited texture key; the server decides the selection. */
   private selfSprite = '';
   private nameTag!: Phaser.GameObjects.Container;
+  private playerShadow!: Phaser.GameObjects.Ellipse;
+  /**
+   * Every pill's Text, so their render resolution can follow the camera. Pills
+   * are built at many different moments — some before the camera has settled on
+   * a zoom, some after a resize changes it — so baking the zoom in at
+   * construction is not enough on its own.
+   */
+  private pillTexts: Phaser.GameObjects.Text[] = [];
   private remotes = new Map<string, Remote>();
   private wasMoving = false;
   private sinceLastSend = 0;
@@ -217,6 +234,7 @@ export class RoomScene extends Phaser.Scene {
     this.playerBody
       .setSize(FEET_BOX.width, FEET_BOX.height)
       .setOffset(FEET_BOX.offsetX, FEET_BOX.offsetY);
+    this.playerShadow = this.makeShadow();
     this.player.anims.play(`idle-${this.selfSprite}-down`);
 
     // Ambient loops (a brewing coffee machine, a blinking server, a cat) and
@@ -265,6 +283,16 @@ export class RoomScene extends Phaser.Scene {
     });
 
     const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
+    // A rename repaints one label rather than rebuilding the game (which is
+    // what putting displayName in RoomCanvas's effect deps used to do).
+    const unsubscribeRename = roomEvents.on('self:rename', ({ displayName }) => {
+      if (displayName === this.displayName) return;
+      this.displayName = displayName;
+      const visible = this.nameTag.visible;
+      this.nameTag.destroy();
+      this.nameTag = this.buildPill(displayName, 0xffffff, '#2d2926');
+      this.nameTag.setVisible(visible);
+    });
     // While a panel holds focus, the scene surrenders the keyboard entirely —
     // "typing in chat never moves the avatar" (Phase 6 acceptance).
     const unsubscribePanel = roomEvents.on('panel:state', ({ open }) => {
@@ -279,6 +307,7 @@ export class RoomScene extends Phaser.Scene {
     const cleanup = (): void => {
       unsubscribe();
       unsubscribePanel();
+      unsubscribeRename();
       avatarScreenPositions.clear();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
@@ -287,6 +316,39 @@ export class RoomScene extends Phaser.Scene {
     // The join snapshot may have arrived while assets were still loading —
     // ask for a fresh one now that this scene is listening.
     roomSocket.requestResync();
+  }
+
+  /** Device pixels per world pixel at the current zoom. */
+  private pillResolution(): number {
+    return (window.devicePixelRatio || 1) * (this.cameras.main?.zoom || CAMERA_ZOOM);
+  }
+
+  /**
+   * Re-render existing pills at the current zoom. Called whenever the camera
+   * changes scale — otherwise a tag built at zoom 1 (before the first fit) or
+   * before the window was resized stays soft for the rest of the session.
+   */
+  private refreshPillResolution(): void {
+    const resolution = this.pillResolution();
+    this.pillTexts = this.pillTexts.filter((t) => t.active);
+    for (const text of this.pillTexts) {
+      if (text.style.resolution !== resolution) text.setResolution(resolution);
+    }
+  }
+
+  /** One contact shadow, drawn just under an actor's feet. */
+  private makeShadow(): Phaser.GameObjects.Ellipse {
+    return this.add
+      .ellipse(0, 0, SHADOW.radiusX * 2, SHADOW.radiusY * 2, 0x000000, SHADOW.alpha)
+      .setVisible(false);
+  }
+
+  /** Park a shadow under a sprite and sort it just behind that actor. */
+  private placeShadow(shadow: Phaser.GameObjects.Ellipse, x: number, y: number): void {
+    shadow.setPosition(x, y + SHADOW.offsetY);
+    // Just under the actor's own depth so it never draws over another person's
+    // feet, but still above the floor and any rug.
+    shadow.setDepth(y + FEET_OFFSET_Y - 0.1);
   }
 
   private onResize(size: Phaser.Structs.Size): void {
@@ -309,6 +371,7 @@ export class RoomScene extends Phaser.Scene {
     const view = { w: this.scale.width, h: this.scale.height };
     if (this.mapSize.width === 0) {
       camera.setZoom(zoomForViewport(view.h));
+      this.refreshPillResolution();
       return;
     }
     const zoom = Math.min(
@@ -320,6 +383,7 @@ export class RoomScene extends Phaser.Scene {
       ),
     );
     camera.setZoom(zoom);
+    this.refreshPillResolution();
     const padX = Math.max(0, (view.w / zoom - this.mapSize.width) / 2);
     const padY = Math.max(0, (view.h / zoom - this.mapSize.height) / 2);
     camera.setBounds(
@@ -369,6 +433,7 @@ export class RoomScene extends Phaser.Scene {
 
     // Y-sort: whoever stands further south draws in front (feet decide).
     this.player.setDepth(this.player.y + FEET_OFFSET_Y);
+    this.placeShadow(this.playerShadow, this.player.x, this.player.y);
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
@@ -506,6 +571,7 @@ export class RoomScene extends Phaser.Scene {
       moving: actor.moving,
       lastUpdateAt: this.time.now,
       sprite_key: textureKey,
+      shadow: this.makeShadow().setVisible(true),
     });
   }
 
@@ -514,6 +580,7 @@ export class RoomScene extends Phaser.Scene {
     if (!remote) return;
     remote.sprite.destroy();
     remote.tag.destroy();
+    remote.shadow.destroy();
     this.remotes.delete(userId);
     avatarScreenPositions.delete(userId);
   }
@@ -543,6 +610,7 @@ export class RoomScene extends Phaser.Scene {
       const y = Phaser.Math.Linear(remote.fromY, remote.toY, t);
       remote.sprite.setPosition(x, y).setDepth(y + FEET_OFFSET_Y);
       remote.tag.setPosition(Math.round(x), Math.round(y) - TAG_OFFSET_Y);
+      this.placeShadow(remote.shadow, x, y);
 
       // Stop the walk cycle when updates dry up rather than looping in place.
       if (remote.moving && now - remote.lastUpdateAt > REMOTE_IDLE_TIMEOUT_MS) {
@@ -620,11 +688,15 @@ export class RoomScene extends Phaser.Scene {
 
     this.fitCameraToMap();
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    // Small movements should not slide the whole room. The dead zone lets the
+    // avatar drift a little before the camera commits to following.
+    this.cameras.main.setDeadzone(TILE_SIZE * 2, TILE_SIZE * 1.5);
 
     this.collectInteractables(map);
     this.spawnProps(map);
     this.currentTemplate = template;
     this.player.setVisible(true);
+    this.playerShadow.setVisible(true);
     this.nameTag.setVisible(true);
     this.renderDoors();
   }
@@ -791,18 +863,20 @@ export class RoomScene extends Phaser.Scene {
 
   /**
    * Rounded pill with centred text. Text is rendered at device pixel ratio
-   * times camera zoom so it stays crisp instead of scaling a low-res texture.
+   * times the LIVE camera zoom so it stays crisp instead of scaling a low-res
+   * texture — using the CAMERA_ZOOM constant here left every tag, plaque and
+   * hint soft on any viewport that zoomed past 2.
    */
   private buildPill(label: string, bgColor: number, textColor: string): Phaser.GameObjects.Container {
-    const resolution = (window.devicePixelRatio || 1) * CAMERA_ZOOM;
     const text = this.add
       .text(0, 0, label, {
         fontFamily: '"IBM Plex Sans", sans-serif',
         fontSize: '9px',
         color: textColor,
-        resolution,
+        resolution: this.pillResolution(),
       })
       .setOrigin(0.5);
+    this.pillTexts.push(text);
     const width = Math.ceil(text.width) + 10;
     const height = Math.ceil(text.height) + 4;
     const bg = this.add.graphics();
