@@ -93,7 +93,11 @@ export type ValidationResult =
   | { ok: false; errors: string[] };
 
 export type ValidateOptions = {
-  /** Known animation keys; when given, `props` object names are checked. */
+  /**
+   * Known animation keys. `props` object names are checked only when this is
+   * a NON-EMPTY list: an empty one means "the caller could not find out"
+   * (a pack-less build), not "no animation is permitted".
+   */
   animationKeys?: readonly string[];
 };
 
@@ -189,7 +193,7 @@ export function validateMap(raw: unknown, options: ValidateOptions = {}): Valida
     }
   }
 
-  if (options.animationKeys) {
+  if (options.animationKeys && options.animationKeys.length > 0) {
     const known = new Set(options.animationKeys);
     const props = map.layers.find(
       (l): l is ObjectLayer => l.type === 'objectgroup' && l.name === PROPS_LAYER,

@@ -123,6 +123,13 @@ describe('validateMap', () => {
     expect(validateMap(map, { animationKeys: ['server', 'sprout', 'cat'] }).ok).toBe(true);
   });
 
+  // A pack-less build emits an EMPTY animation list. Passing that through as
+  // an allow-list failed every prop in every map — green locally, red in CI.
+  it('an empty animation list means "unknown", not "nothing is allowed"', () => {
+    const map = loadJson(studioA);
+    expect(validateMap(map, { animationKeys: [] }).ok).toBe(true);
+  });
+
   it('fails a map that declares no tilesets array', () => {
     const map = loadJson(studioA) as Record<string, unknown>;
     delete map['tilesets'];

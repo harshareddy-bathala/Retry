@@ -13,14 +13,21 @@ const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const mapsDir = join(pkgRoot, 'maps');
 
 // Animation keys come from the build's manifest, so a `props` object naming a
-// typo is caught here. Without the pack there is no manifest and that one
-// check is skipped — everything else in the contract still applies.
+// typo is caught here.
+//
+// Only when the manifest was built FROM THE PACK. A pack-less build emits
+// `source: 'absent'` with an empty animation list, and an empty allow-list
+// would fail every prop in every map — which is exactly what it did in CI
+// before this check was narrowed.
 const manifestPath = join(pkgRoot, 'generated', 'manifest.json');
-const animationKeys = existsSync(manifestPath)
-  ? (
-      JSON.parse(readFileSync(manifestPath, 'utf8')) as { animations?: Array<{ key: string }> }
-    ).animations?.map((a) => a.key)
-  : undefined;
+const manifest = existsSync(manifestPath)
+  ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      source?: string;
+      animations?: Array<{ key: string }>;
+    })
+  : null;
+const animationKeys =
+  manifest?.source === 'limezu' ? manifest.animations?.map((a) => a.key) : undefined;
 
 const args = process.argv.slice(2);
 const files =
