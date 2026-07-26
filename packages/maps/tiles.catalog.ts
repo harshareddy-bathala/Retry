@@ -11,14 +11,22 @@ export type TileRef = { sheet: string; col: number; row: number };
 
 const at = (sheet: string, col: number, row: number): TileRef => ({ sheet, col, row });
 
-/** Floors are 3x2 tileable blocks; we take the whole block and vary by position. */
+/**
+ * Floors are 3x2 tileable blocks; we take the whole block and index by grid
+ * position.
+ *
+ * Pick blocks whose six tiles are near-identical. Rows 16-19 look like handsome
+ * wood in the preview but each block carries a large motif spanning all six
+ * tiles, so tiling them across a room produced repeating barrel shapes rather
+ * than a floor. A floor is background: uniform beats interesting.
+ */
 export const FLOORS = {
-  // Warm oak planks — project rooms.
+  // Pale horizontal boards — project rooms.
   wood: [
-    [at('floors', 0, 18), at('floors', 1, 18), at('floors', 2, 18)],
-    [at('floors', 0, 19), at('floors', 1, 19), at('floors', 2, 19)],
+    [at('floors', 4, 12), at('floors', 5, 12), at('floors', 6, 12)],
+    [at('floors', 4, 13), at('floors', 5, 13), at('floors', 6, 13)],
   ],
-  // Pale stone — the Commons, so the two read as different places.
+  // Plain cream — the Commons, so the two rooms read as different places.
   stone: [
     [at('floors', 0, 22), at('floors', 1, 22), at('floors', 2, 22)],
     [at('floors', 0, 23), at('floors', 1, 23), at('floors', 2, 23)],
@@ -27,17 +35,21 @@ export const FLOORS = {
 
 /**
  * A wall run is two tiles tall: the upper carries the cap you look down on, the
- * lower carries the skirting that meets the floor. Left/middle/right let a run
- * finish properly at a corner.
+ * lower carries the skirting that meets the floor.
+ *
+ * The sheet groups walls as three columns per style, but for a flat run all
+ * three are the same face — the variation is for corners we do not cut yet. So
+ * left/middle/right all point at the same column, and a corner is simply a
+ * plain wall until the catalogue grows.
  */
 export const WALLS = {
   plain: {
-    upperL: at('walls', 4, 2),
-    upperM: at('walls', 5, 2),
-    upperR: at('walls', 6, 2),
-    lowerL: at('walls', 4, 3),
-    lowerM: at('walls', 5, 3),
-    lowerR: at('walls', 6, 3),
+    upperL: at('walls', 0, 2),
+    upperM: at('walls', 1, 2),
+    upperR: at('walls', 2, 2),
+    lowerL: at('walls', 0, 3),
+    lowerM: at('walls', 1, 3),
+    lowerR: at('walls', 2, 3),
   },
 } as const;
 
