@@ -5,7 +5,8 @@
 **LimeZu — "Modern Interiors"**, <https://limezu.itch.io/moderninteriors>
 
 Tilesets, furniture, animated objects and the layered character generator all come from
-this pack. **Credit is required by its licence and is displayed in-app at `/credits`.**
+this pack. **The licence line reads `Credits required (limezu.itch.io)`.** By project decision that
+credit lives here rather than in the product UI.
 
 Licence, verbatim, from `assets/moderninteriors-win/LICENSE.txt`:
 

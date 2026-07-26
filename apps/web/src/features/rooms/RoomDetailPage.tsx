@@ -12,6 +12,7 @@ import { api, ApiError, getAccessToken } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatWhen } from '../../lib/when.js';
 import { useAuth } from '../auth/AuthContext.js';
+import { DEFAULT_AVATAR } from '@retry/maps';
 import { roomSocket } from './net/room-socket.js';
 import { ContextHeader } from './workspace/ContextHeader.js';
 import { BlueprintPanel } from './workspace/BlueprintPanel.js';
@@ -56,7 +57,7 @@ export default function RoomDetailPage() {
       mode: 'watch',
       roomId,
       displayName: user.name,
-      sprite: 'default',
+      sprite: DEFAULT_AVATAR,
     });
     return () => roomSocket.disconnect();
   }, [user, roomId]);
@@ -129,7 +130,7 @@ export default function RoomDetailPage() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <Link
-            to={`/rooms/live?map=${detail.id}`}
+            to={`/world?map=${detail.id}`}
             className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-accent-ink hover:opacity-90"
           >
             Enter live space

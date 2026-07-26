@@ -49,7 +49,7 @@ export default function RoomsPage() {
       <div className="flex items-center justify-between">
         <h2 className="font-display text-xl font-semibold text-ink">Rooms</h2>
         <Link
-          to="/rooms/live"
+          to="/world"
           className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-white hover:opacity-90"
         >
           Enter the world
@@ -112,7 +112,7 @@ function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
           </Link>
         )}
         <Link
-          to={`/rooms/live?map=${room.id}`}
+          to={`/world?map=${room.id}`}
           className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
         >
           {!mine && room.accessPolicy === 'knock' ? 'Knock' : 'Enter'}

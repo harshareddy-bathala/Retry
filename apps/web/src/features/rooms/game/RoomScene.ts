@@ -44,7 +44,23 @@ const textureFor = (sprite: string): string =>
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
 const WALK_SPEED = 4 * TILE_SIZE;
+/**
+ * Fallback zoom for text resolution before the first resize. The live value
+ * comes from the viewport — see zoomForViewport.
+ */
 export const CAMERA_ZOOM = 2;
+
+/**
+ * Pixel art only stays crisp at whole-number scales, so zoom is an integer
+ * picked from viewport height rather than a ratio: roughly 15 tiles tall on a
+ * laptop, more on a big monitor, never a half-pixel.
+ */
+export function zoomForViewport(height: number): number {
+  return Math.max(2, Math.min(MAX_ZOOM, Math.floor(height / 400)));
+}
+
+/** Beyond this the world stops reading as a room and starts reading as a wall. */
+const MAX_ZOOM = 4;
 
 // Wire positions are the avatar's collision anchor (feet-box centre), in TILE
 // units — the sprite centre would sit inside wall tiles when standing against
@@ -106,6 +122,8 @@ export class RoomScene extends Phaser.Scene {
   // Multi-map world (Phase 4)
   private currentTemplate: string | null = null;
   private mapLayers: Phaser.Tilemaps.TilemapLayer[] = [];
+  /** Pixel size of the current map; the camera fit needs it on every resize. */
+  private mapSize = { width: 0, height: 0 };
   private collider: Phaser.Physics.Arcade.Collider | null = null;
   private interactables: Interactable[] = [];
   private doorVisuals: Phaser.GameObjects.GameObject[] = [];
@@ -170,7 +188,14 @@ export class RoomScene extends Phaser.Scene {
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
     this.nameTag.setVisible(false);
-    this.cameras.main.setZoom(CAMERA_ZOOM);
+    this.cameras.main.setZoom(zoomForViewport(this.scale.height));
+    // The world follows the window: full-bleed means the canvas changes size
+    // whenever the browser does, and the camera has to keep up or the map
+    // drifts out from under the player.
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onResize, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onResize, this);
+    });
 
     const keyboard = this.input.keyboard;
     if (!keyboard) throw new Error('keyboard input unavailable');
@@ -206,6 +231,47 @@ export class RoomScene extends Phaser.Scene {
     // The join snapshot may have arrived while assets were still loading —
     // ask for a fresh one now that this scene is listening.
     roomSocket.requestResync();
+  }
+
+  private onResize(size: Phaser.Structs.Size): void {
+    this.cameras.main.setSize(size.width, size.height);
+    this.fitCameraToMap();
+  }
+
+  /**
+   * Zoom and bounds for a world that fills the window.
+   *
+   * Two problems appear the moment the canvas is full bleed. A map smaller than
+   * the viewport leaves dead space around it, and Phaser pins it to the top-left
+   * corner rather than the middle. So: zoom up in WHOLE steps until the map
+   * covers the viewport (pixel art blurs at fractional zoom), and if it still
+   * cannot — a small map on a big monitor — pad the camera bounds symmetrically
+   * so the map sits centred instead of shoved into a corner.
+   */
+  private fitCameraToMap(): void {
+    const camera = this.cameras.main;
+    const view = { w: this.scale.width, h: this.scale.height };
+    if (this.mapSize.width === 0) {
+      camera.setZoom(zoomForViewport(view.h));
+      return;
+    }
+    const zoom = Math.min(
+      MAX_ZOOM,
+      Math.max(
+        zoomForViewport(view.h),
+        Math.ceil(view.w / this.mapSize.width),
+        Math.ceil(view.h / this.mapSize.height),
+      ),
+    );
+    camera.setZoom(zoom);
+    const padX = Math.max(0, (view.w / zoom - this.mapSize.width) / 2);
+    const padY = Math.max(0, (view.h / zoom - this.mapSize.height) / 2);
+    camera.setBounds(
+      -padX,
+      -padY,
+      this.mapSize.width + padX * 2,
+      this.mapSize.height + padY * 2,
+    );
   }
 
   override update(_time: number, delta: number): void {
@@ -456,15 +522,15 @@ export class RoomScene extends Phaser.Scene {
     // Player renders above tiles.
     this.player.setDepth(1);
 
+    this.mapSize = { width: map.widthInPixels, height: map.heightInPixels };
     this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
     this.player.setCollideWorldBounds(true);
     // Per-axis separation (wall sliding instead of sticking) is what arcade
     // physics colliders do; do not hand-roll collision here.
     this.collider = this.physics.add.collider(this.player, collision);
 
-    const camera = this.cameras.main;
-    camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
-    camera.startFollow(this.player, true, 0.1, 0.1);
+    this.fitCameraToMap();
+    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
 
     this.collectInteractables(map);
     this.currentTemplate = template;

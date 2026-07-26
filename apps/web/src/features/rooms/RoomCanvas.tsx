@@ -13,6 +13,10 @@ type RoomCanvasProps = {
 // The effect cleanup destroys the game and removes its canvas, which makes
 // StrictMode's double-invoke and route changes leak-free: every create is
 // paired with a destroy.
+//
+// The canvas fills this element and Phaser follows it on resize (W2), so the
+// world is as big as whatever the page gives it. The bubble overlay sits in the
+// same box, which is what keeps proximity bubbles glued to avatars at any size.
 export function RoomCanvas({ userId, displayName, selfAudio }: RoomCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -26,9 +30,9 @@ export function RoomCanvas({ userId, displayName, selfAudio }: RoomCanvasProps) 
   }, [userId, displayName]);
 
   return (
-    <div className="relative overflow-hidden rounded-panel border border-edge">
-      <div ref={containerRef} />
-      {/* DOM layer over the canvas — Phase 5's <video> elements live here too. */}
+    <div className="absolute inset-0 overflow-hidden">
+      <div ref={containerRef} className="h-full w-full" />
+      {/* DOM layer over the canvas — the <video> elements live here too. */}
       <BubbleOverlay selfUserId={userId} selfDisplayName={displayName} selfAudio={selfAudio} />
     </div>
   );

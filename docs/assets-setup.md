@@ -34,8 +34,7 @@ nothing the build produces from it can be committed.
 
 The build still works. It emits a small placeholder set — flat tiles and a stick figure,
 drawn by us and licence-free — so a fresh clone can `pnpm build`, run the tests, and walk
-around a (very ugly) world. The app logs a warning at boot and the Credits screen says
-which art is loaded.
+around a (very ugly) world. The app logs a warning at boot saying which art is loaded.
 
 This is also what CI uses: `pnpm -r build` must pass on a machine that has never seen the
 pack.
@@ -69,7 +68,7 @@ Two constraints that are not obvious:
 - **Character frames are 32×64**, one tile wide and two tall, so a head can overlap the
   tile behind it. That is not the same as the 32×32 avatars the world used before.
 
-## Credit is required
+## Credit
 
-The licence requires crediting `limezu.itch.io`. That credit is in `ATTRIBUTION.md` and,
-more importantly, on the in-app **Credits** screen at `/credits`. Do not remove it.
+The pack's licence line reads `Credits required (limezu.itch.io)`. By project decision the
+credit is carried in `packages/maps/art/ATTRIBUTION.md` rather than in the product UI.

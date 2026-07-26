@@ -1,7 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/ibm-plex-sans/400.css';
@@ -19,10 +19,15 @@ import { RegisterPage } from './features/auth/RegisterPage.js';
 import { VerifyEmailPage } from './features/auth/VerifyEmailPage.js';
 
 // Phaser is heavy; the live space loads on demand so the main bundle stays lean.
-const CreditsPage = lazy(() => import('./features/credits/CreditsPage.js'));
 const RoomsPage = lazy(() => import('./features/rooms/RoomsPage.js'));
 const RoomDetailPage = lazy(() => import('./features/rooms/RoomDetailPage.js'));
-const RoomLivePage = lazy(() => import('./features/rooms/RoomLivePage.js'));
+const WorldPage = lazy(() => import('./features/rooms/WorldPage.js'));
+
+/** Preserves ?map= so a bookmarked room still lands in that room. */
+function RedirectToWorld() {
+  const { search } = useLocation();
+  return <Navigate to={`/world${search}`} replace />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -36,6 +41,18 @@ const router = createBrowserRouter([
   { path: '/reset-password', element: <RequireAnon><ResetPasswordPage /></RequireAnon> },
   { path: '/onboarding', element: <RequireAuth><OnboardingPage /></RequireAuth> },
   {
+    // The world is full bleed, so it is a sibling of AppShell rather than a
+    // child of it — AppShell wraps children in a max-w-5xl article column.
+    path: '/world',
+    element: (
+      <RequireAuth>
+        <Suspense fallback={null}>
+          <WorldPage />
+        </Suspense>
+      </RequireAuth>
+    ),
+  },
+  {
     path: '/',
     element: (
       <RequireAuth>
@@ -44,15 +61,6 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <FeedPlaceholder /> },
-      {
-        // The art licence requires an in-product credit; this is it.
-        path: 'credits',
-        element: (
-          <Suspense fallback={null}>
-            <CreditsPage />
-          </Suspense>
-        ),
-      },
       {
         path: 'rooms',
         element: (
@@ -69,23 +77,9 @@ const router = createBrowserRouter([
           </Suspense>
         ),
       },
-      {
-        path: 'rooms/live',
-        element: (
-          <Suspense fallback={null}>
-            <RoomLivePage />
-          </Suspense>
-        ),
-      },
-      {
-        // Phases 1–3 muscle memory; same live world now.
-        path: 'rooms/sandbox',
-        element: (
-          <Suspense fallback={null}>
-            <RoomLivePage />
-          </Suspense>
-        ),
-      },
+      // Old links keep working; the world itself moved out of the shell.
+      { path: 'rooms/live', element: <RedirectToWorld /> },
+      { path: 'rooms/sandbox', element: <RedirectToWorld /> },
     ],
   },
 ]);

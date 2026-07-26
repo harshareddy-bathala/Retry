@@ -69,10 +69,7 @@ export function AppShell() {
       </main>
       <footer className="mx-auto max-w-5xl px-4 pb-8">
         <p className="font-mono text-[11px] text-ink-muted">
-          Retry — where student projects get a second author ·{' '}
-          <NavLink to="/credits" className="hover:text-ink">
-            credits
-          </NavLink>
+          Retry — where student projects get a second author
         </p>
       </footer>
     </div>
