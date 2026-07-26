@@ -18,10 +18,10 @@ type BubbleOverlayProps = {
 // Sizes/opacity per plan: close → 72px full, near → 48px at 70%.
 const SIZE: Record<'close' | 'near', number> = { close: 72, near: 48 };
 const SELF_SIZE = 48;
-// Vertical clearance below a bubble's bottom edge. Positions are published at
-// the avatar's HEAD-TOP (RoomScene.publishScreenPositions); the name tag sits
-// in roughly the 8..24px band above that at 2x zoom, so 30px clears it.
-const CLEARANCE_PX = 30;
+// Gap between a bubble's bottom edge and the anchor. RoomScene publishes the
+// top of the name tag, so everything the scene draws is already below this
+// point and the gap is cosmetic — it does not have to track camera zoom.
+const CLEARANCE_PX = 8;
 
 const PALETTE = ['#4f83cc', '#cc7a4f', '#5aa06c', '#a06ca0', '#c2544f', '#4fa3b8'];
 

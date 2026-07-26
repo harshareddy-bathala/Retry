@@ -4,6 +4,7 @@ import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
+import { instantiate, isBlocked } from '../src/world/maps.js';
 
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
 const SPAWN = { x: 10.5, y: 7.5 }; // studio_a default spawn (336,240 px / 32)
@@ -150,17 +151,26 @@ describe('room-server multiplayer', () => {
   });
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
+    // The desk whose base blocks (14,6) in the seeded studio_a. Asserted from
+    // the map so re-authoring the room fails here with a readable message
+    // instead of a bare timeout further down.
+    const BLOCKED = { x: 14, y: 6 };
+    const map = instantiate('studio_a', 'studio_a');
+    expect(map && isBlocked(map, BLOCKED.x, BLOCKED.y), 'studio_a no longer blocks (14,6)').toBe(true);
+    expect(map && isBlocked(map, BLOCKED.x - 1, BLOCKED.y)).toBe(false);
+
     const b = await connectAndJoin('user-b');
-    // Walk legally from spawn (10.5,7.5) toward the east desk cluster…
-    b.send({ t: 'move', x: 11.5, y: 7.5, dir: 'right', moving: true });
-    b.send({ t: 'move', x: 12.5, y: 7.5, dir: 'right', moving: true });
+    // Walk legally from spawn (10.5,7.5) up a row and east along it…
+    b.send({ t: 'move', x: 10.5, y: 6.5, dir: 'up', moving: true });
+    b.send({ t: 'move', x: 12.5, y: 6.5, dir: 'right', moving: true });
+    b.send({ t: 'move', x: 13.5, y: 6.5, dir: 'right', moving: true });
     const before = ofType(b, 'snapshot').length;
-    // …then step one tile into the desk at (13,7): distance legal, target blocked.
-    b.send({ t: 'move', x: 13.5, y: 7.5, dir: 'right', moving: true });
+    // …then step one tile into the desk: distance legal, target blocked.
+    b.send({ t: 'move', x: 14.5, y: 6.5, dir: 'right', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
     const resync = ofType(b, 'snapshot').at(-1);
     // Authoritative position is the last legal one, not the desk.
-    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 12.5, y: 7.5 });
+    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 13.5, y: 6.5 });
   });
 
   it('caps move relays at 20/s per connection, dropping the excess silently', async () => {

@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
+import classroom from '@retry/maps/classroom.json';
+import lounge from '@retry/maps/lounge.json';
+import conference from '@retry/maps/conference.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
@@ -17,9 +20,28 @@ import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
 import { ensureAvatarTexture, frameFor, preloadCharacterLayers } from './compose-avatar.js';
 
-// Both Tiled templates ship in the bundle; the server's snapshot names which
+// Every Tiled template ships in the bundle; the server's snapshot names which
 // one to render (mapId is the instance — a room uuid — template is the file).
-const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
+const TEMPLATES: Record<string, unknown> = {
+  studio_a: studioA,
+  classroom,
+  lounge,
+  conference,
+  commons,
+};
+
+/**
+ * A map declares only the sheets it draws from, so the loader takes the union
+ * across templates rather than every sheet the pack build produced. Sheets are
+ * ~100-400 kB each and the full set is over a megabyte for maps that use three.
+ */
+const REQUIRED_TILESETS: string[] = [
+  ...new Set(
+    Object.values(TEMPLATES).flatMap((map) =>
+      ((map as { tilesets?: Array<{ name: string }> }).tilesets ?? []).map((t) => t.name),
+    ),
+  ),
+];
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
@@ -50,11 +72,17 @@ const MAX_ZOOM = 4;
 // them, and the server validates collision on the wire position. Pack frames
 // are 32x64 (head above the occupied tile), so the feet sit 24px below the
 // sprite centre; the feet box itself hugs the frame's bottom.
-const CHAR_HEIGHT = 64;
 const FEET_OFFSET_Y = 24;
 const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
 /** Name tags float just above the head, which is 32px above the centre. */
 const TAG_OFFSET_Y = 44;
+/**
+ * Top of everything the scene draws above an avatar (the name tag's upper
+ * edge). This — not the head — is the anchor published to the React overlay,
+ * so the overlay's clearance is a small constant instead of a number that has
+ * to grow with camera zoom to stay clear of the tag.
+ */
+const OVERLAY_ANCHOR_Y = TAG_OFFSET_Y + 8;
 
 // Send cadence and remote smoothing (rooms build plan Phase 2).
 const MOVE_SEND_INTERVAL_MS = 50;
@@ -141,7 +169,9 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, data] of Object.entries(TEMPLATES)) {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
-    for (const [key, url] of Object.entries(TILESET_URLS)) {
+    for (const key of REQUIRED_TILESETS) {
+      const url = TILESET_URLS[key];
+      if (!url) throw new Error(`map declares tileset "${key}" — run pnpm assets:build`);
       this.load.image(tilesKey(key), url);
     }
     // Characters composite at runtime from these curated layer strips
@@ -444,16 +474,16 @@ export class RoomScene extends Phaser.Scene {
 
   /**
    * Canvas-space avatar positions for the React bubble overlay (Phase 3).
-   * The published anchor is the HEAD-TOP, not the sprite centre — the overlay
-   * offsets from a named landmark instead of agreeing with the frame height
-   * by coincidence.
+   * The published anchor is the top of the name tag — a landmark the scene
+   * owns — rather than the sprite centre, which only worked while both sides
+   * happened to agree about frame height and zoom.
    */
   private publishScreenPositions(): void {
     const camera = this.cameras.main;
     const write = (userId: string, worldX: number, worldY: number): void => {
       avatarScreenPositions.set(userId, {
         x: (worldX - camera.worldView.x) * camera.zoom,
-        y: (worldY - CHAR_HEIGHT / 2 - camera.worldView.y) * camera.zoom,
+        y: (worldY - OVERLAY_ANCHOR_Y - camera.worldView.y) * camera.zoom,
       });
     };
     write(this.userId, this.player.x, this.player.y);
