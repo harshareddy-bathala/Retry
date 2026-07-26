@@ -7,8 +7,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Same-origin in dev so the SameSite=Strict refresh cookie works unchanged
-      '/api': 'http://localhost:3000',
+      // Same-origin in dev so the SameSite=Strict refresh cookie works unchanged.
+      // Overridable so a second stack (a worktree drive) can run beside dev.
+      '/api': process.env['API_PROXY_TARGET'] ?? 'http://localhost:3000',
     },
   },
 });

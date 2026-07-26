@@ -10,6 +10,7 @@ import {
   roomMembers,
   roomMessages,
   rooms,
+  users,
   type Db,
   type KanbanCardRow,
 } from '@retry/db';
@@ -253,32 +254,19 @@ export class DrizzleRoomStore implements RoomStore {
       });
   }
 
-  async avatarFor(roomId: string, userId: string): Promise<string | null> {
-    if (!isUuid(roomId) || !isUuid(userId)) return null;
+  async avatarFor(userId: string): Promise<string | null> {
+    if (!isUuid(userId)) return null;
     const [row] = await this.db
-      .select({ sprite: roomMembers.avatarSprite })
-      .from(roomMembers)
-      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId)))
+      .select({ sprite: users.avatarSprite })
+      .from(users)
+      .where(eq(users.id, userId))
       .limit(1);
     return row?.sprite ?? null;
   }
 
-  async lastAvatarFor(userId: string): Promise<string | null> {
-    if (!isUuid(userId)) return null;
-    const rows = await this.db
-      .select({ sprite: roomMembers.avatarSprite })
-      .from(roomMembers)
-      .where(and(eq(roomMembers.userId, userId), isNotNull(roomMembers.avatarSprite)))
-      .limit(1);
-    return rows[0]?.sprite ?? null;
-  }
-
-  async setAvatar(roomId: string, userId: string, sprite: string): Promise<void> {
-    if (!isUuid(roomId) || !isUuid(userId)) return;
-    await this.db
-      .update(roomMembers)
-      .set({ avatarSprite: sprite })
-      .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId)));
+  async setAvatar(userId: string, sprite: string): Promise<void> {
+    if (!isUuid(userId)) return;
+    await this.db.update(users).set({ avatarSprite: sprite }).where(eq(users.id, userId));
   }
 
   // --- Workspace (R4) ---

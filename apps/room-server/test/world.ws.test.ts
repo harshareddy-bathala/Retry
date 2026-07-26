@@ -310,3 +310,74 @@ describe('multi-map world', () => {
     expect(ofType(fresh, 'snapshot')[0]?.mapId).toBe('commons');
   });
 });
+
+describe('character selections (R5 → creator)', () => {
+  const VALID = 'body_01|eyes_01|outfit_01|hair_01_01|acc_03';
+  const VALID_NO_EXTRAS = 'body_02|eyes_02|outfit_02||';
+
+  it('first entry: avatarState says not chosen, with the default character', async () => {
+    const fresh = await connectAndJoin('avatar-fresh', 'commons');
+    const state = ofType(fresh, 'avatarState')[0];
+    expect(state).toBeDefined();
+    expect(state?.chosen).toBe(false);
+    // The default is itself a valid canonical selection string.
+    expect(state?.sprite.split('|')).toHaveLength(5);
+  });
+
+  it('a built character persists per USER: chosen in one session, present in the next', async () => {
+    const first = await connectAndJoin('avatar-keeper', 'commons');
+    first.send({ t: 'avatar', sprite: VALID });
+    await until(() => ofType(first, 'avatarState').some((m) => m.chosen));
+    first.socket.close();
+    await until(() => app.hub.sessionCount === 0);
+
+    const second = await connectAndJoin('avatar-keeper', 'commons');
+    const state = ofType(second, 'avatarState')[0];
+    expect(state?.chosen).toBe(true);
+    expect(state?.sprite).toBe(VALID);
+  });
+
+  it('hair and accessory are optional; the empty segments round-trip', async () => {
+    const bald = await connectAndJoin('avatar-bald', 'commons');
+    bald.send({ t: 'avatar', sprite: VALID_NO_EXTRAS });
+    await until(() => ofType(bald, 'avatarState').some((m) => m.chosen));
+    expect(ofType(bald, 'avatarState').at(-1)?.sprite).toBe(VALID_NO_EXTRAS);
+  });
+
+  // The scene and creator mount lazily and can subscribe after the join's
+  // avatarState has passed — a resync must repeat it or a reload renders the
+  // default character forever (found by the phase-2 browser drive).
+  it('a resync re-sends avatarState with the cached choice', async () => {
+    const client = await connectAndJoin('avatar-resync', 'commons');
+    client.send({ t: 'avatar', sprite: VALID });
+    await until(() => ofType(client, 'avatarState').some((m) => m.chosen));
+    const before = ofType(client, 'avatarState').length;
+    client.send({ t: 'join' }); // bare join while joined = resync request
+    await until(() => ofType(client, 'avatarState').length > before);
+    const repeated = ofType(client, 'avatarState').at(-1);
+    expect(repeated?.sprite).toBe(VALID);
+    expect(repeated?.chosen).toBe(true);
+  });
+
+  it('an invented layer id is refused: no confirmation, peers never see it', async () => {
+    const peer = await connectAndJoin('avatar-peer', 'commons');
+    const forger = await connectAndJoin('avatar-forger', 'commons');
+    const before = ofType(forger, 'avatarState').length;
+    forger.send({ t: 'avatar', sprite: 'body_99|eyes_01|outfit_01||' });
+    forger.send({ t: 'avatar', sprite: 'totally-made-up' });
+    // A valid one afterwards proves the socket survived the junk.
+    forger.send({ t: 'avatar', sprite: VALID });
+    await until(() => ofType(forger, 'avatarState').length > before);
+    const states = ofType(forger, 'avatarState').slice(before);
+    expect(states).toHaveLength(1);
+    expect(states[0]?.sprite).toBe(VALID);
+    // The peer heard exactly one re-announce, for the valid change.
+    await until(() =>
+      ofType(peer, 'actorJoin').some((m) => m.actor.userId === 'avatar-forger' && m.actor.sprite === VALID),
+    );
+    const junkSeen = ofType(peer, 'actorJoin').some(
+      (m) => m.actor.sprite.includes('99') || m.actor.sprite === 'totally-made-up',
+    );
+    expect(junkSeen).toBe(false);
+  });
+});

@@ -18,9 +18,10 @@ type BubbleOverlayProps = {
 // Sizes/opacity per plan: close → 72px full, near → 48px at 70%.
 const SIZE: Record<'close' | 'near', number> = { close: 72, near: 48 };
 const SELF_SIZE = 48;
-// Vertical clearance so a bubble's bottom edge sits above the name tag
-// (tag occupies roughly the 52..78px band above the avatar centre at 2x zoom).
-const CLEARANCE_PX = 86;
+// Vertical clearance below a bubble's bottom edge. Positions are published at
+// the avatar's HEAD-TOP (RoomScene.publishScreenPositions); the name tag sits
+// in roughly the 8..24px band above that at 2x zoom, so 30px clears it.
+const CLEARANCE_PX = 30;
 
 const PALETTE = ['#4f83cc', '#cc7a4f', '#5aa06c', '#a06ca0', '#c2544f', '#4fa3b8'];
 

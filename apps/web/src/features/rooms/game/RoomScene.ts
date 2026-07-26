@@ -2,13 +2,7 @@ import Phaser from 'phaser';
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
-import { AVATARS, DEFAULT_AVATAR } from '@retry/maps';
-import makerUrl from '@retry/maps/avatars/maker.png';
-import plannerUrl from '@retry/maps/avatars/planner.png';
-import nightowlUrl from '@retry/maps/avatars/nightowl.png';
-import explorerUrl from '@retry/maps/avatars/explorer.png';
-import tinkererUrl from '@retry/maps/avatars/tinkerer.png';
-import connectorUrl from '@retry/maps/avatars/connector.png';
+import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
   Actor,
@@ -21,6 +15,7 @@ import type {
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
+import { ensureAvatarTexture, frameFor, preloadCharacterLayers } from './compose-avatar.js';
 
 // Both Tiled templates ship in the bundle; the server's snapshot names which
 // one to render (mapId is the instance — a room uuid — template is the file).
@@ -28,19 +23,6 @@ const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
-
-// One sheet per preset (R5). Keyed by the same string the server stores and
-// the wire carries, so an actor's `sprite` IS its texture key.
-const AVATAR_URLS: Record<string, string> = {
-  maker: makerUrl,
-  planner: plannerUrl,
-  nightowl: nightowlUrl,
-  explorer: explorerUrl,
-  tinkerer: tinkererUrl,
-  connector: connectorUrl,
-};
-const textureFor = (sprite: string): string =>
-  `avatar-${sprite in AVATAR_URLS ? sprite : DEFAULT_AVATAR}`;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -65,8 +47,14 @@ const MAX_ZOOM = 4;
 
 // Wire positions are the avatar's collision anchor (feet-box centre), in TILE
 // units — the sprite centre would sit inside wall tiles when standing against
-// them, and the server validates collision on the wire position.
-const FEET_OFFSET_Y = 8;
+// them, and the server validates collision on the wire position. Pack frames
+// are 32x64 (head above the occupied tile), so the feet sit 24px below the
+// sprite centre; the feet box itself hugs the frame's bottom.
+const CHAR_HEIGHT = 64;
+const FEET_OFFSET_Y = 24;
+const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
+/** Name tags float just above the head, which is 32px above the centre. */
+const TAG_OFFSET_Y = 44;
 
 // Send cadence and remote smoothing (rooms build plan Phase 2).
 const MOVE_SEND_INTERVAL_MS = 50;
@@ -76,8 +64,7 @@ const REMOTE_IDLE_TIMEOUT_MS = 200;
 // Phase 4 door transition: 100ms out + 100ms in = the plan's 200ms fade.
 const FADE_MS = 100;
 
-const DIRS = ['down', 'left', 'right', 'up'] as const;
-type Facing = (typeof DIRS)[number];
+type Facing = 'down' | 'left' | 'right' | 'up';
 
 export type RoomSceneData = { userId: string; displayName: string };
 
@@ -94,7 +81,7 @@ type Remote = {
   dir: Dir;
   moving: boolean;
   lastUpdateAt: number;
-  /** Which preset they chose; part of every animation key. */
+  /** Composited texture key for their appearance; part of every animation key. */
   sprite_key: string;
 };
 
@@ -113,8 +100,8 @@ export class RoomScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: MoveKeys;
   private facing: Facing = 'down';
-  /** Which of the six presets this player is; the server decides it. */
-  private selfSprite = DEFAULT_AVATAR;
+  /** This player's composited texture key; the server decides the selection. */
+  private selfSprite = '';
   private nameTag!: Phaser.GameObjects.Container;
   private remotes = new Map<string, Remote>();
   private wasMoving = false;
@@ -150,43 +137,27 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, url] of Object.entries(TILESET_URLS)) {
       this.load.image(tilesKey(key), url);
     }
-    for (const spec of AVATARS) {
-      this.load.spritesheet(textureFor(spec.key), AVATAR_URLS[spec.key]!, {
-        frameWidth: 32,
-        frameHeight: 32,
-      });
-    }
+    // Characters composite at runtime from these curated layer strips
+    // (~240 KB for the whole catalogue) — there is no per-character asset.
+    preloadCharacterLayers(this);
   }
 
   create(): void {
     // Everything map-independent boots here; the world itself is built from
     // the first snapshot (the server decides where this user spawns).
-    this.player = this.physics.add.sprite(0, 0, textureFor(DEFAULT_AVATAR), 0).setVisible(false);
+    // Animations are registered per composited texture on demand — see
+    // compose-avatar.ts — so a character change is a texture swap, not a re-rig.
+    this.selfSprite = ensureAvatarTexture(this, DEFAULT_SPRITE);
+    this.player = this.physics.add
+      .sprite(0, 0, this.selfSprite, frameFor('idle', 'down'))
+      .setVisible(false);
     const body = this.player.body as Phaser.Physics.Arcade.Body | null;
     if (!body) throw new Error('player has no arcade body');
     this.playerBody = body;
     // Feet-box collision so the avatar's head can overlap wall tiles top-down style.
-    this.playerBody.setSize(18, 12).setOffset(7, 18);
-
-    // Every preset gets its own eight animations; the sprite key is part of the
-    // animation key so a character change is a texture swap, not a re-rig.
-    for (const spec of AVATARS) {
-      const key = textureFor(spec.key);
-      DIRS.forEach((dir, row) => {
-        this.anims.create({
-          key: `walk-${spec.key}-${dir}`,
-          frames: this.anims.generateFrameNumbers(key, {
-            frames: [row * 4 + 1, row * 4 + 2, row * 4 + 3, row * 4 + 2],
-          }),
-          frameRate: 8,
-          repeat: -1,
-        });
-        this.anims.create({
-          key: `idle-${spec.key}-${dir}`,
-          frames: [{ key, frame: row * 4 }],
-        });
-      });
-    }
+    this.playerBody
+      .setSize(FEET_BOX.width, FEET_BOX.height)
+      .setOffset(FEET_BOX.offsetX, FEET_BOX.offsetY);
     this.player.anims.play(`idle-${this.selfSprite}-down`);
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
@@ -314,7 +285,7 @@ export class RoomScene extends Phaser.Scene {
     }
     this.wasMoving = moving;
 
-    this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - 26);
+    this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
     this.updateInteractables();
@@ -341,9 +312,9 @@ export class RoomScene extends Phaser.Scene {
         this.onSnapshot(msg);
         break;
       case 'avatarState':
-        // The server owns which preset we are; the scene just wears it.
-        this.selfSprite = msg.sprite in AVATAR_URLS ? msg.sprite : DEFAULT_AVATAR;
-        this.player.setTexture(textureFor(this.selfSprite));
+        // The server owns the selection; the scene just wears it.
+        this.selfSprite = ensureAvatarTexture(this, msg.sprite);
+        this.player.setTexture(this.selfSprite, frameFor('idle', this.facing));
         this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
         break;
       case 'actorJoin':
@@ -432,10 +403,10 @@ export class RoomScene extends Phaser.Scene {
     this.removeRemote(actor.userId);
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
-    const row = DIRS.indexOf(actor.dir);
-    const sprite = this.add.sprite(x, y, textureFor(actor.sprite), (row < 0 ? 0 : row) * 4);
+    const textureKey = ensureAvatarTexture(this, actor.sprite);
+    const sprite = this.add.sprite(x, y, textureKey, frameFor('idle', actor.dir));
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
-    tag.setPosition(x, y - 26);
+    tag.setPosition(x, y - TAG_OFFSET_Y);
     this.remotes.set(actor.userId, {
       sprite,
       tag,
@@ -447,7 +418,7 @@ export class RoomScene extends Phaser.Scene {
       dir: actor.dir,
       moving: actor.moving,
       lastUpdateAt: this.time.now,
-      sprite_key: actor.sprite in AVATAR_URLS ? actor.sprite : DEFAULT_AVATAR,
+      sprite_key: textureKey,
     });
   }
 
@@ -460,13 +431,18 @@ export class RoomScene extends Phaser.Scene {
     avatarScreenPositions.delete(userId);
   }
 
-  /** Canvas-space avatar positions for the React bubble overlay (Phase 3). */
+  /**
+   * Canvas-space avatar positions for the React bubble overlay (Phase 3).
+   * The published anchor is the HEAD-TOP, not the sprite centre — the overlay
+   * offsets from a named landmark instead of agreeing with the frame height
+   * by coincidence.
+   */
   private publishScreenPositions(): void {
     const camera = this.cameras.main;
     const write = (userId: string, worldX: number, worldY: number): void => {
       avatarScreenPositions.set(userId, {
         x: (worldX - camera.worldView.x) * camera.zoom,
-        y: (worldY - camera.worldView.y) * camera.zoom,
+        y: (worldY - CHAR_HEIGHT / 2 - camera.worldView.y) * camera.zoom,
       });
     };
     write(this.userId, this.player.x, this.player.y);
@@ -479,7 +455,7 @@ export class RoomScene extends Phaser.Scene {
       const x = Phaser.Math.Linear(remote.fromX, remote.toX, t);
       const y = Phaser.Math.Linear(remote.fromY, remote.toY, t);
       remote.sprite.setPosition(x, y);
-      remote.tag.setPosition(Math.round(x), Math.round(y) - 26);
+      remote.tag.setPosition(Math.round(x), Math.round(y) - TAG_OFFSET_Y);
 
       // Stop the walk cycle when updates dry up rather than looping in place.
       if (remote.moving && now - remote.lastUpdateAt > REMOTE_IDLE_TIMEOUT_MS) {
