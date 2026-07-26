@@ -19,6 +19,7 @@ import { RegisterPage } from './features/auth/RegisterPage.js';
 import { VerifyEmailPage } from './features/auth/VerifyEmailPage.js';
 
 // Phaser is heavy; the live space loads on demand so the main bundle stays lean.
+const CreditsPage = lazy(() => import('./features/credits/CreditsPage.js'));
 const RoomsPage = lazy(() => import('./features/rooms/RoomsPage.js'));
 const RoomDetailPage = lazy(() => import('./features/rooms/RoomDetailPage.js'));
 const RoomLivePage = lazy(() => import('./features/rooms/RoomLivePage.js'));
@@ -43,6 +44,15 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <FeedPlaceholder /> },
+      {
+        // The art licence requires an in-product credit; this is it.
+        path: 'credits',
+        element: (
+          <Suspense fallback={null}>
+            <CreditsPage />
+          </Suspense>
+        ),
+      },
       {
         path: 'rooms',
         element: (

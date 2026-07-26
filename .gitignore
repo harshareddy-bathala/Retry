@@ -19,6 +19,15 @@ coverage/
 playwright-report/
 test-results/
 
+# Licensed art (LimeZu "Modern Interiors", limezu.itch.io)
+# Its licence permits using and editing the assets in a project, but NOT
+# redistributing them. This repository is public, so neither the pack nor
+# anything derived from it may ever be committed. Each developer obtains their
+# own copy — see docs/assets-setup.md — and `pnpm assets:build` turns it into
+# packages/maps/generated/, which is likewise never committed.
+assets/
+packages/maps/generated/
+
 # Local data
 uploads/
 *.local

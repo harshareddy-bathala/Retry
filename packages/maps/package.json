@@ -16,7 +16,8 @@
     "lint": "eslint src scripts test art",
     "test": "vitest run",
     "test:watch": "vitest",
-    "art": "tsx scripts/generate-art.ts && tsx scripts/author-maps.ts && tsx scripts/validate-maps.ts"
+    "art": "pnpm assets:build && tsx scripts/author-maps.ts && tsx scripts/validate-maps.ts",
+    "assets:build": "tsx scripts/build-assets.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"
