@@ -92,8 +92,21 @@ export function CharacterCreator() {
   useEffect(() => {
     if (!open) return;
     roomEvents.emit('panel:state', { open: true });
-    return () => roomEvents.emit('panel:state', { open: false });
-  }, [open]);
+    // Escape closes the creator rather than the whole world. It is SWALLOWED
+    // even on a first-ever visit, when there is nothing to cancel back to: a
+    // student who has not picked a character yet pressing Escape should not be
+    // ejected from the room they just walked into.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      if (chosen) setOpen(false);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', onKey, { capture: true });
+      roomEvents.emit('panel:state', { open: false });
+    };
+  }, [open, chosen]);
 
   const urls = useMemo(() => selectionUrls(selection), [selection]);
 

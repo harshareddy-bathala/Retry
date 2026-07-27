@@ -142,6 +142,14 @@ export const mediaMessageSchema = z.object({
 });
 export type MediaMessage = z.infer<typeof mediaMessageSchema>;
 
+// Application-level liveness. A TCP socket can go half-open — the browser
+// still reports OPEN, sends succeed into a void, and nothing ever arrives —
+// which the client used to render as a permanently healthy "Live" world.
+// The RFC 6455 ping frame does not help here: browsers neither expose it nor
+// let a page respond to one, so liveness has to ride the same JSON channel.
+export const pingMessageSchema = z.object({ t: z.literal('ping') });
+export type PingMessage = z.infer<typeof pingMessageSchema>;
+
 // ---------------------------------------------------------------------------
 // Workspace (R4): the half of a room that works when nobody else is online
 // ---------------------------------------------------------------------------
@@ -241,6 +249,7 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   contextUpdateMessageSchema,
   blueprintUpdateMessageSchema,
   avatarMessageSchema,
+  pingMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -507,7 +516,12 @@ export const evictedMessageSchema = z.object({
 export type EvictedMessage = z.infer<typeof evictedMessageSchema>;
 export type EvictReason = EvictedMessage['reason'];
 
+// The answer to `ping`. Carries nothing: its arrival IS the payload.
+export const pongMessageSchema = z.object({ t: z.literal('pong') });
+export type PongMessage = z.infer<typeof pongMessageSchema>;
+
 export const serverMessageSchema = z.discriminatedUnion('t', [
+  pongMessageSchema,
   snapshotMessageSchema,
   actorJoinMessageSchema,
   actorMoveMessageSchema,

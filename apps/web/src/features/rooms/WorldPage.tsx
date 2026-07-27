@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { ART_SOURCE } from '@retry/maps/generated/tilesets';
@@ -17,6 +17,40 @@ import { RoomCanvas } from './RoomCanvas.js';
 
 const ROOM_WS_URL =
   (import.meta.env.VITE_ROOM_WS_URL as string | undefined) ?? 'ws://localhost:4100/ws';
+
+/**
+ * Non-blocking connection banner (build plan Phase 8.1). Deliberately does not
+ * cover the world: while it is up you can still walk around, and the people
+ * around you are dimmed rather than deleted. 'failed' is the only state that
+ * asks the student to do something, because it is the only one where waiting
+ * will not help.
+ */
+function ConnectionBanner() {
+  const status = useSyncExternalStore(roomSocket.subscribe, roomSocket.getStatus);
+  if (status === 'open' || status === 'closed' || status === 'connecting') return null;
+  const failed = status === 'failed';
+  return (
+    <div className="pointer-events-auto absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-3 rounded-card border border-amber-500/40 bg-surface/95 px-3 py-1.5 shadow-lg backdrop-blur">
+      <span
+        className={`inline-block h-2 w-2 rounded-full ${failed ? 'bg-red-500' : 'animate-pulse bg-amber-500'}`}
+      />
+      <p className="text-xs text-ink">
+        {failed
+          ? 'Lost the connection to the world.'
+          : 'Reconnecting — the people around you may be out of date.'}
+      </p>
+      {failed && (
+        <button
+          type="button"
+          onClick={() => roomSocket.rejoin()}
+          className="rounded-card border border-edge px-2.5 py-1 text-xs text-ink hover:bg-accent-tint"
+        >
+          Rejoin
+        </button>
+      )}
+    </div>
+  );
+}
 
 // The Live Space, full bleed (W2).
 //
@@ -145,9 +179,14 @@ export default function WorldPage() {
             ← Leave
           </Link>
           <div className="rounded-card border border-edge bg-surface/90 px-3 py-1.5 backdrop-blur">
-            <PresenceStrip selfUserId={user.id} />
+            <PresenceStrip
+              selfUserId={user.id}
+              onLocate={(userId) => roomEvents.emit('camera:locate', { userId })}
+            />
           </div>
         </div>
+
+        <ConnectionBanner />
 
         {/* Bottom left: the panel rail owns the top-right corner. */}
         <div className="absolute bottom-4 left-3 flex items-center gap-2">

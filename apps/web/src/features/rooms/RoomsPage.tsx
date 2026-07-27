@@ -79,8 +79,21 @@ export default function RoomsPage() {
   );
 }
 
+/**
+ * What pressing the button will actually do. Labelling an invite-only room
+ * "Enter" was a small lie that ended in a denial toast: a visitor to such a
+ * room is refused, and the honest label says so before the click.
+ */
+function entryLabel(room: RoomSummary, mine: boolean): { label: string; disabled: boolean } {
+  if (mine) return { label: 'Enter', disabled: false };
+  if (room.accessPolicy === 'knock') return { label: 'Knock', disabled: false };
+  if (room.accessPolicy === 'invite_only') return { label: 'Invite only', disabled: true };
+  return { label: 'Enter', disabled: false };
+}
+
 function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
   const here = room.presentMembers;
+  const entry = entryLabel(room, mine);
   return (
     <div className="flex items-center justify-between gap-3 rounded-panel border border-edge bg-surface px-4 py-3">
       <div className="min-w-0">
@@ -95,6 +108,13 @@ function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
           {mine && room.memberRole ? ` · ${room.memberRole}` : ''} · {room.memberCount}{' '}
           {room.memberCount === 1 ? 'member' : 'members'} · active {formatWhen(room.lastActivityAt)}
         </p>
+        {room.visibility === 'public' && !room.hasDoor && (
+          // Doorless is a normal state, not a failure — say so plainly, or the
+          // owner goes looking for a door on the Commons wall that isn't there.
+          <p className="mt-1 font-mono text-[11px] text-ink-muted">
+            No door in the Commons yet — enter from here. It gets one when a door frees up.
+          </p>
+        )}
         {here.length > 0 && (
           <p className="mt-1 font-mono text-[11px] text-accent">
             {/* FR-ROOM-08: who is in there right now, by name — this is a
@@ -113,12 +133,21 @@ function RoomCard({ room, mine }: { room: RoomSummary; mine: boolean }) {
             Open
           </Link>
         )}
-        <Link
-          to={`/world?map=${room.id}`}
-          className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
-        >
-          {!mine && room.accessPolicy === 'knock' ? 'Knock' : 'Enter'}
-        </Link>
+        {entry.disabled ? (
+          <span
+            title="Ask a member for an invite — it will show up in your notifications."
+            className="cursor-not-allowed rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted opacity-60"
+          >
+            {entry.label}
+          </span>
+        ) : (
+          <Link
+            to={`/world?map=${room.id}`}
+            className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+          >
+            {entry.label}
+          </Link>
+        )}
       </div>
     </div>
   );

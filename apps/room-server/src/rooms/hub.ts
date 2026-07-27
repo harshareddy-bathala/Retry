@@ -351,6 +351,11 @@ export class RoomHub {
       return;
     }
     switch (parsed.message.t) {
+      case 'ping':
+        // Cheapest possible handler, and deliberately before everything else:
+        // liveness must keep answering even while a join is in flight.
+        this.send(session, { t: 'pong' });
+        break;
       case 'join':
         this.runExclusive(session, parsed.message, (msg) => this.onJoin(session, msg));
         break;

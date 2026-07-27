@@ -16,6 +16,19 @@ const GEO = CHARACTER_GEOMETRY;
 const STRIP_WIDTH = GEO.columns * GEO.frameWidth;
 const STRIP_HEIGHT = GEO.animations.length * GEO.frameHeight;
 
+/**
+ * How many composited characters to keep. Each costs ~393 KB of GPU memory
+ * (768x128 RGBA), so this is roughly 16 MB — comfortable on the integrated
+ * graphics a college laptop actually has, and far more than the ~20 distinct
+ * looks a room holds. Without a cap the cache only cleared on scene shutdown,
+ * so a busy Commons climbed all session.
+ */
+const MAX_CACHED_AVATARS = 40;
+
+/** Texture key → when it was last asked for. Insertion order is not enough: a
+ *  character present since join is used constantly and must not look oldest. */
+const lastUsed = new Map<string, number>();
+
 /** Preload texture key for one layer strip. */
 const layerKey = (id: string): string => `charlayer-${id}`;
 
@@ -44,6 +57,7 @@ export function ensureAvatarTexture(scene: Phaser.Scene, sprite: string): string
   if (!sel) throw new Error('DEFAULT_SPRITE does not decode — catalogue broken');
   const canonical = decodeAvatar(sprite) ? sprite : DEFAULT_SPRITE;
   const key = `char-${canonical}`;
+  lastUsed.set(key, performance.now());
   if (scene.textures.exists(key)) return key;
 
   const canvas = document.createElement('canvas');
@@ -82,6 +96,45 @@ export function ensureAvatarTexture(scene: Phaser.Scene, sprite: string): string
   });
 
   return key;
+}
+
+/** Every animation clip key generated alongside one composited texture. */
+function animKeysFor(textureKey: string): string[] {
+  return GEO.animations.flatMap((anim) =>
+    GEO.directions.map((dir) => `${anim.key}-${textureKey}-${dir}`),
+  );
+}
+
+/**
+ * Drop the least-recently-used characters once the cache is over budget.
+ * `inUse` is every texture currently worn by somebody on screen — evicting one
+ * of those would blank a live sprite, so they are never candidates however old
+ * they are. Call this whenever the set of actors changes.
+ */
+export function pruneAvatarTextures(scene: Phaser.Scene, inUse: ReadonlySet<string>): void {
+  if (lastUsed.size <= MAX_CACHED_AVATARS) return;
+  const candidates = [...lastUsed.entries()]
+    .filter(([key]) => !inUse.has(key))
+    .sort((a, b) => a[1] - b[1]);
+  let over = lastUsed.size - MAX_CACHED_AVATARS;
+  for (const [key] of candidates) {
+    if (over <= 0) break;
+    // The clips reference the texture's frames; leaving them behind would leak
+    // the animation keys and resurrect a dead texture on the next play().
+    for (const animKey of animKeysFor(key)) scene.anims.remove(animKey);
+    if (scene.textures.exists(key)) scene.textures.remove(key);
+    lastUsed.delete(key);
+    over -= 1;
+  }
+}
+
+/**
+ * Forget everything. The textures themselves belong to the scene and die with
+ * it; this clears the bookkeeping that would otherwise outlive them and make
+ * the next scene think it had a cache it does not have.
+ */
+export function resetAvatarTextureCache(): void {
+  lastUsed.clear();
 }
 
 /** First frame of an animation row facing `dir` — for sprites created at rest. */

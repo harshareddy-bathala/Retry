@@ -69,10 +69,16 @@ export function RoomPanels({ selfUserId }: RoomPanelsProps) {
     if (active === 'chat') setUnread(0);
     if (active === null) return;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setActive(null);
+      if (e.key !== 'Escape') return;
+      // CAPTURE phase, and preventDefault: WorldPage also listens for Escape to
+      // leave the world, and it listens on window from mount — so a bubble-phase
+      // handler here runs second and the panel closed only after the route had
+      // already changed. Escape now peels one layer at a time.
+      e.preventDefault();
+      setActive(null);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
   }, [active]);
 
   if (!roomId) return null;

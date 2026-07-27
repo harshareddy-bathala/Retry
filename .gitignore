@@ -46,3 +46,6 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+# Scratch git worktrees — separate checkouts, never content of this one
+.claude/worktrees/
+

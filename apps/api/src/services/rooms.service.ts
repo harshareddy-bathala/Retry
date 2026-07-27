@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 import commonsMap from '@retry/maps/commons.json';
 import { extractDoorSlots, validateMap, type DoorSlot } from '@retry/maps';
 import {
@@ -95,10 +95,16 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
   }
 
   /**
-   * The lowest free Commons door slot, or a 409 when they are all taken.
+   * The lowest free Commons door slot, or null when they are all taken.
    * `exceptRoomId` lets a room keep its own slot while being updated.
+   *
+   * A full Commons used to be a 409 that stopped room creation dead — the
+   * seventh public room simply could not exist, and the student had no action
+   * to take. A door is a shortcut into a room, not the room's licence to be:
+   * a doorless public room is listed, discoverable and enterable from the
+   * Rooms tab, and picks up a door the moment one frees (see reclaimDoorSlots).
    */
-  async function claimDoorSlot(exceptRoomId: string | null): Promise<DoorSlot> {
+  async function claimDoorSlot(exceptRoomId: string | null): Promise<DoorSlot | null> {
     const conditions = [eq(rooms.visibility, 'public'), isNotNull(rooms.doorX)];
     if (exceptRoomId) conditions.push(ne(rooms.id, exceptRoomId));
     const taken = await db
@@ -106,15 +112,43 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
       .from(rooms)
       .where(and(...conditions));
     const takenKeys = new Set(taken.map((r) => `${r.doorX},${r.doorY}`));
-    const door = COMMONS_DOOR_SLOTS.find((s) => !takenKeys.has(`${s.x},${s.y}`));
-    if (!door) {
-      throw new AppError(
-        'NO_FREE_DOOR_SLOT',
-        409,
-        'The Commons has no free doors left. Keep the room private, or try later.',
-      );
+    return COMMONS_DOOR_SLOTS.find((s) => !takenKeys.has(`${s.x},${s.y}`)) ?? null;
+  }
+
+  /**
+   * Hand every free door to the public rooms that have been waiting longest.
+   * Called after anything that can release a slot — a room deleted, or turned
+   * private. Without this a doorless room stays doorless forever and the
+   * Commons wall slowly fills with the earliest six rooms ever created.
+   *
+   * Returns true when at least one door moved, so the caller knows whether the
+   * live world needs telling.
+   */
+  async function reclaimDoorSlots(): Promise<boolean> {
+    const waiting = await db
+      .select({ id: rooms.id })
+      .from(rooms)
+      .where(and(eq(rooms.visibility, 'public'), isNull(rooms.doorX)))
+      .orderBy(asc(rooms.createdAt));
+    if (waiting.length === 0) return false;
+
+    const taken = await db
+      .select({ doorX: rooms.doorX, doorY: rooms.doorY })
+      .from(rooms)
+      .where(and(eq(rooms.visibility, 'public'), isNotNull(rooms.doorX)));
+    const takenKeys = new Set(taken.map((r) => `${r.doorX},${r.doorY}`));
+    const free = COMMONS_DOOR_SLOTS.filter((s) => !takenKeys.has(`${s.x},${s.y}`));
+    if (free.length === 0) return false;
+
+    for (const [i, slot] of free.entries()) {
+      const room = waiting[i];
+      if (!room) break;
+      await db
+        .update(rooms)
+        .set({ doorX: slot.x, doorY: slot.y, updatedAt: new Date() })
+        .where(eq(rooms.id, room.id));
     }
-    return door;
+    return true;
   }
 
   /**
@@ -247,10 +281,14 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
     let doorY = current.doorY;
     let doorsChanged = false;
     if (visibility === 'public' && current.doorX === null) {
+      // May come back empty — a public room with no free slot is still a
+      // public room, reachable from the Rooms tab until a door frees up.
       const slot = await claimDoorSlot(roomId);
-      doorX = slot.x;
-      doorY = slot.y;
-      doorsChanged = true;
+      if (slot) {
+        doorX = slot.x;
+        doorY = slot.y;
+        doorsChanged = true;
+      }
     } else if (visibility === 'private' && current.doorX !== null) {
       doorX = null;
       doorY = null;
@@ -281,6 +319,8 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
           .from(roomMembers)
           .where(eq(roomMembers.roomId, roomId));
         await roomServer.evict(roomId, { except: memberIds.map((m) => m.userId) }, 'removed');
+        // This room just released its door — pass it on.
+        await reclaimDoorSlots();
       }
       await roomServer.doorsChanged();
     }
@@ -307,7 +347,10 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
       await notify(m.userId, 'room_deleted', { roomId, roomName: room.name });
     }
     await roomServer.evict(roomId, 'all', 'roomDeleted');
-    if (room.doorX !== null) await roomServer.doorsChanged();
+    if (room.doorX !== null) {
+      await reclaimDoorSlots();
+      await roomServer.doorsChanged();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -719,6 +762,7 @@ function toSummary(
     projectStage: row.projectStage,
     domainTag: row.domainTag,
     memberCount: stats.memberCount,
+    hasDoor: row.doorX !== null,
     lastActivityAt: row.lastActivityAt.toISOString(),
     presentMembers: stats.presentMembers,
     createdAt: row.createdAt.toISOString(),

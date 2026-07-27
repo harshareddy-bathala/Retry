@@ -5,7 +5,10 @@
 
 import type { ServerMessage } from '@retry/protocol';
 
-export type RoomSocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
+// 'closed' is a deliberate disconnect (leaving the world). 'failed' is the
+// socket giving up after MAX_RECONNECT_ATTEMPTS — the two look identical to a
+// dot but mean opposite things to a person, so only 'failed' offers a Rejoin.
+export type RoomSocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'failed';
 
 export type RoomEventMap = {
   'interact:whiteboard': undefined;
@@ -18,6 +21,10 @@ export type RoomEventMap = {
   'creator:open': undefined;
   // A rename repaints the name tag; it must not rebuild the world.
   'self:rename': { displayName: string };
+  // Show me where someone is: the camera leaves the player, pans to them, and
+  // comes back. A room is bigger than the viewport, so "who is here" is not
+  // the same question as "where are they".
+  'camera:locate': { userId: string };
 };
 
 type Handler<T> = (payload: T) => void;

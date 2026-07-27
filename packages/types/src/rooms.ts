@@ -81,6 +81,12 @@ export type RoomSummary = {
   projectStage: ProjectStage;
   domainTag: string | null;
   memberCount: number;
+  /**
+   * Whether this room has a door on the Commons wall. Public rooms created
+   * while every slot was taken are doorless: fully usable, just not reachable
+   * by walking. They take a door as soon as one frees.
+   */
+  hasDoor: boolean;
   /** ISO; drives room-list ordering (FR-ROOM-06). */
   lastActivityAt: string;
   /** Members whose live presence is in this room right now (FR-ROOM-08). */

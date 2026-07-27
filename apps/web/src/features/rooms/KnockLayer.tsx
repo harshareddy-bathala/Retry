@@ -92,6 +92,22 @@ export function KnockLayer() {
     [],
   );
 
+  // While waiting at someone's door, Escape withdraws the knock — it must not
+  // fall through to WorldPage and drop you out of the world with a request
+  // still pending on the other side. Capture phase for the same reason as the
+  // panels: WorldPage's window listener is registered first.
+  useEffect(() => {
+    if (!myKnock) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      roomSocket.send({ t: 'knockCancel', requestId: myKnock.requestId });
+      setMyKnock(null);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [myKnock]);
+
   const respond = (requestId: string, grant: boolean): void => {
     roomSocket.send({ t: 'knockRespond', requestId, grant });
     setIncoming((prev) => prev.filter((k) => k.requestId !== requestId));

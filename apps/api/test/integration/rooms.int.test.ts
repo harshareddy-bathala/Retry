@@ -1,5 +1,15 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import commonsMap from '@retry/maps/commons.json';
+import { extractDoorSlots, validateMap } from '@retry/maps';
 import { buildTestApp, hasTestDb, type TestContext } from '../helpers.js';
+
+/** Read the slot count from the map rather than hard-coding six — the Commons
+ *  is re-authored from time to time and a literal here would rot silently. */
+function commonsDoorSlotCount(): number {
+  const result = validateMap(commonsMap);
+  if (!result.ok) throw new Error('commons map is invalid');
+  return extractDoorSlots(result.map).length;
+}
 
 // Rooms world API (rooms build plan Phase 4): creation with door-slot
 // assignment, listing, and the student-only RBAC wall.
@@ -66,6 +76,67 @@ describe.skipIf(!hasTestDb)('rooms API', () => {
     const { rows } = await ctx.db.execute(`SELECT door_x, door_y FROM rooms`);
     expect(rows[0]?.door_x).toBeNull();
     expect(rows[0]?.door_y).toBeNull();
+  });
+
+  it('a full Commons yields doorless public rooms, not a refusal', async () => {
+    const student = await ctx.seedUser('student');
+    // One more room than the Commons has door slots. Every one of them must be
+    // created: a door is a shortcut into a room, not permission to exist.
+    const slots = commonsDoorSlotCount();
+    for (let i = 0; i <= slots; i++) {
+      const res = await createRoom(student.token, {
+        name: `Room ${i}`,
+        visibility: 'public',
+        accessPolicy: 'open',
+      });
+      expect(res.statusCode).toBe(201);
+    }
+
+    const { rows } = await ctx.db.execute(
+      `SELECT name, door_x FROM rooms ORDER BY created_at`,
+    );
+    expect(rows).toHaveLength(slots + 1);
+    expect(rows.filter((r) => r.door_x !== null)).toHaveLength(slots);
+    // The overflow room is the one without a door, and it says so on the wire.
+    const last = rows.at(-1);
+    expect(last?.door_x).toBeNull();
+
+    const list = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/rooms',
+      headers: { authorization: `Bearer ${student.token}` },
+    });
+    const mine = list.json<{ mine: Array<{ name: string; hasDoor: boolean }> }>().mine;
+    expect(mine.find((r) => r.name === `Room ${slots}`)?.hasDoor).toBe(false);
+    expect(mine.find((r) => r.name === 'Room 0')?.hasDoor).toBe(true);
+  });
+
+  it('a deleted room hands its door to the longest-waiting doorless room', async () => {
+    const student = await ctx.seedUser('student');
+    const slots = commonsDoorSlotCount();
+    const ids: string[] = [];
+    for (let i = 0; i <= slots; i++) {
+      const res = await createRoom(student.token, {
+        name: `Room ${i}`,
+        visibility: 'public',
+        accessPolicy: 'open',
+      });
+      ids.push(res.json<{ room: { id: string } }>().room.id);
+    }
+    const overflowId = ids.at(-1);
+
+    const deleted = await ctx.app.inject({
+      method: 'DELETE',
+      url: `/api/rooms/${ids[0]}`,
+      headers: { authorization: `Bearer ${student.token}` },
+      payload: { name: 'Room 0' },
+    });
+    expect(deleted.statusCode).toBe(204);
+
+    const { rows } = await ctx.db.execute(
+      `SELECT door_x FROM rooms WHERE id = '${overflowId}'`,
+    );
+    expect(rows[0]?.door_x).not.toBeNull();
   });
 
   it('lists mine vs discover; private rooms of others never appear', async () => {

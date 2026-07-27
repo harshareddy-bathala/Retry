@@ -19,7 +19,13 @@ import type {
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
-import { ensureAvatarTexture, frameFor, preloadCharacterLayers } from './compose-avatar.js';
+import {
+  ensureAvatarTexture,
+  frameFor,
+  preloadCharacterLayers,
+  pruneAvatarTextures,
+  resetAvatarTextureCache,
+} from './compose-avatar.js';
 
 // Every Tiled template ships in the bundle; the server's snapshot names which
 // one to render (mapId is the instance — a room uuid — template is the file).
@@ -62,6 +68,13 @@ const DOOR_OPEN_RANGE = 2;
  * in the same world.
  */
 const SHADOW = { radiusX: 8, radiusY: 3, alpha: 0.28, offsetY: 22 } as const;
+
+/** How faded a remote avatar goes while the socket is down. */
+const STALE_REMOTE_ALPHA = 0.45;
+
+// "Show me where they are": pan out, hold on them, pan back.
+const LOCATE_PAN_MS = 400;
+const LOCATE_HOLD_MS = 1_200;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -186,6 +199,13 @@ export class RoomScene extends Phaser.Scene {
   private propSprites: Phaser.GameObjects.Sprite[] = [];
   private fading = false;
   private pendingSnapshot: SnapshotMessage | null = null;
+  /**
+   * Whether the socket is currently live. While it is not, remote avatars are
+   * stale by definition — they are dimmed and frozen rather than removed, so a
+   * dropped connection reads as "these people are out of date" instead of
+   * "everyone left" (build plan Phase 8.1). Local movement keeps working.
+   */
+  private connected = true;
 
   constructor() {
     super('room');
@@ -304,11 +324,20 @@ export class RoomScene extends Phaser.Scene {
         this.sendMove(false);
       }
     });
+    const unsubscribeStatus = roomEvents.on('net:status', (status) => {
+      this.setConnected(status === 'open');
+    });
+    const unsubscribeLocate = roomEvents.on('camera:locate', ({ userId }) => {
+      this.locate(userId);
+    });
     const cleanup = (): void => {
       unsubscribe();
       unsubscribePanel();
       unsubscribeRename();
+      unsubscribeStatus();
+      unsubscribeLocate();
       avatarScreenPositions.clear();
+      resetAvatarTextureCache();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, cleanup);
@@ -333,6 +362,65 @@ export class RoomScene extends Phaser.Scene {
     this.pillTexts = this.pillTexts.filter((t) => t.active);
     for (const text of this.pillTexts) {
       if (text.style.resolution !== resolution) text.setResolution(resolution);
+    }
+  }
+
+  /**
+   * Pan to someone, hold, then hand the camera back to the player. The pan is
+   * deliberately short and self-reversing: this answers "where are they?", it
+   * is not a follow mode, and a camera that stays away from your own avatar
+   * while you can still walk is disorienting.
+   */
+  private locate(userId: string): void {
+    const remote = this.remotes.get(userId);
+    if (!remote || !this.currentTemplate) return;
+    const camera = this.cameras.main;
+    camera.stopFollow();
+    camera.pan(remote.sprite.x, remote.sprite.y, LOCATE_PAN_MS, 'Sine.easeInOut');
+    // A ring under their feet, so the pan lands on something that says "here".
+    const ring = this.add
+      .ellipse(0, 0, SHADOW.radiusX * 4, SHADOW.radiusY * 4)
+      .setStrokeStyle(2, 0xd08a4f, 0.9)
+      .setDepth(DEPTH_UI);
+    this.tweens.add({
+      targets: ring,
+      scale: { from: 1, to: 1.6 },
+      alpha: { from: 1, to: 0 },
+      duration: LOCATE_HOLD_MS,
+      onUpdate: () => {
+        const live = this.remotes.get(userId);
+        if (live) ring.setPosition(live.sprite.x, live.sprite.y + SHADOW.offsetY);
+      },
+      onComplete: () => ring.destroy(),
+    });
+    this.time.delayedCall(LOCATE_PAN_MS + LOCATE_HOLD_MS, () => {
+      // The scene may have swapped maps mid-pan; startFollow on a stale camera
+      // is harmless, but re-checking keeps the intent obvious.
+      this.cameras.main.pan(
+        this.player.x,
+        this.player.y,
+        LOCATE_PAN_MS,
+        'Sine.easeInOut',
+        false,
+        (_camera, progress) => {
+          if (progress === 1) this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+        },
+      );
+    });
+  }
+
+  /** Dim (or restore) everyone else when the connection drops or returns. */
+  private setConnected(connected: boolean): void {
+    if (connected === this.connected) return;
+    this.connected = connected;
+    const alpha = connected ? 1 : STALE_REMOTE_ALPHA;
+    for (const remote of this.remotes.values()) {
+      remote.sprite.setAlpha(alpha);
+      remote.tag.setAlpha(alpha);
+      remote.shadow.setAlpha(connected ? SHADOW.alpha : SHADOW.alpha * STALE_REMOTE_ALPHA);
+      // Freeze the walk cycle: with no updates arriving, a looping walk is a
+      // sprite jogging on the spot and claiming to be live.
+      if (!connected) remote.moving = false;
     }
   }
 
@@ -475,6 +563,7 @@ export class RoomScene extends Phaser.Scene {
         break;
       case 'actorLeave':
         this.removeRemote(msg.userId);
+        this.pruneTextures();
         break;
       case 'doors':
         this.doorsInfo = msg.doors;
@@ -530,6 +619,16 @@ export class RoomScene extends Phaser.Scene {
         this.upsertRemote(actor);
       }
     }
+    // A map change replaces the whole cast, which is exactly when a session's
+    // texture cache is most likely to be holding characters nobody is wearing.
+    this.pruneTextures();
+  }
+
+  /** Evict composited characters nobody on this map is wearing any more. */
+  private pruneTextures(): void {
+    const inUse = new Set<string>([this.selfSprite]);
+    for (const remote of this.remotes.values()) inUse.add(remote.sprite_key);
+    pruneAvatarTextures(this, inUse);
   }
 
   private onActorMove(msg: ActorMoveMessage): void {
@@ -554,11 +653,14 @@ export class RoomScene extends Phaser.Scene {
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
     const textureKey = ensureAvatarTexture(this, actor.sprite);
+    const alpha = this.connected ? 1 : STALE_REMOTE_ALPHA;
     const sprite = this.add
       .sprite(x, y, textureKey, frameFor('idle', actor.dir))
-      .setDepth(y + FEET_OFFSET_Y);
+      .setDepth(y + FEET_OFFSET_Y)
+      .setAlpha(alpha);
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
     tag.setPosition(x, y - TAG_OFFSET_Y);
+    tag.setAlpha(alpha);
     this.remotes.set(actor.userId, {
       sprite,
       tag,

@@ -201,6 +201,24 @@ describe('room-server multiplayer', () => {
     await until(() => app.hub.sessionCount === 1);
   });
 
+  it('answers ping with pong, before and during a join', async () => {
+    const client = connectRaw(`?token=${await tokenFor('pinger')}`);
+    await new Promise<void>((resolve, reject) => {
+      client.socket.once('open', () => resolve());
+      client.socket.once('error', reject);
+    });
+
+    // Liveness must not depend on having joined a map: the client starts its
+    // heartbeat the moment the socket opens.
+    client.send({ t: 'ping' });
+    await until(() => ofType(client, 'pong').length === 1);
+
+    client.send({ t: 'join', mapId: 'studio_a', displayName: 'pinger', sprite: 'maker' });
+    client.send({ t: 'ping' });
+    await until(() => ofType(client, 'pong').length === 2);
+    await until(() => ofType(client, 'snapshot').length === 1);
+  });
+
   it('survives unparseable frames', async () => {
     const a = await connectAndJoin('user-a');
     a.send('{broken json');
