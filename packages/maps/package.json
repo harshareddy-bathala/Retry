@@ -13,6 +13,7 @@
     "./generated/tilesets": "./generated/tilesets.ts",
     "./generated/characters": "./generated/characters.ts",
     "./generated/animated": "./generated/animated.ts",
+    "./generated/emotes": "./generated/emotes.ts",
     "./generated/manifest.json": "./generated/manifest.json"
   },
   "scripts": {

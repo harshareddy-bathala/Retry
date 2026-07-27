@@ -108,7 +108,10 @@ export function RoomPanels({ selfUserId }: RoomPanelsProps) {
 
       {active && active !== 'whiteboard' && (
         <div className="absolute bottom-2 right-14 top-2 z-30 flex w-80 flex-col overflow-hidden rounded-panel border border-edge bg-surface shadow-xl">
-          {active === 'chat' && <ChatPanel key={roomId} roomId={roomId} selfUserId={selfUserId} />}
+          {active === 'chat' && (
+            // The Live Space has an avatar, so it has a "nearby" to speak to.
+            <ChatPanel key={roomId} roomId={roomId} selfUserId={selfUserId} canSpeakNearby />
+          )}
           {active === 'kanban' && <KanbanPanel key={roomId} board={board} />}
           {active === 'presence' && <PresencePanel key={roomId} roomId={roomId} />}
         </div>

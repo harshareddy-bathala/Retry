@@ -101,8 +101,8 @@ Unlike the namespaced envelope above, these are flat messages discriminated on `
 
 | Direction | Events |
 |---|---|
-| Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel`, `kanbanCreate`, `kanbanUpdate`, `kanbanMove`, `kanbanDelete`, `kanbanRenameColumn`, `watch`, `unwatch`, `contextUpdate`, `blueprintUpdate` |
-| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `workspaceState`, `contextState`, `blueprintField`, `journeyEntry`, `evicted`, `error` |
+| Client → server | `join`, `move`, `leave`, `chat`, `media`, `transition`, `knockRespond`, `knockCancel`, `kanbanCreate`, `kanbanUpdate`, `kanbanMove`, `kanbanDelete`, `kanbanRenameColumn`, `watch`, `unwatch`, `contextUpdate`, `blueprintUpdate`, `avatar`, `ping`, `emote`, `typing` |
+| Server → client | `snapshot`, `actorJoin`, `actorMove`, `actorLeave`, `proximity`, `mediaState`, `doors`, `knock`, `knockPending`, `knockResult`, `avToken`, `chatMessage`, `kanbanState`, `kanbanCard`, `kanbanCardRemoved`, `kanbanColumn`, `workspaceState`, `contextState`, `blueprintField`, `journeyEntry`, `avatarState`, `evicted`, `pong`, `actorEmote`, `actorTyping`, `error` |
 
 Proximity (rooms Phase 3): the server computes pairwise Euclidean tile distance on every accepted move — `≤ 2` close, `≤ 5` near (SRS §11.4) — with 0.5-tile exit hysteresis and a 300 ms debounce before any transition is emitted. `proximity` goes only to the two clients whose pair changed, carrying only their own pairs. `media` reports the sender's mic/camera toggles; the server broadcasts `mediaState` to the rest of the map and folds current state into `snapshot` actors.
 
@@ -162,3 +162,39 @@ mutations and whiteboard saves also bump `rooms.last_activity_at` for the room l
 Every inbound message on both sides is runtime-validated (`parseClientMessage` / `parseServerMessage`); an unparseable frame is dropped with a logged warning, never a crashed connection. Coordinates on the wire are **tile units** (server-authoritative); the client converts to pixels via `packages/protocol/src/coords.ts` (32 px tiles).
 
 As later build-plan phases land (proximity, transitions), their events are added to the discriminated unions in `packages/protocol` and mirrored here in the same PR. The `avatar:*` / `proximity:*` rows in §2–3 describe the pre-rebuild design and are superseded phase-by-phase by this protocol.
+
+Liveness: `ping` → `pong`, nothing else in either. A TCP socket can go half-open — the browser
+still reports `OPEN`, sends succeed into a void and nothing ever arrives — which the client used to
+render as a permanently healthy world. RFC 6455's own ping frame is no help: a browser page can
+neither send one nor answer one, so liveness has to ride the JSON channel. The client beats every
+20 s and treats four unanswered beats as death; **any** inbound frame resets the counter, because a
+busy room is proof of life without a pong. The handler is the first case in the switch and holds no
+locks: liveness must keep answering while a join is in flight.
+
+Social presence (beta polish): three ephemeral events, none of them persisted, all of them
+rate-limited **server-side** because none of them can be made safe by asking the client nicely.
+
+- `emote` → `actorEmote`, fanned out to the map. The key is whitelisted against the built emote
+  catalogue (`@retry/maps` `EMOTE_KEYS`) exactly as `sprite` is against the character catalogue —
+  without that check any client could broadcast any string and every other client would try to
+  render it. One per 1.5 s per connection, excess silently dropped like the move cap.
+- `typing` → `actorTyping`, broadcast to the **room channel** rather than the map, so a Workspace
+  with no avatar shows "Ana is typing…" in its chat panel while the Live Space draws a thought
+  bubble over the same person's head. Never echoed to the typist. One per 2 s per connection: this
+  fires on keystrokes, and a client that debounces badly cannot be talked out of flooding, only
+  refused.
+- `chat` gains `scope: 'room' | 'nearby'` (absent means `room`, so every existing client is
+  unchanged). `room` is the record: persisted, delivered to every member and every watcher,
+  readable in history tomorrow. `nearby` is **speech** — delivered only to the peers the proximity
+  engine already says are `close` or `near`, echoed to the speaker, and never written down. It
+  reuses the same zone state that drives the audio bubbles, so what you can hear and what you can
+  read agree by construction rather than by two rules kept in step. A watcher is on nobody's
+  proximity list and therefore hears nothing said nearby, which is right: they are reading the
+  room, not standing in it. `chatMessage.id` for a nearby line is session-scoped — nothing persists
+  it, and the client only needs a key for the few seconds the bubble is up.
+
+Seating is deliberately **not** in this protocol. A seat is a map interactable (`interactive:
+'seat'` plus a `facing`); sitting moves the avatar onto a walkable tile and sends an ordinary
+`move`. The server needs no new state and no new message, which is why sittable chair blocks carry
+no collision — a solid chair would be rejected by the same collision check that guards every move,
+and would fail silently as a resync. The map validator rejects a seat placed on a collision tile.

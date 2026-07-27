@@ -236,6 +236,42 @@ export const ANIMATED_OBJECTS: AnimatedObject[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Emotes — the thought-bubble atlas
+// ---------------------------------------------------------------------------
+
+/**
+ * `UI_thinking_emotes_animation_32x32.png` is a 10x10 grid, not a strip, so it
+ * cannot go through ANIMATED_OBJECTS. Each emote is a PAIR of adjacent cells
+ * (the bubble's two-frame bob), and only a handful are worth offering, so the
+ * build crops the chosen pairs into one single-row strip the same way it crops
+ * character layers — two frames per emote, in the order below.
+ *
+ * Keys are PERSISTED in nothing and sent on the wire, but they are validated
+ * server-side against this list, so adding is free and renaming breaks the
+ * client of anyone mid-session. Add, don't rename.
+ */
+export const EMOTE_SHEET = '4_User_Interface_Elements/UI_thinking_emotes_animation_32x32.png';
+
+export type EmoteEntry = { key: string; col: number; row: number; label: string };
+
+export const EMOTES: EmoteEntry[] = [
+  { key: 'hey', col: 0, row: 4, label: 'Hey!' },
+  { key: 'question', col: 2, row: 5, label: 'Question' },
+  { key: 'building', col: 4, row: 4, label: 'Heads down' },
+  { key: 'love', col: 4, row: 2, label: 'Love it' },
+  { key: 'nice', col: 4, row: 6, label: 'Nice' },
+  { key: 'afk', col: 6, row: 5, label: 'Back soon' },
+  { key: 'music', col: 6, row: 6, label: 'Music' },
+  { key: 'help', col: 0, row: 5, label: 'Need help' },
+];
+
+/**
+ * The three-dot bubble, used for "someone is typing" rather than as an emote
+ * anyone can pick. Same strip, appended after the emotes above.
+ */
+export const TYPING_FRAMES = { col: 2, row: 9 } as const;
+
+// ---------------------------------------------------------------------------
 // Character generator — the curated catalogue
 // ---------------------------------------------------------------------------
 

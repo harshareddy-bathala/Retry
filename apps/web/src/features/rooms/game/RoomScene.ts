@@ -6,6 +6,12 @@ import lounge from '@retry/maps/lounge.json';
 import conference from '@retry/maps/conference.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
 import { ANIMATED } from '@retry/maps/generated/animated';
+import {
+  EMOTE_CHOICES,
+  EMOTE_FRAME_SIZE,
+  EMOTE_STRIP,
+  TYPING_FRAME,
+} from '@retry/maps/generated/emotes';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
@@ -76,6 +82,17 @@ const STALE_REMOTE_ALPHA = 0.45;
 const LOCATE_PAN_MS = 400;
 const LOCATE_HOLD_MS = 1_200;
 
+/** Texture key for the emote/typing strip. */
+const EMOTE_TEXTURE = 'emotes';
+/** How long a bubble stays up. Long enough to be seen across a room. */
+const EMOTE_HOLD_MS = 3_000;
+/**
+ * How long a typing bubble survives without another `actorTyping`. The server
+ * re-broadcasts at most every 2s, so this has to outlast that gap or the
+ * bubble strobes while somebody writes a long message.
+ */
+const TYPING_HOLD_MS = 4_000;
+
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
 const WALK_SPEED = 4 * TILE_SIZE;
@@ -106,6 +123,8 @@ const FEET_OFFSET_Y = 24;
 const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
 /** Name tags float just above the head, which is 32px above the centre. */
 const TAG_OFFSET_Y = 44;
+/** Emote and typing bubbles float above the name tag, clear of it. */
+const BUBBLE_OFFSET_Y = TAG_OFFSET_Y + 14;
 /**
  * Top of everything the scene draws above an avatar (the name tag's upper
  * edge). This — not the head — is the anchor published to the React overlay,
@@ -152,8 +171,10 @@ type Remote = {
 };
 
 type Interactable = {
-  kind: 'whiteboard' | 'exit' | 'door';
+  kind: 'whiteboard' | 'exit' | 'door' | 'seat';
   doorSlot: number | null;
+  /** Seats only: which way a sitter looks. */
+  facing: Dir | null;
   tiles: Array<{ x: number; y: number }>;
   hint: Phaser.GameObjects.Container;
 };
@@ -206,6 +227,14 @@ export class RoomScene extends Phaser.Scene {
    * "everyone left" (build plan Phase 8.1). Local movement keeps working.
    */
   private connected = true;
+  /** Sitting on a seat tile: input is ignored until a movement key stands us up. */
+  private seated = false;
+  /**
+   * The bubble currently over each actor (self included), with the time it
+   * expires. One per person: a new emote replaces the old rather than stacking,
+   * and a typing bubble yields to an actual emote.
+   */
+  private bubbles = new Map<string, { sprite: Phaser.GameObjects.Sprite; until: number }>();
 
   constructor() {
     super('room');
@@ -236,6 +265,13 @@ export class RoomScene extends Phaser.Scene {
     // Characters composite at runtime from these curated layer strips
     // (~240 KB for the whole catalogue) — there is no per-character asset.
     preloadCharacterLayers(this);
+    // Emote + typing bubbles: one strip, two frames each.
+    if (EMOTE_STRIP) {
+      this.load.spritesheet(EMOTE_TEXTURE, EMOTE_STRIP, {
+        frameWidth: EMOTE_FRAME_SIZE,
+        frameHeight: EMOTE_FRAME_SIZE,
+      });
+    }
   }
 
   create(): void {
@@ -330,12 +366,21 @@ export class RoomScene extends Phaser.Scene {
     const unsubscribeLocate = roomEvents.on('camera:locate', ({ userId }) => {
       this.locate(userId);
     });
+    // The HUD picker and the number keys both come through here, so the scene
+    // has one path for "I emoted" regardless of how it was triggered.
+    const unsubscribeEmote = roomEvents.on('self:emote', ({ key }) => {
+      roomSocket.send({ t: 'emote', key });
+      // Optimistic: the server does not echo an emote to its sender, exactly
+      // like movement, so the local bubble is drawn here.
+      this.showBubble(this.userId, this.emoteFrame(key), EMOTE_HOLD_MS);
+    });
     const cleanup = (): void => {
       unsubscribe();
       unsubscribePanel();
       unsubscribeRename();
       unsubscribeStatus();
       unsubscribeLocate();
+      unsubscribeEmote();
       avatarScreenPositions.clear();
       resetAvatarTextureCache();
     };
@@ -490,8 +535,12 @@ export class RoomScene extends Phaser.Scene {
     const up = this.cursors.up.isDown || this.wasd.W.isDown;
     const down = this.cursors.down.isDown || this.wasd.S.isDown;
 
-    let vx = (right ? 1 : 0) - (left ? 1 : 0);
-    let vy = (down ? 1 : 0) - (up ? 1 : 0);
+    // Any movement key gets you out of a chair — hunting for the key that
+    // released you would be a puzzle, and E is already taken by "sit again".
+    if (this.seated && (left || right || up || down)) this.stand();
+
+    let vx = this.seated ? 0 : (right ? 1 : 0) - (left ? 1 : 0);
+    let vy = this.seated ? 0 : (down ? 1 : 0) - (up ? 1 : 0);
     if (vx !== 0 && vy !== 0) {
       // Normalise so diagonal movement is not faster than cardinal.
       vx *= Math.SQRT1_2;
@@ -524,6 +573,7 @@ export class RoomScene extends Phaser.Scene {
     this.placeShadow(this.playerShadow, this.player.x, this.player.y);
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
+    this.updateBubbles(this.time.now);
     this.publishScreenPositions();
     this.updateInteractables();
     this.updateDoors();
@@ -564,6 +614,22 @@ export class RoomScene extends Phaser.Scene {
       case 'actorLeave':
         this.removeRemote(msg.userId);
         this.pruneTextures();
+        break;
+      case 'actorEmote':
+        this.showBubble(msg.userId, this.emoteFrame(msg.key), EMOTE_HOLD_MS);
+        break;
+      case 'actorTyping':
+        // Never over-write a live emote with a typing bubble: the emote was a
+        // deliberate act and this is a side effect of writing.
+        if (!this.bubbles.has(msg.userId)) {
+          this.showBubble(msg.userId, TYPING_FRAME, TYPING_HOLD_MS);
+        } else {
+          this.extendBubble(msg.userId, TYPING_HOLD_MS);
+        }
+        break;
+      case 'chatMessage':
+        // Nearby speech clears the writer's typing bubble the moment it lands.
+        if (msg.scope === 'nearby') this.clearBubble(msg.userId);
         break;
       case 'doors':
         this.doorsInfo = msg.doors;
@@ -741,6 +807,9 @@ export class RoomScene extends Phaser.Scene {
     this.mapLayers = [];
     for (const i of this.interactables) i.hint.destroy();
     this.interactables = [];
+    for (const userId of [...this.bubbles.keys()]) this.clearBubble(userId);
+    // A chair does not follow you through a door.
+    this.seated = false;
     for (const p of this.propSprites) p.destroy();
     this.propSprites = [];
     this.clearDoorVisuals();
@@ -808,8 +877,17 @@ export class RoomScene extends Phaser.Scene {
     for (const obj of map.getObjectLayer('interactables')?.objects ?? []) {
       const properties = (obj.properties ?? []) as Array<{ name: string; value: unknown }>;
       const kindProp = properties.find((p) => p.name === 'interactive')?.value;
-      if (kindProp !== 'whiteboard' && kindProp !== 'exit' && kindProp !== 'door') continue;
+      if (
+        kindProp !== 'whiteboard' &&
+        kindProp !== 'exit' &&
+        kindProp !== 'door' &&
+        kindProp !== 'seat'
+      ) {
+        continue;
+      }
       const slotProp = properties.find((p) => p.name === 'door_slot')?.value;
+      const facingProp = properties.find((p) => p.name === 'facing')?.value;
+      const facing = isDir(facingProp) ? facingProp : null;
 
       const x = obj.x ?? 0;
       const y = obj.y ?? 0;
@@ -821,7 +899,10 @@ export class RoomScene extends Phaser.Scene {
           tiles.push({ x: tx, y: ty });
         }
       }
-      const label = kindProp === 'exit' ? 'E — to Commons' : 'Press E';
+      const label =
+        kindProp === 'exit' ? 'E — to Commons'
+        : kindProp === 'seat' ? 'E — sit'
+        : 'Press E';
       const hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
       hint.setPosition(x + width / 2, kindProp === 'door' ? y + height + 10 : y - 8);
       hint.setVisible(false);
@@ -829,22 +910,34 @@ export class RoomScene extends Phaser.Scene {
       this.interactables.push({
         kind: kindProp,
         doorSlot: typeof slotProp === 'number' ? slotProp : null,
+        facing,
         tiles,
         hint,
       });
     }
   }
 
-  /** The interactable the player stands next to (Chebyshev distance ≤ 1). */
+  /**
+   * The interactable the player stands next to (Chebyshev distance ≤ 1), the
+   * genuinely NEAREST one rather than the first in map order — a chair you are
+   * standing on (distance 0) must win over a door one tile away, or sitting at
+   * a desk beside a doorway walks you into the next room instead.
+   */
   private nearestInteractable(): Interactable | null {
     const tileX = pixelToTile(this.player.x);
     const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
+    let best: Interactable | null = null;
+    let bestDistance = Infinity;
     for (const i of this.interactables) {
-      if (i.tiles.some((t) => Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY)) <= 1)) {
-        return i;
+      for (const t of i.tiles) {
+        const distance = Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY));
+        if (distance <= 1 && distance < bestDistance) {
+          best = i;
+          bestDistance = distance;
+        }
       }
     }
-    return null;
+    return best;
   }
 
   private updateInteractables(): void {
@@ -852,12 +945,19 @@ export class RoomScene extends Phaser.Scene {
     for (const i of this.interactables) {
       // A door with no assigned room is just wall dressing — no hint, no action.
       const usable = i.kind !== 'door' || this.doorFor(i.doorSlot)?.room !== undefined;
-      i.hint.setVisible(i === near && usable);
+      // While seated, only the chair you are in offers anything; every other
+      // affordance within reach would be pressable without standing up.
+      const reachable = !this.seated || i.kind === 'seat';
+      i.hint.setVisible(i === near && usable && reachable);
     }
   }
 
   private activate(interactable: Interactable): void {
     switch (interactable.kind) {
+      case 'seat':
+        if (this.seated) this.stand();
+        else this.sit(interactable);
+        break;
       case 'whiteboard':
         roomEvents.emit('interact:whiteboard');
         break;
@@ -874,6 +974,115 @@ export class RoomScene extends Phaser.Scene {
 
   private doorFor(slot: number | null): DoorInfo | undefined {
     return slot === null ? undefined : this.doorsInfo.find((d) => d.slot === slot);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Emote / typing bubbles
+  // ---------------------------------------------------------------------------
+
+  /** First frame of an emote key; the typing dots if the key is unknown. */
+  private emoteFrame(key: string): number {
+    return EMOTE_CHOICES.find((e) => e.key === key)?.frame ?? TYPING_FRAME;
+  }
+
+  /**
+   * Put a bubble over someone's head. Both frames of the pair are played as a
+   * two-frame loop — the pack draws emotes as a gentle bob, and a static one
+   * reads as a stuck UI element rather than a reaction.
+   */
+  private showBubble(userId: string, frame: number, holdMs: number): void {
+    if (!EMOTE_STRIP) return;
+    this.clearBubble(userId);
+    const sprite = this.add.sprite(0, 0, EMOTE_TEXTURE, frame).setDepth(DEPTH_HINT);
+    const key = `bubble-${frame}`;
+    if (!this.anims.exists(key)) {
+      this.anims.create({
+        key,
+        frames: [{ key: EMOTE_TEXTURE, frame }, { key: EMOTE_TEXTURE, frame: frame + 1 }],
+        frameRate: 3,
+        repeat: -1,
+      });
+    }
+    sprite.anims.play(key);
+    this.bubbles.set(userId, { sprite, until: this.time.now + holdMs });
+  }
+
+  private extendBubble(userId: string, holdMs: number): void {
+    const bubble = this.bubbles.get(userId);
+    if (bubble) bubble.until = this.time.now + holdMs;
+  }
+
+  private clearBubble(userId: string): void {
+    const bubble = this.bubbles.get(userId);
+    if (!bubble) return;
+    bubble.sprite.destroy();
+    this.bubbles.delete(userId);
+  }
+
+  /** Follow heads, and expire. Called every frame. */
+  private updateBubbles(now: number): void {
+    for (const [userId, bubble] of [...this.bubbles]) {
+      if (now >= bubble.until) {
+        this.clearBubble(userId);
+        continue;
+      }
+      const at =
+        userId === this.userId ?
+          { x: this.player.x, y: this.player.y }
+        : this.remotes.get(userId)?.sprite;
+      if (!at) {
+        // They left the map mid-bubble.
+        this.clearBubble(userId);
+        continue;
+      }
+      bubble.sprite.setPosition(Math.round(at.x), Math.round(at.y) - BUBBLE_OFFSET_Y);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sitting
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Park the avatar on a seat tile, facing whichever way the map says.
+   *
+   * Entirely client-side: the server sees an ordinary position on a walkable
+   * tile and needs no new state, which is why the sittable chair blocks carry
+   * no collision. Nothing is persisted either — standing up is one keypress
+   * and a disconnect leaves nobody welded to a chair.
+   */
+  private sit(seat: Interactable): void {
+    const tile = seat.tiles[0];
+    if (!tile) return;
+    this.seated = true;
+    this.playerBody.setVelocity(0, 0);
+    // Feet centred on the seat tile; the sprite sits FEET_OFFSET_Y above it.
+    this.playerBody.reset(
+      tile.x * TILE_SIZE + TILE_SIZE / 2,
+      tile.y * TILE_SIZE + TILE_SIZE / 2 - FEET_OFFSET_Y,
+    );
+    this.facing = seat.facing ?? this.facing;
+    this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
+    this.wasMoving = false;
+    this.sendMove(false);
+    this.setHintLabel(seat, 'E — stand');
+  }
+
+  private stand(): void {
+    if (!this.seated) return;
+    this.seated = false;
+    for (const i of this.interactables) {
+      if (i.kind === 'seat') this.setHintLabel(i, 'E — sit');
+    }
+  }
+
+  /** Swap a hint's text. Pills are baked at build time, so this rebuilds one. */
+  private setHintLabel(interactable: Interactable, label: string): void {
+    const { x, y } = interactable.hint;
+    const visible = interactable.hint.visible;
+    interactable.hint.destroy();
+    interactable.hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
+    interactable.hint.setPosition(x, y).setDepth(DEPTH_HINT).setVisible(visible);
   }
 
   // ---------------------------------------------------------------------------
@@ -990,4 +1199,9 @@ export class RoomScene extends Phaser.Scene {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/** Narrow a Tiled custom property to a direction. */
+function isDir(value: unknown): value is Dir {
+  return value === 'up' || value === 'down' || value === 'left' || value === 'right';
 }

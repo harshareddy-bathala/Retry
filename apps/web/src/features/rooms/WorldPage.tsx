@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { CharacterCreator } from './CharacterCreator.js';
 import { AVControls } from './AVControls.js';
+import { EmoteBar } from './EmoteBar.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
 import { KnockLayer } from './KnockLayer.js';
@@ -189,10 +190,11 @@ export default function WorldPage() {
         <ConnectionBanner />
 
         {/* Bottom left: the panel rail owns the top-right corner. */}
-        <div className="absolute bottom-4 left-3 flex items-center gap-2">
+        <div className="absolute bottom-4 left-3 flex items-end gap-2">
           <p className="rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur">
-            WASD or arrows · E at a door
+            WASD or arrows · E to sit or enter · 1–8 to react
           </p>
+          <EmoteBar />
           <button
             type="button"
             onClick={() => roomEvents.emit('creator:open')}

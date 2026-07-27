@@ -25,6 +25,9 @@ export type RoomEventMap = {
   // comes back. A room is bigger than the viewport, so "who is here" is not
   // the same question as "where are they".
   'camera:locate': { userId: string };
+  // React the HUD picker into a bubble over your own head. The number-key
+  // shortcuts route through here too, so the scene has one entry point.
+  'self:emote': { key: string };
 };
 
 type Handler<T> = (payload: T) => void;
