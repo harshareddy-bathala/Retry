@@ -227,6 +227,34 @@ describe('proximity speech', () => {
     expect(ofType(cara, 'chatMessage')).toHaveLength(0);
   });
 
+  it('works in the Commons, which keeps no chat log', async () => {
+    // The scope decides what is required, not the map. The Commons is a
+    // corridor and refuses a room-scoped message because it has nowhere to
+    // write it — but it is the atrium where people actually run into each
+    // other, and a hub where you cannot say hello is not a hub. Both this and
+    // the typing notice below were refused there until a live drive caught it.
+    const ana = await join('ana', 'commons');
+    const ben = await join('ben', 'commons');
+    await until(() =>
+      ofType(ana, 'proximity').some((m) =>
+        m.pairs.some((p) => p.userId === 'ben' && p.zone === 'close'),
+      ),
+    );
+
+    ana.send({ t: 'typing' });
+    await until(() => ofType(ben, 'actorTyping').length === 1);
+
+    ana.send({ t: 'chat', body: 'hello atrium', scope: 'nearby' });
+    await until(() => ofType(ben, 'chatMessage').length === 1);
+    expect(ofType(ben, 'chatMessage')[0]).toMatchObject({ body: 'hello atrium', scope: 'nearby' });
+
+    // …while a room-scoped line in the Commons is still dropped: there is no
+    // room to write it to, and inventing one would create a log nobody owns.
+    ana.send({ t: 'chat', body: 'for the record' });
+    await settle();
+    expect(ofType(ben, 'chatMessage')).toHaveLength(1);
+  });
+
   it('room-scoped chat is unchanged: persisted, and delivered to watchers too', async () => {
     const ana = await join('ana');
     const cara = await watch('cara');

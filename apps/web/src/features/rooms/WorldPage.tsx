@@ -6,7 +6,10 @@ import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { CharacterCreator } from './CharacterCreator.js';
 import { AVControls } from './AVControls.js';
+import { DesktopOnlyGate, useCanRenderWorld } from './DesktopOnlyGate.js';
 import { EmoteBar } from './EmoteBar.js';
+import { Minimap } from './Minimap.js';
+import { SayBar } from './SayBar.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
 import { KnockLayer } from './KnockLayer.js';
@@ -64,6 +67,7 @@ export default function WorldPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const mapId = searchParams.get('map') ?? undefined;
+  const canRenderWorld = useCanRenderWorld();
   const [av, setAv] = useState<AvState>(loadAvState);
   const avRef = useRef(av);
   avRef.current = av;
@@ -94,7 +98,7 @@ export default function WorldPage() {
 
   useEffect(() => {
     const token = getAccessToken();
-    if (!user || !token) return;
+    if (!user || !token || !canRenderWorld) return;
     // AV first: the manager must be listening before the server can push the
     // avToken that follows the join snapshot.
     avManager.start(avRef.current);
@@ -109,7 +113,7 @@ export default function WorldPage() {
       roomSocket.disconnect();
       avManager.stop();
     };
-  }, [user, mapId]);
+  }, [user, mapId, canRenderWorld]);
 
   // A world that fills the window must not also scroll the page behind it.
   useEffect(() => {
@@ -137,6 +141,11 @@ export default function WorldPage() {
   };
 
   if (!user) return null;
+
+  // A phone gets an explanation, not a canvas it cannot drive. Checked before
+  // the art gate: on a phone the pack is irrelevant either way, and "install
+  // the art pack" would be advice nobody there can act on.
+  if (!canRenderWorld) return <DesktopOnlyGate roomId={mapId} />;
 
   // No licensed art, no world. The pack cannot be committed (its licence
   // forbids redistribution), so a fresh clone reaches here with typed stubs —
@@ -194,6 +203,7 @@ export default function WorldPage() {
           <p className="rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur">
             WASD or arrows · E to sit or enter · 1–8 to react
           </p>
+          <SayBar />
           <EmoteBar />
           <button
             type="button"
@@ -219,6 +229,11 @@ export default function WorldPage() {
 
         <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 rounded-panel border border-edge bg-surface/90 px-2 py-2 shadow-lg backdrop-blur">
           <AVControls av={av} onToggle={onToggleAv} />
+        </div>
+
+        {/* Bottom right, clear of the panel rail at the top right. */}
+        <div className="absolute bottom-4 right-3">
+          <Minimap selfUserId={user.id} />
         </div>
 
         <div className="pointer-events-auto">

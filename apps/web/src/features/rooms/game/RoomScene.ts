@@ -22,7 +22,7 @@ import type {
   ServerMessage,
   SnapshotMessage,
 } from '@retry/protocol';
-import { avatarScreenPositions } from '../avatar-positions.js';
+import { avatarScreenPositions, avatarTilePositions, minimapWorld } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
 import {
@@ -92,6 +92,10 @@ const EMOTE_HOLD_MS = 3_000;
  * bubble strobes while somebody writes a long message.
  */
 const TYPING_HOLD_MS = 4_000;
+/** How long a line of nearby speech hangs over a head. */
+const SPEECH_HOLD_MS = 6_000;
+/** Longer than this is trimmed: the panel is where reading happens. */
+const SPEECH_MAX_CHARS = 60;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -235,6 +239,8 @@ export class RoomScene extends Phaser.Scene {
    * and a typing bubble yields to an actual emote.
    */
   private bubbles = new Map<string, { sprite: Phaser.GameObjects.Sprite; until: number }>();
+  /** Nearby speech currently shown over each actor's head. */
+  private speech = new Map<string, { pill: Phaser.GameObjects.Container; until: number }>();
 
   constructor() {
     super('room');
@@ -382,6 +388,8 @@ export class RoomScene extends Phaser.Scene {
       unsubscribeLocate();
       unsubscribeEmote();
       avatarScreenPositions.clear();
+      avatarTilePositions.clear();
+      minimapWorld.current = null;
       resetAvatarTextureCache();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
@@ -628,8 +636,13 @@ export class RoomScene extends Phaser.Scene {
         }
         break;
       case 'chatMessage':
-        // Nearby speech clears the writer's typing bubble the moment it lands.
-        if (msg.scope === 'nearby') this.clearBubble(msg.userId);
+        // Speech belongs in the world, not only in a panel: a line said nearby
+        // appears over the speaker's head, which is the whole point of saying
+        // it nearby rather than to the room.
+        if (msg.scope === 'nearby') {
+          this.clearBubble(msg.userId);
+          this.showSpeech(msg.userId, msg.body);
+        }
         break;
       case 'doors':
         this.doorsInfo = msg.doors;
@@ -751,6 +764,7 @@ export class RoomScene extends Phaser.Scene {
     remote.shadow.destroy();
     this.remotes.delete(userId);
     avatarScreenPositions.delete(userId);
+    avatarTilePositions.delete(userId);
   }
 
   /**
@@ -765,6 +779,12 @@ export class RoomScene extends Phaser.Scene {
       avatarScreenPositions.set(userId, {
         x: (worldX - camera.worldView.x) * camera.zoom,
         y: (worldY - OVERLAY_ANCHOR_Y - camera.worldView.y) * camera.zoom,
+      });
+      // Tile coordinates too, for the minimap — which draws the whole room and
+      // therefore cannot use a screen position that is mostly off screen.
+      avatarTilePositions.set(userId, {
+        x: worldX / TILE_SIZE,
+        y: (worldY + FEET_OFFSET_Y) / TILE_SIZE,
       });
     };
     write(this.userId, this.player.x, this.player.y);
@@ -808,6 +828,7 @@ export class RoomScene extends Phaser.Scene {
     for (const i of this.interactables) i.hint.destroy();
     this.interactables = [];
     for (const userId of [...this.bubbles.keys()]) this.clearBubble(userId);
+    for (const userId of [...this.speech.keys()]) this.clearSpeech(userId);
     // A chair does not follow you through a door.
     this.seated = false;
     for (const p of this.propSprites) p.destroy();
@@ -863,6 +884,7 @@ export class RoomScene extends Phaser.Scene {
     // avatar drift a little before the camera commits to following.
     this.cameras.main.setDeadzone(TILE_SIZE * 2, TILE_SIZE * 1.5);
 
+    this.publishMinimap(map, collision);
     this.collectInteractables(map);
     this.spawnProps(map);
     this.currentTemplate = template;
@@ -870,6 +892,26 @@ export class RoomScene extends Phaser.Scene {
     this.playerShadow.setVisible(true);
     this.nameTag.setVisible(true);
     this.renderDoors();
+  }
+
+  /**
+   * Hand the minimap the room's shape: dimensions plus a flattened collision
+   * grid. Published once per world build, not per frame — the geometry only
+   * changes at a door, and a 40x16 grid rebuilt sixty times a second would be
+   * the most expensive thing on screen for no reason at all.
+   */
+  private publishMinimap(
+    map: Phaser.Tilemaps.Tilemap,
+    collision: Phaser.Tilemaps.TilemapLayer,
+  ): void {
+    const blocked = new Uint8Array(map.width * map.height);
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const tile = collision.getTileAt(x, y);
+        if (tile && tile.index !== -1) blocked[y * map.width + x] = 1;
+      }
+    }
+    minimapWorld.current = { width: map.width, height: map.height, blocked };
   }
 
   /** Read objects with an `interactive` custom property from the map. */
@@ -1007,6 +1049,26 @@ export class RoomScene extends Phaser.Scene {
     this.bubbles.set(userId, { sprite, until: this.time.now + holdMs });
   }
 
+  /**
+   * A line of speech over someone's head. Long lines are trimmed rather than
+   * wrapped: this is a glance-at-it affordance and the full text is in the
+   * chat panel, where reading belongs.
+   */
+  private showSpeech(userId: string, body: string): void {
+    this.clearSpeech(userId);
+    const text = body.length > SPEECH_MAX_CHARS ? `${body.slice(0, SPEECH_MAX_CHARS - 1)}…` : body;
+    const pill = this.buildPill(text, 0xffffff, '#2d2926');
+    pill.setDepth(DEPTH_HINT);
+    this.speech.set(userId, { pill, until: this.time.now + SPEECH_HOLD_MS });
+  }
+
+  private clearSpeech(userId: string): void {
+    const existing = this.speech.get(userId);
+    if (!existing) return;
+    existing.pill.destroy();
+    this.speech.delete(userId);
+  }
+
   private extendBubble(userId: string, holdMs: number): void {
     const bubble = this.bubbles.get(userId);
     if (bubble) bubble.until = this.time.now + holdMs;
@@ -1019,23 +1081,33 @@ export class RoomScene extends Phaser.Scene {
     this.bubbles.delete(userId);
   }
 
+  /** Where an actor's head is, or null once they have left the map. */
+  private headOf(userId: string): { x: number; y: number } | null {
+    if (userId === this.userId) return { x: this.player.x, y: this.player.y };
+    const remote = this.remotes.get(userId);
+    return remote ? { x: remote.sprite.x, y: remote.sprite.y } : null;
+  }
+
   /** Follow heads, and expire. Called every frame. */
   private updateBubbles(now: number): void {
     for (const [userId, bubble] of [...this.bubbles]) {
-      if (now >= bubble.until) {
-        this.clearBubble(userId);
-        continue;
-      }
-      const at =
-        userId === this.userId ?
-          { x: this.player.x, y: this.player.y }
-        : this.remotes.get(userId)?.sprite;
-      if (!at) {
-        // They left the map mid-bubble.
+      const at = this.headOf(userId);
+      if (now >= bubble.until || !at) {
         this.clearBubble(userId);
         continue;
       }
       bubble.sprite.setPosition(Math.round(at.x), Math.round(at.y) - BUBBLE_OFFSET_Y);
+    }
+    for (const [userId, said] of [...this.speech]) {
+      const at = this.headOf(userId);
+      if (now >= said.until || !at) {
+        this.clearSpeech(userId);
+        continue;
+      }
+      // Above the emote bubble when both are up — speech is the newer thing to
+      // read, and it should never sit on top of the name tag.
+      const lift = this.bubbles.has(userId) ? BUBBLE_OFFSET_Y + 22 : BUBBLE_OFFSET_Y;
+      said.pill.setPosition(Math.round(at.x), Math.round(at.y) - lift);
     }
   }
 

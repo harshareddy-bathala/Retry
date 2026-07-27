@@ -1119,21 +1119,25 @@ export class RoomHub {
   }
 
   private async onChat(session: Session, msg: ChatMessage): Promise<void> {
-    const roomId = this.roomIdOf(session);
-    if (!roomId) {
-      session.log.debug('chat dropped: not inside a room instance');
-      return;
-    }
     // Plain text only (FR-ROOM-35): sanitise on write — control chars out,
     // whitespace trimmed; the client renders as text nodes (NFR-SEC-04).
     const body = sanitizeText(msg.body);
     if (body.length === 0) return;
 
+    // Speech needs an avatar, not a room. The Commons keeps no chat log, so it
+    // is refused a room-scoped message — but it is the atrium where people
+    // actually run into each other, and a hub where you cannot say hello is
+    // not a hub. So the scope decides the requirement, not the map.
     if (msg.scope === 'nearby') {
       this.sayNearby(session, body);
       return;
     }
 
+    const roomId = this.roomIdOf(session);
+    if (!roomId) {
+      session.log.debug('chat dropped: not inside a room instance');
+      return;
+    }
     const record = await this.store.appendMessage(roomId, session.userId, body);
     this.touchRoom(roomId);
     this.broadcast(roomId, {
@@ -1206,11 +1210,15 @@ export class RoomHub {
    * otherwise turn every message into a hundred broadcasts to every member.
    */
   private onTyping(session: Session): void {
-    const roomId = this.roomIdOf(session);
-    if (!roomId) return;
+    // Wherever you are, not only inside a room. The Commons is a corridor and
+    // keeps no chat log, but you can still SPEAK to the people standing next
+    // to you there — so "Ana is typing" has to work there too, or the atrium
+    // is the one place where someone answers you out of nowhere.
+    const channel = this.roomIdOf(session) ?? session.map?.id;
+    if (!channel) return;
     if (!this.allow(session, 'typing', TYPING_INTERVAL_MS)) return;
     this.broadcast(
-      roomId,
+      channel,
       { t: 'actorTyping', userId: session.userId, displayName: session.displayName },
       session.userId,
     );

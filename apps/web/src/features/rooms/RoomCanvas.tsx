@@ -43,7 +43,20 @@ export function RoomCanvas({ userId, displayName, selfAudio }: RoomCanvasProps) 
 
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <div ref={containerRef} className="h-full w-full" />
+      {/*
+        A 2D world driven by a keyboard has no honest screen-reader story: there
+        is no reading order for "a room with people standing in it". Rather than
+        pretend, the canvas is labelled with what it is and where the equivalent
+        content lives, and the Workspace view — same chat, same board, same
+        whiteboard, no canvas — is the accessible path by design rather than by
+        accident. See docs/rooms-next-steps.md.
+      */}
+      <div
+        ref={containerRef}
+        role="application"
+        aria-label="Room world. A 2D space you walk around with the arrow keys. Everything in this room is also available without the map on the room's Workspace page."
+        className="h-full w-full"
+      />
       {/* DOM layer over the canvas — the <video> elements live here too. */}
       <BubbleOverlay selfUserId={userId} selfDisplayName={displayName} selfAudio={selfAudio} />
     </div>
