@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { DEFAULT_AVATAR } from '@retry/maps';
+import { DEFAULT_SPRITE } from '@retry/maps';
+import { ART_SOURCE } from '@retry/maps/generated/tilesets';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
-import { AvatarPicker } from './AvatarPicker.js';
+import { CharacterCreator } from './CharacterCreator.js';
 import { AVControls } from './AVControls.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
@@ -67,7 +68,7 @@ export default function WorldPage() {
       token,
       mapId,
       displayName: user.name,
-      sprite: DEFAULT_AVATAR,
+      sprite: DEFAULT_SPRITE,
     });
     return () => {
       roomSocket.disconnect();
@@ -102,6 +103,33 @@ export default function WorldPage() {
 
   if (!user) return null;
 
+  // No licensed art, no world. The pack cannot be committed (its licence
+  // forbids redistribution), so a fresh clone reaches here with typed stubs —
+  // explain the one-time setup instead of throwing inside Phaser.
+  if (ART_SOURCE !== 'limezu') {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-page">
+        <div className="max-w-md rounded-panel border border-edge bg-surface p-6 shadow-lg">
+          <h1 className="font-display text-lg text-ink">The world's art is not built</h1>
+          <p className="mt-2 text-sm text-ink-muted">
+            Rooms are drawn from a licensed art pack that is not in the repository. Follow{' '}
+            <code className="font-mono text-xs">docs/assets-setup.md</code> to get the pack, then
+            run:
+          </p>
+          <pre className="mt-3 rounded-card border border-edge bg-page px-3 py-2 font-mono text-xs text-ink">
+            pnpm --filter @retry/maps assets:build
+          </pre>
+          <Link
+            to="/rooms"
+            className="mt-4 inline-block rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
+          >
+            ← Back to rooms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 overflow-hidden bg-page">
       <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
@@ -122,9 +150,18 @@ export default function WorldPage() {
         </div>
 
         {/* Bottom left: the panel rail owns the top-right corner. */}
-        <p className="absolute bottom-4 left-3 rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur">
-          WASD or arrows · E at a door
-        </p>
+        <div className="absolute bottom-4 left-3 flex items-center gap-2">
+          <p className="rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur">
+            WASD or arrows · E at a door
+          </p>
+          <button
+            type="button"
+            onClick={() => roomEvents.emit('creator:open')}
+            className="pointer-events-auto rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur hover:text-ink"
+          >
+            Change look
+          </button>
+        </div>
 
         {notice && (
           <div className="pointer-events-auto absolute left-1/2 top-16 flex -translate-x-1/2 items-center gap-3 rounded-panel border border-edge bg-surface px-4 py-2.5 shadow-lg">
@@ -145,7 +182,7 @@ export default function WorldPage() {
 
         <div className="pointer-events-auto">
           <KnockLayer />
-          <AvatarPicker />
+          <CharacterCreator />
           <RoomPanels selfUserId={user.id} />
         </div>
       </div>

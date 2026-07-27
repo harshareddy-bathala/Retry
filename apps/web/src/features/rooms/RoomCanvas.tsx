@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { BubbleOverlay } from './BubbleOverlay.js';
+import { roomEvents } from './event-bus.js';
 import { createRoomGame } from './game/create-game.js';
 
 type RoomCanvasProps = {
@@ -19,15 +20,26 @@ type RoomCanvasProps = {
 // same box, which is what keeps proximity bubbles glued to avatars at any size.
 export function RoomCanvas({ userId, displayName, selfAudio }: RoomCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The name is only the scene's INITIAL label. Keeping it out of the effect's
+  // dependencies matters: renaming yourself used to destroy the whole game and
+  // re-decode every texture mid-walk. The live value is pushed to the scene
+  // below instead.
+  const displayNameRef = useRef(displayName);
+  displayNameRef.current = displayName;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const game = createRoomGame(container, { userId, displayName });
+    const game = createRoomGame(container, { userId, displayName: displayNameRef.current });
     return () => {
       game.destroy(true);
     };
-  }, [userId, displayName]);
+  }, [userId]);
+
+  // A rename is a label change, not a world rebuild.
+  useEffect(() => {
+    roomEvents.emit('self:rename', { displayName });
+  }, [displayName]);
 
   return (
     <div className="absolute inset-0 overflow-hidden">

@@ -30,7 +30,7 @@ import {
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
 import type { AvGrant, AvProvider } from '../av/livekit.js';
-import { DEFAULT_AVATAR, isAvatarKey } from '@retry/maps';
+import { DEFAULT_SPRITE, isAvatarSprite } from '@retry/maps';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
@@ -104,6 +104,8 @@ type Session = {
   role: string;
   displayName: string;
   sprite: string;
+  /** Whether the user has ever saved a character (drives the creator prompt). */
+  avatarChosen: boolean;
   map: WorldMap | null;
   x: number;
   y: number;
@@ -289,6 +291,7 @@ export class RoomHub {
       role: user.role,
       displayName: 'Anonymous',
       sprite: 'default',
+      avatarChosen: false,
       map: null,
       x: 0,
       y: 0,
@@ -457,8 +460,9 @@ export class RoomHub {
     if (msg.displayName) session.displayName = msg.displayName;
     // The client's sprite is a HINT, not a fact: it used to be written straight
     // onto the session, so anyone could walk around as any string they liked.
-    // Whitelisted here; the authoritative value is resolved per map on entry.
-    if (isAvatarKey(msg.sprite)) session.sprite = msg.sprite;
+    // Every layer id is validated here; the authoritative value is resolved
+    // from the user's stored character on entry.
+    if (isAvatarSprite(msg.sprite)) session.sprite = msg.sprite;
 
     // No mapId = "spawn me": last-active room if it still admits them, else Commons.
     const targetId = msg.mapId ?? (await this.spawnMapId(session.userId));
@@ -604,7 +608,7 @@ export class RoomHub {
 
     // Before the snapshot: the sprite has to be right in the actorJoin that
     // follows, or every peer renders a placeholder and then a correction.
-    await this.resolveAvatar(session, world.id, room);
+    await this.resolveAvatar(session, world.id);
     this.send(session, this.snapshotOf(world));
     this.broadcast(world.id, { t: 'actorJoin', actor: toActor(session) }, session.userId);
     this.emitProximity(
@@ -627,34 +631,30 @@ export class RoomHub {
    * per room, because a team room is a place you have a look in; the Commons
    * is a corridor, so it borrows your most recent pick.
    */
-  private async resolveAvatar(
-    session: Session,
-    mapId: string,
-    room: RoomRecord | null,
-  ): Promise<void> {
+  private async resolveAvatar(session: Session, mapId: string): Promise<void> {
     let stored: string | null = null;
     try {
-      stored = room
-        ? await this.store.avatarFor(room.id, session.userId)
-        : await this.store.lastAvatarFor(session.userId);
+      stored = await this.store.avatarFor(session.userId);
     } catch (err: unknown) {
       session.log.warn({ err }, 'avatar lookup failed; using the default');
     }
-    // A stored value that is no longer a known preset (a preset was retired)
-    // counts as "not chosen": they get the default and are asked again.
-    const chosen = isAvatarKey(stored);
-    session.sprite = isAvatarKey(stored) ? stored : DEFAULT_AVATAR;
+    // A stored value that no longer decodes (a catalogue entry was retired —
+    // which the catalogue's contract forbids, but defend anyway) counts as
+    // "not chosen": they get the default and the creator opens.
+    const chosen = isAvatarSprite(stored);
+    session.sprite = isAvatarSprite(stored) ? stored : DEFAULT_SPRITE;
+    session.avatarChosen = chosen;
     this.send(session, { t: 'avatarState', mapId, sprite: session.sprite, chosen });
   }
 
   private async onAvatar(session: Session, msg: AvatarMessage): Promise<void> {
-    if (!isAvatarKey(msg.sprite)) {
-      session.log.warn({ sprite: msg.sprite }, 'rejected unknown avatar key');
+    if (!isAvatarSprite(msg.sprite)) {
+      session.log.warn({ sprite: msg.sprite }, 'rejected invalid avatar selection');
       return;
     }
     session.sprite = msg.sprite;
-    const roomId = this.roomIdOf(session);
-    if (roomId) await this.store.setAvatar(roomId, session.userId, msg.sprite);
+    session.avatarChosen = true;
+    await this.store.setAvatar(session.userId, msg.sprite);
     const mapId = session.map?.id;
     if (!mapId) return;
     this.send(session, { t: 'avatarState', mapId, sprite: msg.sprite, chosen: true });
@@ -1302,6 +1302,16 @@ export class RoomHub {
    */
   private resync(session: Session, world: WorldMap): void {
     this.send(session, this.snapshotOf(world));
+    // avatarState is sent once on join, but the scene (and the creator) mount
+    // lazily and can subscribe after it has passed — the same race the
+    // snapshot and avToken have. Re-send the cached state with every resync
+    // so a reload always learns its own character.
+    this.send(session, {
+      t: 'avatarState',
+      mapId: world.id,
+      sprite: session.sprite,
+      chosen: session.avatarChosen,
+    });
     const zones = this.proximity.zonesFor(world.id, session.userId);
     if (zones.length > 0) this.send(session, { t: 'proximity', pairs: zones });
     if (world.id === COMMONS_MAP_ID) {

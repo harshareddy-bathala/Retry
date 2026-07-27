@@ -43,7 +43,7 @@ export const joinMessageSchema = z.object({
   t: z.literal('join'),
   mapId: z.string().min(1).optional(),
   displayName: z.string().min(1).max(60).optional(),
-  sprite: z.string().min(1).max(40).optional(),
+  sprite: z.string().min(1).max(80).optional(),
 });
 export type JoinMessage = z.infer<typeof joinMessageSchema>;
 
@@ -164,13 +164,14 @@ export type WatchMessage = z.infer<typeof watchMessageSchema>;
 
 export const unwatchMessageSchema = z.object({ t: z.literal('unwatch') });
 
-// Choosing one of the six presets (FR-ROOM-24). The sprite on `join` is a
-// hint; THIS is the deliberate choice, and the server persists it per room.
-// Validity is checked against @retry/maps server-side — a client may not
-// invent a character.
+// Saving a built character (FR-ROOM-24, grown into a full creator). `sprite`
+// is the canonical layer-selection string from @retry/maps (encodeAvatar);
+// the sprite on `join` is a hint, THIS is the deliberate choice, persisted
+// per USER. Every layer id is validated server-side against the curated
+// catalogue — a client may not invent a character.
 export const avatarMessageSchema = z.object({
   t: z.literal('avatar'),
-  sprite: z.string().min(1).max(32),
+  sprite: z.string().min(1).max(80),
 });
 export type AvatarMessage = z.infer<typeof avatarMessageSchema>;
 export type UnwatchMessage = z.infer<typeof unwatchMessageSchema>;

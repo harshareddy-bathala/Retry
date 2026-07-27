@@ -3,10 +3,16 @@ import { Canvas } from './canvas.js';
 
 // Minimal PNG reader, the mirror of png.ts.
 //
-// Scoped deliberately to what the art pack actually contains: 8-bit RGBA,
-// non-interlaced. Every sheet in Modern Interiors is colour type 6 / bit depth
-// 8 / interlace 0, verified before writing this. Anything else throws rather
-// than silently producing garbage — a decoder that guesses is worse than none.
+// Scoped deliberately to what the art pack actually contains, non-interlaced
+// and 8 bits per sample, in two flavours:
+//
+//   colour type 6  RGBA — every tileset and character sheet
+//   colour type 3  palette + tRNS — every sheet in 3_Animated_objects
+//
+// The second only turned up when the animated objects were catalogued; the
+// browser never cared (it decodes both), but our preview tools do. Anything
+// else throws rather than silently producing garbage — a decoder that guesses
+// is worse than none.
 
 type Chunk = { type: string; data: Buffer };
 
@@ -35,21 +41,24 @@ export function decodePng(buf: Buffer): Canvas {
 
   let width = 0;
   let height = 0;
+  let colour = 6;
   const idat: Buffer[] = [];
+  let palette: Buffer | null = null;
+  let alphas: Buffer | null = null;
   for (const chunk of chunks(buf)) {
     if (chunk.type === 'IHDR') {
       width = chunk.data.readUInt32BE(0);
       height = chunk.data.readUInt32BE(4);
-      const [depth, colour, , , interlace] = [
-        chunk.data[8]!,
-        chunk.data[9]!,
-        chunk.data[10]!,
-        chunk.data[11]!,
-        chunk.data[12]!,
-      ];
-      if (depth !== 8 || colour !== 6 || interlace !== 0) {
+      const depth = chunk.data[8]!;
+      colour = chunk.data[9]!;
+      const interlace = chunk.data[12]!;
+      if (depth !== 8 || (colour !== 6 && colour !== 3) || interlace !== 0) {
         throw new Error(`unsupported PNG: depth ${depth}, colour type ${colour}, interlace ${interlace}`);
       }
+    } else if (chunk.type === 'PLTE') {
+      palette = chunk.data;
+    } else if (chunk.type === 'tRNS') {
+      alphas = chunk.data;
     } else if (chunk.type === 'IDAT') {
       idat.push(chunk.data);
     } else if (chunk.type === 'IEND') {
@@ -58,7 +67,9 @@ export function decodePng(buf: Buffer): Canvas {
   }
 
   const raw = inflateSync(Buffer.concat(idat));
-  const bpp = 4;
+  // Bytes per pixel drives both the filter's left-neighbour distance and the
+  // scanline length; for a palette image each pixel is one index byte.
+  const bpp = colour === 6 ? 4 : 1;
   const stride = width * bpp;
   const out = new Canvas(width, height);
   let prev = Buffer.alloc(stride);
@@ -89,7 +100,21 @@ export function decodePng(buf: Buffer): Canvas {
           throw new Error(`unknown PNG filter ${filter} on row ${y}`);
       }
     }
-    line.copy(out.data, y * stride);
+    if (colour === 6) {
+      line.copy(out.data, y * stride);
+    } else {
+      if (!palette) throw new Error('palette PNG has no PLTE chunk');
+      // tRNS on a palette image is a list of per-entry alphas; entries beyond
+      // its length are fully opaque.
+      for (let x = 0; x < width; x++) {
+        const i = line[x]!;
+        const at = (y * width + x) * 4;
+        out.data[at] = palette[i * 3]!;
+        out.data[at + 1] = palette[i * 3 + 1]!;
+        out.data[at + 2] = palette[i * 3 + 2]!;
+        out.data[at + 3] = alphas && i < alphas.length ? alphas[i]! : 255;
+      }
+    }
     prev = line;
   }
   return out;

@@ -20,6 +20,13 @@ let onSessionExpired: (() => void) | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  if (import.meta.env.DEV) {
+    // Dev-only handle for the headless drives, which need to call the API as
+    // the logged-in user. Never in a production bundle: an in-memory token is
+    // the whole point (SECURITY.md §1) and a window global is not in memory
+    // in any meaningful sense.
+    (window as unknown as { __accessToken?: string | null }).__accessToken = token;
+  }
 }
 
 // Room server WebSocket auth (rooms Phase 2) authenticates with the same token.

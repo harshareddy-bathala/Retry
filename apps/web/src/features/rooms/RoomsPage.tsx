@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ROOM_MAP_TEMPLATES, ROOM_MAP_TEMPLATE_LABELS } from '@retry/types';
 import type {
   CreateRoomInput,
   ListRoomsResponse,
   RoomAccessPolicy,
+  RoomMapTemplate,
   RoomSummary,
   RoomVisibility,
 } from '@retry/types';
@@ -128,6 +130,7 @@ function CreateRoomForm() {
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<RoomVisibility>('private');
   const [accessPolicy, setAccessPolicy] = useState<RoomAccessPolicy>('open');
+  const [mapTemplate, setMapTemplate] = useState<RoomMapTemplate>('studio_a');
   const [error, setError] = useState<string | null>(null);
 
   const create = useMutation({
@@ -164,6 +167,7 @@ function CreateRoomForm() {
           name,
           visibility,
           accessPolicy: visibility === 'private' ? 'invite_only' : accessPolicy,
+          mapTemplate,
         });
       }}
     >
@@ -203,6 +207,30 @@ function CreateRoomForm() {
           </label>
         )}
       </div>
+      {/* The room itself. Permanent — the geometry is the template's, so this is
+          not something to flip later on a room people already work in. */}
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="font-mono text-[11px] uppercase text-ink-muted">Room</legend>
+        <div className="flex flex-wrap gap-1.5">
+          {ROOM_MAP_TEMPLATES.map((key) => (
+            <button
+              key={key}
+              type="button"
+              title={ROOM_MAP_TEMPLATE_LABELS[key].blurb}
+              onClick={() => setMapTemplate(key)}
+              className={cn(
+                'rounded-card border px-3 py-1.5 text-sm transition-colors',
+                key === mapTemplate
+                  ? 'border-accent bg-accent-tint text-ink'
+                  : 'border-edge text-ink-muted hover:border-accent/60 hover:text-ink',
+              )}
+            >
+              {ROOM_MAP_TEMPLATE_LABELS[key].name}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-ink-muted">{ROOM_MAP_TEMPLATE_LABELS[mapTemplate].blurb}</p>
+      </fieldset>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex gap-2">
         <button

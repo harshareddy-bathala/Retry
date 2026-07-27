@@ -1,14 +1,12 @@
 import Phaser from 'phaser';
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
+import classroom from '@retry/maps/classroom.json';
+import lounge from '@retry/maps/lounge.json';
+import conference from '@retry/maps/conference.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
-import { AVATARS, DEFAULT_AVATAR } from '@retry/maps';
-import makerUrl from '@retry/maps/avatars/maker.png';
-import plannerUrl from '@retry/maps/avatars/planner.png';
-import nightowlUrl from '@retry/maps/avatars/nightowl.png';
-import explorerUrl from '@retry/maps/avatars/explorer.png';
-import tinkererUrl from '@retry/maps/avatars/tinkerer.png';
-import connectorUrl from '@retry/maps/avatars/connector.png';
+import { ANIMATED } from '@retry/maps/generated/animated';
+import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
   Actor,
@@ -21,26 +19,49 @@ import type {
 import { avatarScreenPositions } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
 import { roomSocket } from '../net/room-socket.js';
+import { ensureAvatarTexture, frameFor, preloadCharacterLayers } from './compose-avatar.js';
 
-// Both Tiled templates ship in the bundle; the server's snapshot names which
+// Every Tiled template ships in the bundle; the server's snapshot names which
 // one to render (mapId is the instance — a room uuid — template is the file).
-const TEMPLATES: Record<string, unknown> = { studio_a: studioA, commons };
+const TEMPLATES: Record<string, unknown> = {
+  studio_a: studioA,
+  classroom,
+  lounge,
+  conference,
+  commons,
+};
+
+/**
+ * A map declares only the sheets it draws from, so the loader takes the union
+ * across templates rather than every sheet the pack build produced. Sheets are
+ * ~100-400 kB each and the full set is over a megabyte for maps that use three.
+ */
+const REQUIRED_TILESETS: string[] = [
+  ...new Set(
+    Object.values(TEMPLATES).flatMap((map) =>
+      ((map as { tilesets?: Array<{ name: string }> }).tilesets ?? []).map((t) => t.name),
+    ),
+  ),
+];
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
+/** Texture key per animated object strip. */
+const animKey = (name: string): string => `anim-${name}`;
 
-// One sheet per preset (R5). Keyed by the same string the server stores and
-// the wire carries, so an actor's `sprite` IS its texture key.
-const AVATAR_URLS: Record<string, string> = {
-  maker: makerUrl,
-  planner: plannerUrl,
-  nightowl: nightowlUrl,
-  explorer: explorerUrl,
-  tinkerer: tinkererUrl,
-  connector: connectorUrl,
-};
-const textureFor = (sprite: string): string =>
-  `avatar-${sprite in AVATAR_URLS ? sprite : DEFAULT_AVATAR}`;
+// Commons doors. Frame 0 is shut and the last frame is a clear doorway, so
+// opening is the strip played forwards and closing is the same strip reversed.
+const DOOR_FPS = 14;
+/** How close (in tiles, Chebyshev) a person must be for a door to swing open. */
+const DOOR_OPEN_RANGE = 2;
+
+/**
+ * Contact shadow under every avatar. Without one a 32x64 sprite reads as a
+ * sticker floating over the floor rather than a person standing on it — the
+ * pack's own furniture is drawn with shadows, so characters need them to sit
+ * in the same world.
+ */
+const SHADOW = { radiusX: 8, radiusY: 3, alpha: 0.28, offsetY: 22 } as const;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -65,8 +86,20 @@ const MAX_ZOOM = 4;
 
 // Wire positions are the avatar's collision anchor (feet-box centre), in TILE
 // units — the sprite centre would sit inside wall tiles when standing against
-// them, and the server validates collision on the wire position.
-const FEET_OFFSET_Y = 8;
+// them, and the server validates collision on the wire position. Pack frames
+// are 32x64 (head above the occupied tile), so the feet sit 24px below the
+// sprite centre; the feet box itself hugs the frame's bottom.
+const FEET_OFFSET_Y = 24;
+const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
+/** Name tags float just above the head, which is 32px above the centre. */
+const TAG_OFFSET_Y = 44;
+/**
+ * Top of everything the scene draws above an avatar (the name tag's upper
+ * edge). This — not the head — is the anchor published to the React overlay,
+ * so the overlay's clearance is a small constant instead of a number that has
+ * to grow with camera zoom to stay clear of the tag.
+ */
+const OVERLAY_ANCHOR_Y = TAG_OFFSET_Y + 8;
 
 // Send cadence and remote smoothing (rooms build plan Phase 2).
 const MOVE_SEND_INTERVAL_MS = 50;
@@ -76,8 +109,14 @@ const REMOTE_IDLE_TIMEOUT_MS = 200;
 // Phase 4 door transition: 100ms out + 100ms in = the plan's 200ms fade.
 const FADE_MS = 100;
 
-const DIRS = ['down', 'left', 'right', 'up'] as const;
-type Facing = (typeof DIRS)[number];
+// Depth bands. Actors y-sort within [0, map height in px]; the objects_above
+// layer (wall caps, furniture tops — "the part you walk behind") draws over
+// every actor, and UI pills float over the lot.
+const DEPTH_ABOVE = 5000;
+const DEPTH_UI = 10000;
+const DEPTH_HINT = 10001;
+
+type Facing = 'down' | 'left' | 'right' | 'up';
 
 export type RoomSceneData = { userId: string; displayName: string };
 
@@ -94,8 +133,9 @@ type Remote = {
   dir: Dir;
   moving: boolean;
   lastUpdateAt: number;
-  /** Which preset they chose; part of every animation key. */
+  /** Composited texture key for their appearance; part of every animation key. */
   sprite_key: string;
+  shadow: Phaser.GameObjects.Ellipse;
 };
 
 type Interactable = {
@@ -113,9 +153,17 @@ export class RoomScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: MoveKeys;
   private facing: Facing = 'down';
-  /** Which of the six presets this player is; the server decides it. */
-  private selfSprite = DEFAULT_AVATAR;
+  /** This player's composited texture key; the server decides the selection. */
+  private selfSprite = '';
   private nameTag!: Phaser.GameObjects.Container;
+  private playerShadow!: Phaser.GameObjects.Ellipse;
+  /**
+   * Every pill's Text, so their render resolution can follow the camera. Pills
+   * are built at many different moments — some before the camera has settled on
+   * a zoom, some after a resize changes it — so baking the zoom in at
+   * construction is not enough on its own.
+   */
+  private pillTexts: Phaser.GameObjects.Text[] = [];
   private remotes = new Map<string, Remote>();
   private wasMoving = false;
   private sinceLastSend = 0;
@@ -129,6 +177,13 @@ export class RoomScene extends Phaser.Scene {
   private interactables: Interactable[] = [];
   private doorVisuals: Phaser.GameObjects.GameObject[] = [];
   private doorsInfo: DoorInfo[] = [];
+  /** Swing state per assigned door slot, so a door animates only on change. */
+  private doorSprites = new Map<
+    number,
+    { sprite: Phaser.GameObjects.Sprite; kind: string; open: boolean }
+  >();
+  /** Looping ambient objects for the current map. */
+  private propSprites: Phaser.GameObjects.Sprite[] = [];
   private fading = false;
   private pendingSnapshot: SnapshotMessage | null = null;
 
@@ -147,47 +202,63 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, data] of Object.entries(TEMPLATES)) {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
-    for (const [key, url] of Object.entries(TILESET_URLS)) {
+    for (const key of REQUIRED_TILESETS) {
+      const url = TILESET_URLS[key];
+      if (!url) throw new Error(`map declares tileset "${key}" — run pnpm assets:build`);
       this.load.image(tilesKey(key), url);
     }
-    for (const spec of AVATARS) {
-      this.load.spritesheet(textureFor(spec.key), AVATAR_URLS[spec.key]!, {
-        frameWidth: 32,
-        frameHeight: 32,
+    for (const [key, sheet] of Object.entries(ANIMATED)) {
+      this.load.spritesheet(animKey(key), sheet.url, {
+        frameWidth: sheet.frameWidth,
+        frameHeight: sheet.frameHeight,
       });
     }
+    // Characters composite at runtime from these curated layer strips
+    // (~240 KB for the whole catalogue) — there is no per-character asset.
+    preloadCharacterLayers(this);
   }
 
   create(): void {
     // Everything map-independent boots here; the world itself is built from
     // the first snapshot (the server decides where this user spawns).
-    this.player = this.physics.add.sprite(0, 0, textureFor(DEFAULT_AVATAR), 0).setVisible(false);
+    // Animations are registered per composited texture on demand — see
+    // compose-avatar.ts — so a character change is a texture swap, not a re-rig.
+    this.selfSprite = ensureAvatarTexture(this, DEFAULT_SPRITE);
+    this.player = this.physics.add
+      .sprite(0, 0, this.selfSprite, frameFor('idle', 'down'))
+      .setVisible(false);
     const body = this.player.body as Phaser.Physics.Arcade.Body | null;
     if (!body) throw new Error('player has no arcade body');
     this.playerBody = body;
     // Feet-box collision so the avatar's head can overlap wall tiles top-down style.
-    this.playerBody.setSize(18, 12).setOffset(7, 18);
+    this.playerBody
+      .setSize(FEET_BOX.width, FEET_BOX.height)
+      .setOffset(FEET_BOX.offsetX, FEET_BOX.offsetY);
+    this.playerShadow = this.makeShadow();
+    this.player.anims.play(`idle-${this.selfSprite}-down`);
 
-    // Every preset gets its own eight animations; the sprite key is part of the
-    // animation key so a character change is a texture swap, not a re-rig.
-    for (const spec of AVATARS) {
-      const key = textureFor(spec.key);
-      DIRS.forEach((dir, row) => {
-        this.anims.create({
-          key: `walk-${spec.key}-${dir}`,
-          frames: this.anims.generateFrameNumbers(key, {
-            frames: [row * 4 + 1, row * 4 + 2, row * 4 + 3, row * 4 + 2],
-          }),
-          frameRate: 8,
-          repeat: -1,
-        });
-        this.anims.create({
-          key: `idle-${spec.key}-${dir}`,
-          frames: [{ key, frame: row * 4 }],
-        });
+    // Ambient loops (a brewing coffee machine, a blinking server, a cat) and
+    // the door swings. Registered once; every placement shares them.
+    for (const [key, sheet] of Object.entries(ANIMATED)) {
+      const texture = animKey(key);
+      const [from, to] = sheet.loop ?? [0, sheet.frames - 1];
+      this.anims.create({
+        key: `loop-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: from, end: to }),
+        frameRate: 6,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `open-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: 0, end: sheet.frames - 1 }),
+        frameRate: DOOR_FPS,
+      });
+      this.anims.create({
+        key: `shut-${key}`,
+        frames: this.anims.generateFrameNumbers(texture, { start: sheet.frames - 1, end: 0 }),
+        frameRate: DOOR_FPS,
       });
     }
-    this.player.anims.play(`idle-${this.selfSprite}-down`);
 
     this.nameTag = this.buildPill(this.displayName, 0xffffff, '#2d2926');
     this.nameTag.setVisible(false);
@@ -212,6 +283,16 @@ export class RoomScene extends Phaser.Scene {
     });
 
     const unsubscribe = roomEvents.on('net:server-message', (msg) => this.onServerMessage(msg));
+    // A rename repaints one label rather than rebuilding the game (which is
+    // what putting displayName in RoomCanvas's effect deps used to do).
+    const unsubscribeRename = roomEvents.on('self:rename', ({ displayName }) => {
+      if (displayName === this.displayName) return;
+      this.displayName = displayName;
+      const visible = this.nameTag.visible;
+      this.nameTag.destroy();
+      this.nameTag = this.buildPill(displayName, 0xffffff, '#2d2926');
+      this.nameTag.setVisible(visible);
+    });
     // While a panel holds focus, the scene surrenders the keyboard entirely —
     // "typing in chat never moves the avatar" (Phase 6 acceptance).
     const unsubscribePanel = roomEvents.on('panel:state', ({ open }) => {
@@ -226,6 +307,7 @@ export class RoomScene extends Phaser.Scene {
     const cleanup = (): void => {
       unsubscribe();
       unsubscribePanel();
+      unsubscribeRename();
       avatarScreenPositions.clear();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
@@ -234,6 +316,39 @@ export class RoomScene extends Phaser.Scene {
     // The join snapshot may have arrived while assets were still loading —
     // ask for a fresh one now that this scene is listening.
     roomSocket.requestResync();
+  }
+
+  /** Device pixels per world pixel at the current zoom. */
+  private pillResolution(): number {
+    return (window.devicePixelRatio || 1) * (this.cameras.main?.zoom || CAMERA_ZOOM);
+  }
+
+  /**
+   * Re-render existing pills at the current zoom. Called whenever the camera
+   * changes scale — otherwise a tag built at zoom 1 (before the first fit) or
+   * before the window was resized stays soft for the rest of the session.
+   */
+  private refreshPillResolution(): void {
+    const resolution = this.pillResolution();
+    this.pillTexts = this.pillTexts.filter((t) => t.active);
+    for (const text of this.pillTexts) {
+      if (text.style.resolution !== resolution) text.setResolution(resolution);
+    }
+  }
+
+  /** One contact shadow, drawn just under an actor's feet. */
+  private makeShadow(): Phaser.GameObjects.Ellipse {
+    return this.add
+      .ellipse(0, 0, SHADOW.radiusX * 2, SHADOW.radiusY * 2, 0x000000, SHADOW.alpha)
+      .setVisible(false);
+  }
+
+  /** Park a shadow under a sprite and sort it just behind that actor. */
+  private placeShadow(shadow: Phaser.GameObjects.Ellipse, x: number, y: number): void {
+    shadow.setPosition(x, y + SHADOW.offsetY);
+    // Just under the actor's own depth so it never draws over another person's
+    // feet, but still above the floor and any rug.
+    shadow.setDepth(y + FEET_OFFSET_Y - 0.1);
   }
 
   private onResize(size: Phaser.Structs.Size): void {
@@ -256,6 +371,7 @@ export class RoomScene extends Phaser.Scene {
     const view = { w: this.scale.width, h: this.scale.height };
     if (this.mapSize.width === 0) {
       camera.setZoom(zoomForViewport(view.h));
+      this.refreshPillResolution();
       return;
     }
     const zoom = Math.min(
@@ -267,6 +383,7 @@ export class RoomScene extends Phaser.Scene {
       ),
     );
     camera.setZoom(zoom);
+    this.refreshPillResolution();
     const padX = Math.max(0, (view.w / zoom - this.mapSize.width) / 2);
     const padY = Math.max(0, (view.h / zoom - this.mapSize.height) / 2);
     camera.setBounds(
@@ -314,10 +431,14 @@ export class RoomScene extends Phaser.Scene {
     }
     this.wasMoving = moving;
 
-    this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - 26);
+    // Y-sort: whoever stands further south draws in front (feet decide).
+    this.player.setDepth(this.player.y + FEET_OFFSET_Y);
+    this.placeShadow(this.playerShadow, this.player.x, this.player.y);
+    this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
     this.publishScreenPositions();
     this.updateInteractables();
+    this.updateDoors();
   }
 
   // ---------------------------------------------------------------------------
@@ -341,9 +462,9 @@ export class RoomScene extends Phaser.Scene {
         this.onSnapshot(msg);
         break;
       case 'avatarState':
-        // The server owns which preset we are; the scene just wears it.
-        this.selfSprite = msg.sprite in AVATAR_URLS ? msg.sprite : DEFAULT_AVATAR;
-        this.player.setTexture(textureFor(this.selfSprite));
+        // The server owns the selection; the scene just wears it.
+        this.selfSprite = ensureAvatarTexture(this, msg.sprite);
+        this.player.setTexture(this.selfSprite, frameFor('idle', this.facing));
         this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
         break;
       case 'actorJoin':
@@ -432,10 +553,12 @@ export class RoomScene extends Phaser.Scene {
     this.removeRemote(actor.userId);
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
-    const row = DIRS.indexOf(actor.dir);
-    const sprite = this.add.sprite(x, y, textureFor(actor.sprite), (row < 0 ? 0 : row) * 4);
+    const textureKey = ensureAvatarTexture(this, actor.sprite);
+    const sprite = this.add
+      .sprite(x, y, textureKey, frameFor('idle', actor.dir))
+      .setDepth(y + FEET_OFFSET_Y);
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
-    tag.setPosition(x, y - 26);
+    tag.setPosition(x, y - TAG_OFFSET_Y);
     this.remotes.set(actor.userId, {
       sprite,
       tag,
@@ -447,7 +570,8 @@ export class RoomScene extends Phaser.Scene {
       dir: actor.dir,
       moving: actor.moving,
       lastUpdateAt: this.time.now,
-      sprite_key: actor.sprite in AVATAR_URLS ? actor.sprite : DEFAULT_AVATAR,
+      sprite_key: textureKey,
+      shadow: this.makeShadow().setVisible(true),
     });
   }
 
@@ -456,17 +580,23 @@ export class RoomScene extends Phaser.Scene {
     if (!remote) return;
     remote.sprite.destroy();
     remote.tag.destroy();
+    remote.shadow.destroy();
     this.remotes.delete(userId);
     avatarScreenPositions.delete(userId);
   }
 
-  /** Canvas-space avatar positions for the React bubble overlay (Phase 3). */
+  /**
+   * Canvas-space avatar positions for the React bubble overlay (Phase 3).
+   * The published anchor is the top of the name tag — a landmark the scene
+   * owns — rather than the sprite centre, which only worked while both sides
+   * happened to agree about frame height and zoom.
+   */
   private publishScreenPositions(): void {
     const camera = this.cameras.main;
     const write = (userId: string, worldX: number, worldY: number): void => {
       avatarScreenPositions.set(userId, {
         x: (worldX - camera.worldView.x) * camera.zoom,
-        y: (worldY - camera.worldView.y) * camera.zoom,
+        y: (worldY - OVERLAY_ANCHOR_Y - camera.worldView.y) * camera.zoom,
       });
     };
     write(this.userId, this.player.x, this.player.y);
@@ -478,8 +608,9 @@ export class RoomScene extends Phaser.Scene {
       const t = Phaser.Math.Clamp((now - remote.startedAt) / INTERPOLATION_MS, 0, 1);
       const x = Phaser.Math.Linear(remote.fromX, remote.toX, t);
       const y = Phaser.Math.Linear(remote.fromY, remote.toY, t);
-      remote.sprite.setPosition(x, y);
-      remote.tag.setPosition(Math.round(x), Math.round(y) - 26);
+      remote.sprite.setPosition(x, y).setDepth(y + FEET_OFFSET_Y);
+      remote.tag.setPosition(Math.round(x), Math.round(y) - TAG_OFFSET_Y);
+      this.placeShadow(remote.shadow, x, y);
 
       // Stop the walk cycle when updates dry up rather than looping in place.
       if (remote.moving && now - remote.lastUpdateAt > REMOTE_IDLE_TIMEOUT_MS) {
@@ -508,6 +639,8 @@ export class RoomScene extends Phaser.Scene {
     this.mapLayers = [];
     for (const i of this.interactables) i.hint.destroy();
     this.interactables = [];
+    for (const p of this.propSprites) p.destroy();
+    this.propSprites = [];
     this.clearDoorVisuals();
 
     const map = this.make.tilemap({ key: template });
@@ -523,15 +656,28 @@ export class RoomScene extends Phaser.Scene {
     if (tiles.length === 0) throw new Error(`map '${template}' declares no tilesets`);
 
     const ground = map.createLayer('ground', tiles, 0, 0);
+    const overlay = map.getLayerIndexByName('ground_overlay') !== null
+      ? map.createLayer('ground_overlay', tiles, 0, 0)
+      : null;
     const objects = map.createLayer('objects', tiles, 0, 0);
     const collision = map.createLayer('collision', tiles, 0, 0);
     if (!ground || !objects || !collision) throw new Error(`layers missing from map '${template}'`);
+    // The walk-behind layer: wall caps and the upper tiles of tall furniture.
+    // Only a prop's BOTTOM tile blocks (author convention), so an avatar can
+    // stand behind a bookshelf and be drawn behind its top half.
+    const above = map.getLayerIndexByName('objects_above') !== null
+      ? map.createLayer('objects_above', tiles, 0, 0)
+      : null;
     collision.setVisible(false);
     // Map contract: any non-empty tile in 'collision' blocks movement.
     collision.setCollisionByExclusion([-1]);
+    ground.setDepth(-3);
+    overlay?.setDepth(-2);
+    objects.setDepth(-1);
+    above?.setDepth(DEPTH_ABOVE);
     this.mapLayers = [ground, objects, collision];
-    // Player renders above tiles.
-    this.player.setDepth(1);
+    if (overlay) this.mapLayers.push(overlay);
+    if (above) this.mapLayers.push(above);
 
     this.mapSize = { width: map.widthInPixels, height: map.heightInPixels };
     this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
@@ -542,10 +688,15 @@ export class RoomScene extends Phaser.Scene {
 
     this.fitCameraToMap();
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    // Small movements should not slide the whole room. The dead zone lets the
+    // avatar drift a little before the camera commits to following.
+    this.cameras.main.setDeadzone(TILE_SIZE * 2, TILE_SIZE * 1.5);
 
     this.collectInteractables(map);
+    this.spawnProps(map);
     this.currentTemplate = template;
     this.player.setVisible(true);
+    this.playerShadow.setVisible(true);
     this.nameTag.setVisible(true);
     this.renderDoors();
   }
@@ -572,7 +723,7 @@ export class RoomScene extends Phaser.Scene {
       const hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
       hint.setPosition(x + width / 2, kindProp === 'door' ? y + height + 10 : y - 8);
       hint.setVisible(false);
-      hint.setDepth(11);
+      hint.setDepth(DEPTH_HINT);
       this.interactables.push({
         kind: kindProp,
         doorSlot: typeof slotProp === 'number' ? slotProp : null,
@@ -630,57 +781,108 @@ export class RoomScene extends Phaser.Scene {
   private clearDoorVisuals(): void {
     for (const v of this.doorVisuals) v.destroy();
     this.doorVisuals = [];
+    this.doorSprites.clear();
   }
 
+  /**
+   * Real doors from the pack, one sprite per slot, standing in the wall: the
+   * frame is 32x64 so it covers both the wall's cap and face rows. A door with
+   * no room behind it is a shut door, and stays shut.
+   */
   private renderDoors(): void {
     if (this.currentTemplate !== 'commons') return;
     this.clearDoorVisuals();
+    this.doorSprites.clear();
     for (const door of this.doorsInfo) {
       const px = door.x * TILE_SIZE;
       const py = door.y * TILE_SIZE;
-      const g = this.add.graphics();
-      // Door leaf: assigned doors look warm and inviting, unassigned stay plain.
-      g.fillStyle(door.room ? 0x8a5a33 : 0x4a4440, 1);
-      g.fillRoundedRect(px + 6, py + 4, 2 * TILE_SIZE - 12, TILE_SIZE - 6, 4);
-      g.fillStyle(door.room ? 0xd9b06c : 0x5d564f, 1);
-      g.fillCircle(px + 2 * TILE_SIZE - 18, py + TILE_SIZE / 2 + 2, 2);
-      g.setDepth(0.5);
-      this.doorVisuals.push(g);
+      // Non-open rooms get the door with a lock plate; the policy is legible
+      // from across the room instead of only in the plaque's text.
+      const kind = door.room && door.room.accessPolicy !== 'open' ? 'doorLocked' : 'door';
+      const sprite = this.add
+        .sprite(px + TILE_SIZE / 2, py + TILE_SIZE, animKey(kind), 0)
+        .setOrigin(0.5, 1)
+        // Doors sit in the wall, behind everyone — an avatar walking past the
+        // Commons' north wall passes in front of it.
+        .setDepth(-0.5);
+      this.doorVisuals.push(sprite);
+      if (door.room) this.doorSprites.set(door.slot, { sprite, kind, open: false });
 
       if (door.room) {
-        const lock = door.room.accessPolicy !== 'open' ? ' 🔒' : '';
         const plaque = this.buildPill(
-          `${door.room.roomName} · ${door.room.occupancy}${lock}`,
+          `${door.room.roomName} · ${door.room.occupancy}`,
           0xf5f3ee,
           '#2d2926',
         );
-        plaque.setPosition(px + TILE_SIZE, py + TILE_SIZE + 12);
-        plaque.setDepth(10);
+        plaque.setPosition(px + TILE_SIZE / 2, py + TILE_SIZE + 12);
+        plaque.setDepth(DEPTH_UI);
         this.doorVisuals.push(plaque);
       }
     }
   }
 
+  /** Swing doors open when someone is near them, shut when they leave. */
+  private updateDoors(): void {
+    if (this.doorSprites.size === 0) return;
+    const feetX = pixelToTile(this.player.x);
+    const feetY = pixelToTile(this.player.y + FEET_OFFSET_Y);
+    for (const door of this.doorsInfo) {
+      const entry = this.doorSprites.get(door.slot);
+      if (!entry) continue;
+      const near =
+        Math.max(Math.abs(door.x - feetX), Math.abs(door.y - feetY)) <= DOOR_OPEN_RANGE;
+      if (near === entry.open) continue;
+      entry.open = near;
+      entry.sprite.anims.play(`${near ? 'open' : 'shut'}-${entry.kind}`, true);
+    }
+  }
+
+  /**
+   * Ambient animated objects placed on a map's optional `props` object layer:
+   * a coffee machine brewing, a server blinking, a cat. Each object's `name`
+   * is the animation key; unknown keys are skipped rather than fatal, so a map
+   * can name an object the build has not been told to take yet.
+   */
+  private spawnProps(map: Phaser.Tilemaps.Tilemap): void {
+    for (const obj of map.getObjectLayer('props')?.objects ?? []) {
+      const key = obj.name;
+      const sheet = ANIMATED[key];
+      if (!sheet) continue;
+      // Tiled anchors rectangles at their top-left; a strip taller than one
+      // tile hangs upward from the tile it stands on.
+      const x = (obj.x ?? 0) + TILE_SIZE / 2;
+      const y = (obj.y ?? 0) + TILE_SIZE;
+      const sprite = this.add
+        .sprite(x, y, animKey(key), 0)
+        .setOrigin(0.5, 1)
+        .setDepth(y);
+      sprite.anims.play(`loop-${key}`);
+      this.propSprites.push(sprite);
+    }
+  }
+
   /**
    * Rounded pill with centred text. Text is rendered at device pixel ratio
-   * times camera zoom so it stays crisp instead of scaling a low-res texture.
+   * times the LIVE camera zoom so it stays crisp instead of scaling a low-res
+   * texture — using the CAMERA_ZOOM constant here left every tag, plaque and
+   * hint soft on any viewport that zoomed past 2.
    */
   private buildPill(label: string, bgColor: number, textColor: string): Phaser.GameObjects.Container {
-    const resolution = (window.devicePixelRatio || 1) * CAMERA_ZOOM;
     const text = this.add
       .text(0, 0, label, {
         fontFamily: '"IBM Plex Sans", sans-serif',
         fontSize: '9px',
         color: textColor,
-        resolution,
+        resolution: this.pillResolution(),
       })
       .setOrigin(0.5);
+    this.pillTexts.push(text);
     const width = Math.ceil(text.width) + 10;
     const height = Math.ceil(text.height) + 4;
     const bg = this.add.graphics();
     bg.fillStyle(bgColor, 0.95);
     bg.fillRoundedRect(-width / 2, -height / 2, width, height, height / 2);
-    return this.add.container(0, 0, [bg, text]).setDepth(10);
+    return this.add.container(0, 0, [bg, text]).setDepth(DEPTH_UI);
   }
 }
 

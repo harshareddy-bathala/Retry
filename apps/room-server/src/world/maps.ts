@@ -1,5 +1,8 @@
 import studioA from '@retry/maps/studio_a.json';
 import commons from '@retry/maps/commons.json';
+import classroom from '@retry/maps/classroom.json';
+import lounge from '@retry/maps/lounge.json';
+import conference from '@retry/maps/conference.json';
 import {
   validateMap,
   extractDoorSlots,
@@ -62,8 +65,14 @@ function load(name: string, raw: unknown): Geometry & { doorSlots: DoorSlot[] } 
   };
 }
 
+// Room templates a room may be created from, plus the Commons. Adding one is a
+// line here and a line in @retry/types' ROOM_MAP_TEMPLATES — the API validates
+// against that list, this map is what actually instantiates geometry.
 const templates = new Map<string, ReturnType<typeof load>>([
   ['studio_a', load('studio_a', studioA)],
+  ['classroom', load('classroom', classroom)],
+  ['lounge', load('lounge', lounge)],
+  ['conference', load('conference', conference)],
   ['commons', load('commons', commons)],
 ]);
 

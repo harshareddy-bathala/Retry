@@ -1,114 +1,131 @@
-// The six avatars a student picks by personality (FR-ROOM-24).
+// Character selections — the shared contract between the creator UI, the wire
+// protocol, the room server's validation and the database.
 //
-// Runtime data — the picker renders it, the room server validates against it,
-// and `key` is stored per member. Adding a preset is safe; renaming or
-// reordering keys is not, because they are written to the database.
+// A student builds a character from the pack's generator layers (FR-ROOM-24,
+// grown from six presets into a full creator). The persisted and wire value is
+// a CANONICAL STRING, not an object:
+//
+//   body_03|eyes_02|outfit_07|hair_04_04|acc_11
+//
+// Five '|'-separated segments in fixed layer order; hair and accessory may be
+// empty. One string keeps every schema that already carried `sprite: string`
+// intact, gives the renderer a ready-made texture-cache key, and makes
+// equality "same appearance" by construction. Layer ids come from the curated
+// catalogue in assets.config.ts — they are persisted per user, so entries may
+// be added but never renamed or removed once anyone has chosen them.
 
-type Hair = 'short' | 'bun' | 'beanie' | 'crop' | 'curls' | 'long';
-type Extra = 'headphones' | 'glasses' | 'mug' | 'backpack' | 'tool' | 'scarf';
+import { CHARACTER_CATALOG, LAYER_KEYS, type LayerKey } from '../assets.config.js';
 
-export type AvatarSpec = {
-  /** Stable wire value. Never renumbered — it is stored per member. */
-  key: string;
-  name: string;
-  /** Shown in the picker; this is what a student actually chooses on. */
-  blurb: string;
-  skin: string;
-  hair: string;
-  hairStyle: Hair;
-  top: string;
-  bottom: string;
-  shoes: string;
-  accent: string;
-  extra: Extra;
+export type AvatarSelection = {
+  body: string;
+  eyes: string;
+  outfit: string;
+  hair: string | null;
+  accessory: string | null;
 };
 
-export const AVATARS: AvatarSpec[] = [
+const byLayer = <T>(build: (k: LayerKey) => T): Record<LayerKey, T> => {
+  const out = {} as Record<LayerKey, T>;
+  for (const k of LAYER_KEYS) out[k] = build(k);
+  return out;
+};
+
+/** Valid ids per layer, from the curated catalogue (present without the pack). */
+export const AVATAR_LAYER_IDS: Record<LayerKey, readonly string[]> = byLayer((k) =>
+  CHARACTER_CATALOG[k].map((e) => e.id),
+);
+
+const idSets = byLayer((k) => new Set(AVATAR_LAYER_IDS[k]));
+
+export function encodeAvatar(sel: AvatarSelection): string {
+  return [sel.body, sel.eyes, sel.outfit, sel.hair ?? '', sel.accessory ?? ''].join('|');
+}
+
+/** Parse and validate a wire/DB value. Null for anything not exactly canonical. */
+export function decodeAvatar(value: unknown): AvatarSelection | null {
+  if (typeof value !== 'string') return null;
+  const parts = value.split('|');
+  if (parts.length !== 5) return null;
+  const [body, eyes, outfit, hair, accessory] = parts as [string, string, string, string, string];
+  if (!idSets.body.has(body) || !idSets.eyes.has(eyes) || !idSets.outfit.has(outfit)) return null;
+  if (hair !== '' && !idSets.hair.has(hair)) return null;
+  if (accessory !== '' && !idSets.accessory.has(accessory)) return null;
+  return { body, eyes, outfit, hair: hair === '' ? null : hair, accessory: accessory === '' ? null : accessory };
+}
+
+export function isAvatarSprite(value: unknown): value is string {
+  return decodeAvatar(value) !== null;
+}
+
+/** Longest legal encoding, for wire schema bounds. Currently 43 chars. */
+export const MAX_SPRITE_LENGTH = 80;
+
+// ---------------------------------------------------------------------------
+// Presets — starting points in the creator, and the personalities the first
+// cohort picked from. The names and blurbs predate the creator and are worth
+// keeping: a blank character grid is a colder welcome than "who are you?".
+// ---------------------------------------------------------------------------
+
+export type AvatarPreset = {
+  /** Historic key — migration 0006 maps these onto selections. */
+  key: string;
+  name: string;
+  blurb: string;
+  selection: AvatarSelection;
+};
+
+const sel = (
+  body: number,
+  eyes: number,
+  outfit: number,
+  hair: [number, number] | null,
+  accessory: number | null,
+): AvatarSelection => ({
+  body: `body_${String(body).padStart(2, '0')}`,
+  eyes: `eyes_${String(eyes).padStart(2, '0')}`,
+  outfit: `outfit_${String(outfit).padStart(2, '0')}`,
+  hair: hair ? `hair_${String(hair[0]).padStart(2, '0')}_${String(hair[1]).padStart(2, '0')}` : null,
+  accessory: accessory ? `acc_${String(accessory).padStart(2, '0')}` : null,
+});
+
+export const AVATAR_PRESETS: AvatarPreset[] = [
   {
     key: 'maker',
     name: 'The Maker',
     blurb: 'Happiest mid-build, headphones on, three tabs of documentation open.',
-    skin: '#c98d63',
-    hair: '#2f2318',
-    hairStyle: 'short',
-    top: '#c9622f',
-    bottom: '#3b4350',
-    shoes: '#25292f',
-    accent: '#f0a870',
-    extra: 'headphones',
+    selection: sel(4, 2, 6, [2, 2], 4),
   },
   {
     key: 'planner',
     name: 'The Planner',
     blurb: 'Owns the whiteboard. Turns "we should" into a list with dates on it.',
-    skin: '#8d5a3b',
-    hair: '#1e1a17',
-    hairStyle: 'bun',
-    top: '#2f7f86',
-    bottom: '#37414d',
-    shoes: '#1f242a',
-    accent: '#a8d8db',
-    extra: 'glasses',
+    selection: sel(6, 3, 12, [7, 7], 15),
   },
   {
     key: 'nightowl',
     name: 'The Night Owl',
     blurb: 'Peaks at 2am. Will have fixed it by the time everyone else wakes up.',
-    skin: '#e0b088',
-    hair: '#3a2d24',
-    hairStyle: 'beanie',
-    top: '#3f4a7a',
-    bottom: '#2b3040',
-    shoes: '#1b1f26',
-    accent: '#8f9ede',
-    extra: 'mug',
+    selection: sel(2, 5, 15, [11, 4], 11),
   },
   {
     key: 'explorer',
     name: 'The Explorer',
     blurb: 'First to try the thing nobody has tried, and to report back honestly.',
-    skin: '#a8703f',
-    hair: '#4a2c18',
-    hairStyle: 'crop',
-    top: '#4d7c46',
-    bottom: '#5a4a35',
-    shoes: '#33291d',
-    accent: '#a5cf8f',
-    extra: 'backpack',
+    selection: sel(5, 1, 3, [14, 7], 3),
   },
   {
     key: 'tinkerer',
     name: 'The Tinkerer',
     blurb: 'Takes it apart to see how it works. Usually gets it back together.',
-    skin: '#6f4426',
-    hair: '#241a12',
-    hairStyle: 'curls',
-    top: '#a8562f',
-    bottom: '#4c5560',
-    shoes: '#2a2f36',
-    accent: '#e2935e',
-    extra: 'tool',
+    selection: sel(7, 4, 9, [17, 3], 16),
   },
   {
     key: 'connector',
     name: 'The Connector',
     blurb: 'Knows everyone, notices who has gone quiet, makes a group into a team.',
-    skin: '#d99f74',
-    hair: '#5c2f2a',
-    hairStyle: 'long',
-    top: '#a44a72',
-    bottom: '#3d3a4a',
-    shoes: '#262230',
-    accent: '#e9a9c4',
-    extra: 'scarf',
+    selection: sel(3, 6, 18, [20, 6], null),
   },
 ];
 
-export const AVATAR_KEYS: readonly string[] = AVATARS.map((a) => a.key);
-
-/** The default for anyone who has not chosen yet, and the fallback for junk. */
-export const DEFAULT_AVATAR = AVATARS[0]!.key;
-
-export function isAvatarKey(value: unknown): value is string {
-  return typeof value === 'string' && AVATAR_KEYS.includes(value);
-}
+/** What anyone who has never chosen walks around as. */
+export const DEFAULT_SPRITE = encodeAvatar(AVATAR_PRESETS[0]!.selection);

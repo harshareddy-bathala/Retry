@@ -14,6 +14,10 @@ export type RoomEventMap = {
   // Phase 6: a panel holds keyboard focus — the scene must release input so
   // typing in chat never moves the avatar.
   'panel:state': { open: boolean };
+  // Reopen the character creator from the HUD (a look is editable, not a vow).
+  'creator:open': undefined;
+  // A rename repaints the name tag; it must not rebuild the world.
+  'self:rename': { displayName: string };
 };
 
 type Handler<T> = (payload: T) => void;

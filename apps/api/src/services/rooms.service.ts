@@ -74,6 +74,7 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
           ownerId,
           visibility: input.visibility,
           accessPolicy,
+          mapTemplate: input.mapTemplate,
           doorX: door?.x ?? null,
           doorY: door?.y ?? null,
         })

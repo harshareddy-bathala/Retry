@@ -52,6 +52,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The world's art is a paid pack that cannot be committed (see
+      # docs/assets-setup.md), so `packages/maps/generated/` does not exist in a
+      # fresh clone — and every `@retry/maps/generated/*` import fails to resolve
+      # without this step. With no pack present the build emits typed STUBS
+      # (`source: 'absent'`, empty catalogues), which is exactly what CI wants:
+      # types resolve, lint and tests run, and the app is honest at runtime
+      # about having no art rather than rendering a broken world.
+      #
+      # CI can therefore never render the world, and must never try to fetch the
+      # pack — the licence forbids redistributing it.
+      - name: Build art stubs
+        run: pnpm --filter @retry/maps assets:build
+
       - name: Lint
         run: pnpm -r lint
 

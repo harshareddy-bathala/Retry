@@ -13,6 +13,24 @@ export type RoomAccessPolicy = (typeof ROOM_ACCESS_POLICIES)[number];
 export const ROOM_MEMBER_ROLES = ['owner', 'member'] as const;
 export type RoomMemberRole = (typeof ROOM_MEMBER_ROLES)[number];
 
+/**
+ * The Tiled templates a room can be created from — the room's permanent look.
+ * Mirrors the `templates` map in apps/room-server/src/world/maps.ts, which owns
+ * the geometry; adding a template means editing both. `studio_a` stays first so
+ * it remains the default for anything that omits a choice (and for every room
+ * created before templates were selectable).
+ */
+export const ROOM_MAP_TEMPLATES = ['studio_a', 'classroom', 'lounge', 'conference'] as const;
+export type RoomMapTemplate = (typeof ROOM_MAP_TEMPLATES)[number];
+
+/** What a student is actually choosing between, for the create form. */
+export const ROOM_MAP_TEMPLATE_LABELS: Record<RoomMapTemplate, { name: string; blurb: string }> = {
+  studio_a: { name: 'Studio', blurb: 'Desks with PCs facing a whiteboard. The default build room.' },
+  classroom: { name: 'Classroom', blurb: 'Rows of desks and a blackboard — for crits and study groups.' },
+  lounge: { name: 'Lounge', blurb: 'Coffee bar, sofas, a fireplace. For talking rather than typing.' },
+  conference: { name: 'Conference', blurb: 'Projection screen, podium and a big table. For rehearsing a demo.' },
+};
+
 // Mirrors packages/protocol (the wire contract owns the canonical list); the
 // REST layer only ever reads these.
 export const PROJECT_STAGES = ['ideation', 'planning', 'building', 'testing', 'complete'] as const;
@@ -26,6 +44,9 @@ export const createRoomSchema = z
     // Ignored for private rooms — privacy by absence means they are always
     // effectively invite_only; the service coerces.
     accessPolicy: z.enum(ROOM_ACCESS_POLICIES).default('invite_only'),
+    // Which room the team walks into. Permanent: the world's geometry (and so
+    // every stored last_position) belongs to the template.
+    mapTemplate: z.enum(ROOM_MAP_TEMPLATES).default('studio_a'),
   })
   .strict();
 export type CreateRoomInput = z.infer<typeof createRoomSchema>;

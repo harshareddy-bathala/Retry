@@ -42,6 +42,19 @@ non-commercial** licence. The build refuses to read from it.
 original work written for this project, under the same terms as the rest of the
 repository. They exist only so the repo builds and runs without the licensed pack.
 
+## Geometry, for whoever touches this next
+
+- **Tiles are 32×32.** Character frames are **32×64** — one tile wide, two tall,
+  so a head overlaps the tile behind it.
+- Character generator sheets are a **56 × 20** grid of those frames. Row 1 is
+  idle, row 2 is walk, six frames per direction, and the direction order inside
+  a row is **right, up, left, down**.
+- **Body sheets are 1854 px wide; every other layer is 1792.** That is 57
+  columns against 56, so frames must be addressed by (column, row) and cropped
+  to a common grid — never by linear frame index.
+- Tilesets and character sheets are RGBA PNGs. The **animated objects are
+  palette-indexed** PNGs (colour type 3) with `tRNS` transparency.
+
 ## Replacing the art
 
 Both tilesets and characters are addressed through

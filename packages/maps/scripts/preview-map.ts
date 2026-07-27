@@ -1,75 +1,79 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Canvas, rgb } from '../art/canvas.js';
+import { Canvas } from '../art/canvas.js';
+import { decodePng } from '../art/png-decode.js';
 import { encodePng } from '../art/png.js';
-import { AVATARS, renderAvatar } from '../art/avatars.js';
-import { TILE, TILES } from '../art/tiles.js';
 
-// Renders an authored map exactly as the game will draw it, with the six
-// avatars standing in it for scale. This is the check that matters: a tileset
-// is only as good as the room it builds.
+// Renders a map to PNG exactly as the game layers it, so a bad catalogue pick
+// is visible before a browser ever loads the map.
 //
-//   npx tsx scripts/preview-map.ts commons out.png [scale]
+//   npx tsx scripts/preview-map.ts <name> <out.png> [scale]
+//
+// Handles multi-tileset gids via each map's own firstgid table (the previous
+// incarnation assumed one sheet at firstgid 1 and died with the pack).
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 
-const name = process.argv[2] ?? 'commons';
-const target = process.argv[3] ?? `${name}-preview.png`;
-const scale = Number(process.argv[4] ?? 2);
+const [name, out, scaleArg] = process.argv.slice(2);
+if (!name || !out) {
+  console.error('usage: preview-map.ts <mapname> <out.png> [scale]');
+  process.exit(1);
+}
+const scale = Math.max(1, Number(scaleArg ?? 1));
 
-type TileLayer = { type: 'tilelayer'; name: string; data: number[] };
-type Loaded = { width: number; height: number; layers: Array<TileLayer | { type: string; name: string }> };
-
-const map = JSON.parse(readFileSync(resolve(root, 'maps', `${name}.json`), 'utf8')) as Loaded;
-const layers = new Map(
-  map.layers.filter((l): l is TileLayer => l.type === 'tilelayer').map((l) => [l.name, l]),
-);
-
-const world = new Canvas(map.width * TILE, map.height * TILE);
-const cache = new Map<number, Canvas>();
-const tileAt = (g: number, seed: number): Canvas => {
-  const hit = cache.get(g * 1000 + (seed % 1000));
-  if (hit) return hit;
-  const c = new Canvas(TILE, TILE);
-  TILES[g - 1]!.draw(c, seed);
-  cache.set(g * 1000 + (seed % 1000), c);
-  return c;
+type TilesetRef = {
+  name: string;
+  firstgid: number;
+  image: string;
+  columns: number;
+  tilecount: number;
+};
+type TileLayer = { type: 'tilelayer'; name: string; data: number[]; visible: boolean };
+const map = JSON.parse(readFileSync(resolve(root, 'maps', `${name}.json`), 'utf8')) as {
+  width: number;
+  height: number;
+  tilesets: TilesetRef[];
+  layers: Array<TileLayer | { type: string; name: string }>;
 };
 
-for (const layerName of ['ground', 'objects']) {
-  const layer = layers.get(layerName);
+const sheets = map.tilesets
+  .map((t) => ({ ...t, pixels: decodePng(readFileSync(resolve(root, 'maps', t.image))) }))
+  .sort((a, b) => a.firstgid - b.firstgid);
+
+const TILE = 32;
+const outCanvas = new Canvas(map.width * TILE, map.height * TILE);
+
+const DRAW_ORDER = ['ground', 'ground_overlay', 'objects', 'objects_above'];
+for (const layerName of DRAW_ORDER) {
+  const layer = map.layers.find(
+    (l): l is TileLayer => l.type === 'tilelayer' && l.name === layerName,
+  );
   if (!layer) continue;
-  for (let y = 0; y < map.height; y++) {
-    for (let x = 0; x < map.width; x++) {
-      const g = layer.data[y * map.width + x]!;
-      if (g === 0) continue;
-      world.blit(tileAt(g, 100 + x * 17 + y * 31), x * TILE, y * TILE);
+  layer.data.forEach((gid, i) => {
+    if (gid === 0) return;
+    const sheet = [...sheets].reverse().find((s) => gid >= s.firstgid);
+    if (!sheet) throw new Error(`gid ${gid} matches no tileset`);
+    const local = gid - sheet.firstgid;
+    const sx = (local % sheet.columns) * TILE;
+    const sy = Math.floor(local / sheet.columns) * TILE;
+    const dx = (i % map.width) * TILE;
+    const dy = Math.floor(i / map.width) * TILE;
+    for (let y = 0; y < TILE; y++) {
+      for (let x = 0; x < TILE; x++) {
+        const c = sheet.pixels.get(sx + x, sy + y);
+        if (c[3] > 0) outCanvas.set(dx + x, dy + y, c);
+      }
     }
-  }
+  });
 }
 
-// Drop the cast in a row so the world has people in it.
-AVATARS.forEach((spec, i) => {
-  const sheet = renderAvatar(spec);
-  const frame = new Canvas(TILE, TILE);
-  for (let y = 0; y < TILE; y++) {
-    for (let x = 0; x < TILE; x++) frame.set(x, y, sheet.get(x + TILE * (i % 4), y));
-  }
-  const tx = Math.floor(map.width / 2) - 3 + i;
-  const ty = Math.floor(map.height / 2) + 1;
-  world.blit(frame, tx * TILE, ty * TILE - 6);
-});
-
-const out = new Canvas(world.width * scale, world.height * scale);
-out.rect(0, 0, out.width, out.height, rgb('#12100e'));
-for (let y = 0; y < world.height; y++) {
-  for (let x = 0; x < world.width; x++) {
-    const c = world.get(x, y);
-    if (c[3] === 0) continue;
-    out.rect(x * scale, y * scale, scale, scale, c);
+const scaled = new Canvas(outCanvas.width * scale, outCanvas.height * scale);
+for (let y = 0; y < scaled.height; y++) {
+  for (let x = 0; x < scaled.width; x++) {
+    scaled.set(x, y, outCanvas.get(Math.floor(x / scale), Math.floor(y / scale)));
   }
 }
-writeFileSync(target, encodePng(out.width, out.height, out.data));
-console.log(`${name}: ${map.width}x${map.height} tiles → ${target}`);
+writeFileSync(out, encodePng(scaled.width, scaled.height, scaled.data));
+console.log(`${name}: ${map.width}x${map.height} → ${out} @${scale}x`);

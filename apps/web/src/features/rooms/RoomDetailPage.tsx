@@ -12,7 +12,7 @@ import { api, ApiError, getAccessToken } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatWhen } from '../../lib/when.js';
 import { useAuth } from '../auth/AuthContext.js';
-import { DEFAULT_AVATAR } from '@retry/maps';
+import { DEFAULT_SPRITE } from '@retry/maps';
 import { roomSocket } from './net/room-socket.js';
 import { ContextHeader } from './workspace/ContextHeader.js';
 import { BlueprintPanel } from './workspace/BlueprintPanel.js';
@@ -57,7 +57,7 @@ export default function RoomDetailPage() {
       mode: 'watch',
       roomId,
       displayName: user.name,
-      sprite: DEFAULT_AVATAR,
+      sprite: DEFAULT_SPRITE,
     });
     return () => roomSocket.disconnect();
   }, [user, roomId]);

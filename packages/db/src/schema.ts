@@ -30,6 +30,11 @@ export const users = pgTable('users', {
   semester: integer('semester'),
   bio: text('bio'),
   avatarUrl: text('avatar_url'),
+  // The world character, as @retry/maps' canonical layer-selection string
+  // (e.g. 'body_03|eyes_02|outfit_07|hair_04_04|acc_11'). Per USER, not per
+  // room membership — a person's character is theirs everywhere (migration
+  // 0006 moved it off room_members). NULL = never chosen; the creator opens.
+  avatarSprite: text('avatar_sprite'),
   // null = inactive account (FR-AUTH-02)
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   // FR-AUTH-04: set once the onboarding form is submitted
@@ -163,10 +168,6 @@ export const roomMembers = pgTable(
     // without a sessions table — which SRS line 301 forbids. It is a single
     // mutable cell per membership, never an append-only attendance history.
     presenceSeenAt: timestamp('presence_seen_at', { withTimezone: true }),
-    // Which of the six presets this member walks around as (FR-ROOM-24).
-    // Stored as the preset KEY rather than an index: keys survive re-ordering
-    // the list, indexes silently reassign everyone's character.
-    avatarSprite: text('avatar_sprite'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
