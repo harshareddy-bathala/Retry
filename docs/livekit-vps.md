@@ -4,6 +4,12 @@
 > Until `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` are all set in
 > `apps/room-server/.env`, AV is off and rooms work exactly as they do today with placeholder
 > proximity bubbles. This document is the recipe for when you do provision it.
+>
+> **The recipe is now executable.** Every config snippet below exists as a real file in
+> `infra/livekit/`, and `infra/livekit/setup.sh <hostname> <admin-email>` runs the whole of
+> sections 2–4 on a fresh VPS. Read this document for *why*; run that script for *how*. Once the
+> env vars are in place, `pnpm --filter @retry/e2e livekit:check` verifies what a script can and
+> names what it cannot.
 
 ---
 

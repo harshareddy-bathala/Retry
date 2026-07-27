@@ -7,6 +7,7 @@
     "drive": "playwright test",
     "drive:headed": "playwright test --headed",
     "load": "tsx load/move-latency.ts",
+    "livekit:check": "tsx load/livekit-check.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },
@@ -14,6 +15,7 @@
     "@playwright/test": "^1.49.1",
     "@retry/config": "workspace:*",
     "jose": "^5.9.6",
+    "livekit-server-sdk": "^2.9.2",
     "tsx": "^4.19.2",
     "ws": "^8.18.0",
     "@types/ws": "^8.5.13",
