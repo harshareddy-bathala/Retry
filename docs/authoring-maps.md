@@ -62,15 +62,50 @@ standing against it, which is right.
 
 Rectangles on the `interactables` layer, with custom properties:
 
-- `interactive` (string) — one of `door`, `whiteboard`, `exit`. Anything else is
-  a validation error.
+- `interactive` (string) — one of `door`, `whiteboard`, `exit`, `seat`. Anything
+  else is a validation error.
 - `door_slot` (int) — **required on doors**, unique per map. A Commons door slot
   is anonymous in the map; which room owns it is assigned from the database at
   runtime, never baked in.
+- `facing` (string) — **required on seats**: `up`, `down`, `left` or `right`.
+  Which way the sitter looks.
 
-Pressing `E` within one tile of the rectangle activates it.
+Pressing `E` within one tile of the rectangle activates it. The **nearest**
+interactable wins, not the first in map order — a chair you are standing on has
+to beat a door one tile away, or sitting at a desk beside a doorway walks you
+into the next room.
+
+### Seats
+
+A seat is a one-tile rectangle on the tile a sitter occupies, which for the
+catalogue's 1×2 chair blocks is the **lower** tile.
+
+**The tile must be walkable.** Sitting moves the avatar onto it and the server
+validates every position against the collision layer, so a seat on a solid
+chair is a seat nobody can use — and it fails silently, as a resync that shoves
+the sitter back out. That is why the sittable chair blocks (`seatFrontA`,
+`seatFrontB`, `seatRight`, `seatLeft`) are `layer: 'decor'`: drawn in `objects`,
+behind the avatar, with no collision. The validator rejects a seat on a
+collision tile, and caught one overlapping a table the first time it ran.
+
+Match the model to the facing. The pack's side chairs at generic (4,11) and
+(5,11) have their backs on opposite sides, and a sitter with the backrest in
+front of them reads as floating.
 
 ## Things that will bite you
+
+- **Judge a floor by rendering a map, never by the tile.** Most of this sheet's
+  "floors" are designed as 3×2 units with a lit edge around the unit. They look
+  perfectly flat in a sheet preview and tile into a lattice of offset
+  rectangles across a whole room. The Commons and the conference room shipped
+  that way. Where a material has that edge, repeat a single interior tile
+  (`FLOORS.carpet` is one tile, not a block); where it genuinely tiles — the
+  wood boards — the 3×2 block gives a better grain.
+- **Re-authoring the Commons moves its door slots**, and the room server maps
+  rooms onto slots BY COORDINATE. Every existing public room would keep a door
+  nobody can see. The API reconciles at boot (`reconcileDoors`), so this
+  self-heals — but if you change the slot layout, restart the API before
+  wondering where the doors went.
 
 - **Do not convert embedded tilesets to external ones.** Our map JSON embeds its
   tilesets. Phaser's Tiled parser cannot follow an external `.tsx` reference and

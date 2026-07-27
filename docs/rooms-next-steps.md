@@ -1,159 +1,164 @@
 # Rooms — where the world stands, and what to do next
 
-Written at the end of the "make the rooms real with the licensed art" track
-(branch `worktree-rooms-pack-world`, five commits). This is the handover: what
+Written at the end of the **beta polish** track (R6), which followed the
+"make the rooms real with the licensed art" track. This is the handover: what
 exists now, what to do first when you sit down, and what is deliberately left.
 
 ---
 
-## Do this first (15 minutes)
-
-You have never seen this branch render. Before deciding anything else, look at it.
+## Do this first (20 minutes)
 
 ```bash
-git checkout worktree-rooms-pack-world
 pnpm install
-
-# The art pack is REQUIRED now. If assets/moderninteriors-win/ is not in this
-# checkout, copy or symlink it from wherever you keep it.
-pnpm --filter @retry/maps assets:build
-pnpm --filter @retry/maps assets:check      # must print "licensed pack present and built"
-
-pnpm --filter @retry/db migrate             # migration 0006 moves avatars to users
+pnpm --filter @retry/maps assets:build     # the pack is REQUIRED
+pnpm --filter @retry/maps assets:check     # must print "licensed pack present and built"
+pnpm --filter @retry/db migrate
+docker compose up -d                       # postgres, redis, mailpit
 pnpm dev
 ```
 
-Then walk through this, in order. It takes about ten minutes and covers
-everything the track changed:
+Then run the drive, which does in fifteen seconds what used to take ten minutes
+by hand:
 
-1. Open `/world`. **The character creator opens** because you have never chosen.
-   Cycle skin / eyes / outfit / hair / extra — the preview walks as you change it.
-   Save.
-2. Walk with WASD. Check all four facings look right, and that your **shadow**
-   follows your feet.
-3. Walk **behind** a bookshelf or a desk — your lower half should disappear
-   behind it, and you should not be able to walk through its base.
-4. Walk up to a **door** in the Commons — it swings open, and shuts when you
-   leave. A knock/invite-only room's door has a lock plate.
-5. Press `E` at an open door to enter that room.
-6. In the lounge, watch the **coffee machine** brew and the **cat**.
-7. Open a second browser as another student. Check you see each other's
-   characters, that whoever stands further south draws in front, and that the
-   video bubbles sit above the name tags rather than on them.
-8. Click **Change look** in the bottom-left and rebuild your character. It
-   should persist into a different room and across a reload.
-9. Create a room of each template (Studio / Classroom / Lounge / Conference)
-   and confirm each looks like a different place.
+```bash
+pnpm --filter @retry/e2e drive
+```
 
-If any of that is wrong, that is the first thing to fix — the automated drives
-cover it, but drives assert; eyes judge.
+Then look at it yourself, because drives assert and eyes judge. Open `/world`
+in two browsers as two students and check:
+
+1. The character creator opens on a first-ever entry, and the preview walks.
+2. The Commons floor is a clean, uniform cream — **not** a lattice of offset
+   rectangles. If it is, someone changed `FLOORS` without rendering a map.
+3. Twelve doors along the north wall, swinging open as you approach.
+4. Walk up to a chair: **"E — sit"**. Sit, and the avatar faces the way the
+   chair does. Any movement key stands you up.
+5. Press `1`–`8`: a thought bubble over your head, seen in the other browser.
+6. Press Enter, type, send: a speech bubble over your head that only the other
+   student sees **if they are standing near you**. Walk away and try again.
+7. Open the chat panel in a room and type: the other side shows "… is typing".
+8. Kill the room server. Remotes freeze and dim, a banner appears, you can
+   still walk. After five attempts, a **Rejoin** button. Restart it and press it.
+9. Open `/world` at 800px wide: an explanation, not a broken canvas.
 
 ---
 
 ## What exists now
 
-| Commit | What it did |
+| Track | What it did |
 |---|---|
-| `892549d` | The pack is required. All programmer art deleted. Character strips cropped from the generator. |
-| `fbcebf9` | The character creator; avatars moved per-user (migration 0006). |
-| `59dac01` | Y-sorting and the `objects_above` walk-behind layer. |
-| `f74b9aa` | Five room templates, the prop-block catalogue, Tiled authoring. |
-| `dd7855e` | Animated pack doors and ambient objects. |
+| Pack world (5 commits) | Licensed art, character creator, y-sorting, five templates, animated doors |
+| **R6 beta polish** (5 commits) | Everything below |
+
+R6, in one line each:
+
+- Socket status is **read** from the socket, not accumulated from events —
+  the "RECONNECTING… while it plainly works" bug was a replay problem.
+- Application-level `ping`/`pong`; four unanswered beats reconnect.
+- Build-plan Phase 8.1: freeze-and-dim remotes, a banner, and **Rejoin** after
+  five attempts instead of retrying forever.
+- Avatar texture cache LRU-capped at 40 with the live cast pinned.
+- Public rooms are created **doorless** when the Commons is full instead of
+  409ing; doors are re-handed out when one frees, and reconciled at boot.
+- The Commons is 40×16 with **twelve** doors and a furnished centre.
+- Floors fixed (see the trap in `docs/authoring-maps.md`), chairs fixed,
+  `tableRound` fixed, classroom desk grid staggered, walls decorated.
+- **Sitting**, **emotes**, **typing notices**, **proximity speech**, a
+  **minimap**, **click-a-name-to-pan**, and a **Say bar** on Enter.
+- A **desktop gate** under 1024px or a coarse pointer.
+- `apps/e2e`: a committed two-browser drive and a 50-socket load script.
 
 Docs worth reading before you touch anything:
 `docs/assets-setup.md` (the pack, and why CI can never render),
-`docs/authoring-maps.md` (the layer contract and its traps),
+`docs/authoring-maps.md` (the layer contract, seats, and the floor trap),
+`WEBSOCKET_EVENTS.md` §6 (the whole wire protocol),
 `packages/maps/README.md` (the pipeline).
 
 ---
 
 ## Next steps, in the order I would do them
 
-### 1. Spend an evening in Tiled — highest value per hour
+### 1. Provision LiveKit — the largest remaining gap
 
-This is the one thing I could not do for you, and it is now the biggest gap
-between "the art is wired up" and "this feels like a place". The five maps are a
-**programmatic first pass**: correct, furnished, and a bit regular. A human
-placing furniture will beat it in an hour.
+**AV has never run.** It is coded, unit-tested, and shipped *off*, because no
+server exists. Everything else in the rooms has now been driven end to end;
+this has not. `docs/livekit-vps.md` has the recipe, including the warning that
+TURN on TCP/443 is mandatory rather than optional on Indian campus and mobile
+networks.
+
+Set `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in
+`apps/room-server/.env`, then verify the four things `PROGRESS.md` has recorded
+as unexercised since Phase 5:
+
+- audio connects in under a second;
+- bandwidth in `chrome://webrtc-internals` tracks **proximity**, not room
+  population — that is the whole mechanic, and nothing has ever confirmed it;
+- the 200 ms gain ramp is smooth across a zone boundary rather than a step;
+- denying camera permission degrades to initials, and the HUD says so (the
+  status line under the mic/cam toggles is new and untested against a real
+  server).
+
+### 2. An evening in Tiled
+
+The five maps are now a **good** programmatic pass rather than a first one —
+the floors are right, the furniture reads, the grid is broken up, the walls are
+decorated. A human will still beat it.
 
 ```bash
-pnpm --filter @retry/maps tiled     # writes the project + .tsx tilesets
-# open packages/maps/generated/tiled/retry.tiled-project
-pnpm --filter @retry/maps validate  # after every session, before committing
+pnpm --filter @retry/maps tiled
+pnpm --filter @retry/maps validate      # after every session, before committing
+pnpm --filter @retry/maps preview commons out.png 1
 ```
 
-Read the "Things that will bite you" section of `docs/authoring-maps.md` first —
-especially: **do not convert the embedded tilesets to external ones**, because
-Phaser cannot follow an external `.tsx` and will render an empty room without
-erroring.
+Read "Things that will bite you" in `docs/authoring-maps.md` first — especially
+**do not convert the embedded tilesets to external ones**, because Phaser
+cannot follow an external `.tsx` and will render an empty room without erroring.
 
-What to fix while you are in there, roughly in order of how much it shows:
-- **The Commons is too empty in the middle.** It is the first room anyone sees.
-- **Break up the grid.** Rows of identical desks read as generated. Rotate a
-  chair, angle a rug, leave a mug out.
-- **Wall decoration.** Every room has bare walls above the furniture line;
-  the pack has posters, windows, whiteboards and shelves for exactly this.
-- **The studio's floating globe** at (18,8) — its stand tile did not come with
-  it. Either place the whole 1×2 block or move it onto a desk.
+Note that `scripts/seed-maps.ts` OVERWRITES the maps. The moment you hand-edit
+one, that script becomes a historical artefact rather than a tool.
 
-### 2. Finish the typing indicator (deliberately deferred)
-
-The pack's UI atlas (`UI_thinking_emotes_animation_32x32.png`, 10×10 frames)
-is catalogued and unused. Showing "someone is typing" over an avatar needs:
-
-- a `typing` client→server message in `packages/protocol/src/events.ts`,
-- fan-out in `RoomHub` (rate-limited — it will fire on every keystroke),
-- a sprite above the avatar in `RoomScene`, cleared on a timeout.
-
-I left it out because it is protocol work wearing an art costume, and it did
-not belong in the commit that finished the art. It is a clean half-day.
+What is still worth a human eye:
+- The Commons is large and its two ends are quieter than its middle.
+- The lounge's counter run reads as floating cabinets rather than a bar.
+- The `podium` in the conference room is not obviously a podium.
 
 ### 3. Grow the tile catalogue as you need it
 
-`packages/maps/tiles.catalog.ts` covers ~65 props out of 5,470 objects. The
-workflow that works:
+`packages/maps/tiles.catalog.ts` covers ~70 props out of 5,470. **Run
+`preview-blocks` after every catalogue edit** — it has now caught a conference
+table that was two shelf strips, audience chairs that were backpacks, several
+beds catalogued as tables, and a "round table" that was a crate stacked on a
+sofa arm. The pack's grid is misleading and your eye is the only real check.
 
 ```bash
 npx tsx scripts/preview-sheet.ts generated/tilesets/<sheet>.png out.png 0 16 2
-npx tsx scripts/preview-blocks.ts out.png    # ALWAYS run after editing
+npx tsx scripts/preview-blocks.ts out.png
 ```
-
-**Run `preview-blocks` after every catalogue edit.** It caught a conference
-table that was two shelf strips, audience chairs that were backpacks, and
-several beds catalogued as tables — all before they reached a map. The pack's
-grid is misleading and your eye is the only real check.
 
 ### 4. Things I would watch in the first week of real use
 
-- **Texture memory.** Each distinct character costs ~393 KB of GPU memory. Fine
-  for a room of twenty; if a Commons ever holds a hundred students with a
-  hundred different looks, the cache in `compose-avatar.ts` will need an
-  eviction policy. Today it only clears on scene shutdown.
-- **The six-door ceiling.** The Commons has exactly six door slots, so the
-  seventh public room silently fails to claim one (the API returns 409). That
-  was fine as a demo constraint and is now a product decision to make: more
-  doors, a second atrium, or a directory that is not spatial.
+- **The `chatMessage` id for nearby speech is session-scoped**, not a database
+  id. Nothing persists it and the client only needs a React key. If anything
+  ever tries to reference a nearby line by id, it will be referencing nothing.
 - **`room_members.last_position`.** Re-authoring a room moves the floor under
   stored positions. People spawn inside walls and get resynced out. Prefer
   editing rooms nobody is standing in.
-- **The presence strip sometimes reads "RECONNECTING…" while the world is
-  plainly working** — snapshot applied, other people visible, movement
-  relaying. I saw it in two drive screenshots after rapid navigation. It looks
-  like the socket status not settling back to `open` rather than a real
-  disconnect, and it predates this track (nothing here touches
-  `room-socket.ts`), but it is the kind of thing a student will screenshot and
-  ask about. Worth ten minutes with `roomEvents.on('net:status')`.
+- **The Commons is 40 tiles wide and the camera shows about 30.** That is what
+  the minimap is for; if the hall grows again, check the minimap still reads.
+- **Emote keys are validated but never persisted.** Adding one is free.
+  Renaming one breaks the client of anyone mid-session — add, don't rename.
 
 ### 5. Before this is student-facing
 
-- **Mobile / small viewports.** Zoom is picked from viewport height and clamps
-  at 2; nobody has looked at this on a phone.
-- **Accessibility.** The world is a canvas with no keyboard-only alternative and
-  no screen-reader story. The Workspace view is the accessible path today —
-  that is worth being deliberate about rather than accidental.
-- **The pack licence.** Credit is carried in `packages/maps/art/ATTRIBUTION.md`
-  by project decision. If the product ever gets an about/credits screen,
-  `limezu.itch.io` belongs on it.
+- **AV.** See above. This is the one.
+- **The accessibility story is honest but thin.** The world is a canvas with an
+  aria-label naming the Workspace as the equivalent path, and the desktop gate
+  says the same. That is deliberate rather than accidental now, which is an
+  improvement on where it was — but nobody has tested the Workspace with a
+  screen reader, and that is the path we are pointing people at.
+- **The pack licence.** Credit is carried in
+  `packages/maps/art/ATTRIBUTION.md` by project decision. If the product ever
+  gets an about/credits screen, `limezu.itch.io` belongs on it.
 
 ---
 
@@ -161,16 +166,24 @@ grid is misleading and your eye is the only real check.
 
 Measured during this work, and easy to get wrong later:
 
+- **Phaser defers `destroy()` to its next step.** A game torn down before it has
+  ever stepped — StrictMode's double-invoke, a fast route change — never removes
+  its canvas, and the dead one stacks over the live one so the world renders as
+  a black rectangle. `RoomCanvas` removes `game.canvas` itself for this reason.
+- **`watch` validates `roomId` as a uuid.** A non-uuid frame is dropped as
+  unparseable with **no reply at all**, so the client waits forever. Three tests
+  failed silently on this before anyone noticed.
+- **`RoomHub.broadcast` reaches watchers only for allow-listed events**
+  (`WATCHER_EVENTS`). Adding a server→client event that a Workspace should see
+  means adding it there too; `actorTyping` was missed exactly once.
+- **The scope decides the requirement, not the map.** Speech needs an avatar; a
+  chat log needs a room. Both `chat` and `typing` used to ask "am I in a room?"
+  first and were therefore refused in the Commons, which is precisely where
+  students run into each other.
 - Character frames are **32×64**, on a **56×20** grid. Row 1 is idle, row 2 is
-  walk, and the direction order inside a row is **right, up, left, down** — not
-  the order the old hand-drawn sheets used.
-- **Body sheets are 1854 px wide; every other layer is 1792.** 57 columns
-  against 56. Address frames by (column, row), never by linear index, or the
-  body drifts one frame per row against the clothes.
-- **Animated objects are palette-indexed PNGs**, unlike everything else in the
-  pack. `art/png-decode.ts` handles both now.
-- A map declares **only the sheets it uses** and pins its own `firstgid`s, so
-  adding a tileset to `assets.config.ts` can never renumber an existing map.
+  walk, and the direction order inside a row is **right, up, left, down**.
+- **Body sheets are 1854 px wide; every other layer is 1792.** Address frames by
+  (column, row), never by linear index.
 - Catalogue ids (`body_03`, `outfit_07`) are **persisted per user**. Add freely;
   never rename or remove one that someone may have chosen.
 
@@ -178,11 +191,12 @@ Measured during this work, and easy to get wrong later:
 
 ## The verification that exists
 
-- **130 automated tests** (`pnpm -r test`): 89 room-server WS, 17 map/validator,
-  12 protocol, 12 API.
+- **181 automated tests** (`pnpm -r test`): 100 room-server WS, 52 API,
+  18 map/validator, 12 protocol.
+- **A committed browser drive** (`pnpm --filter @retry/e2e drive`): two students
+  in one room over system Edge, plus the phone gate. See `apps/e2e/README.md`.
+- **A load script** (`pnpm --filter @retry/e2e load`): 50 sockets moving at the
+  real client's cadence. Last run: p50 1.9 ms, p95 67.8 ms, p99 100.4 ms
+  against the 150 ms NFR-PERF-06 budget.
 - `pnpm -r build` passes **with and without** the art pack — without it the app
-  builds and shows a setup screen rather than throwing.
-- Four browser drives were written and run against a real stack (8/8, 8/8, 6/6,
-  7/7). They were throwaway scripts, not committed; if you want them as a
-  permanent suite, that is a real piece of work (a Playwright harness) rather
-  than a copy-paste of what I used.
+  builds and shows a setup screen rather than throwing. That is what CI runs.

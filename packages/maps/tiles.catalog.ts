@@ -37,13 +37,11 @@ export const FLOORS = {
   stone: [[at('floors', 5, 5)]],
   // Soft sage — the classroom.
   sage: [[at('floors', 13, 3)]],
-  // Warm terracotta boards — the lounge. The red herringbone that lived here
+  // Warm terracotta brick — the lounge. The red herringbone that lived here
   // tiled correctly but at room scale it read as a migraine: a floor is
-  // background, and this one was the loudest thing in the room.
-  herringbone: [
-    [at('floors', 8, 12), at('floors', 9, 12), at('floors', 10, 12)],
-    [at('floors', 8, 13), at('floors', 9, 13), at('floors', 10, 13)],
-  ],
+  // background, and this one was the loudest thing in the room. One tile, for
+  // the same reason as `carpet` — the 3x2 block banded visibly across a room.
+  herringbone: [[at('floors', 9, 12)]],
   /**
    * Quiet grey-lavender carpet — the conference room.
    *

@@ -68,6 +68,7 @@ class AvManager {
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = null;
     avStore.clear();
+    avStore.setStatus('off');
   }
 
   /** Mic/cam toggles — state carries unchanged across every map transition. */
@@ -130,18 +131,27 @@ class AvManager {
         }
         for (const userId of [...this.chains.keys()]) this.dropAudioChain(userId);
         avStore.clear();
+        avStore.setStatus('connecting');
 
         const room = this.createRoom();
         this.room = room;
         await room.connect(serverUrl, token, { autoSubscribe: false });
-        await room.localParticipant.setMicrophoneEnabled(this.local.audio).catch(() => undefined);
+        avStore.setStatus('live');
+        // A refused microphone is a supported state, but it must be VISIBLE:
+        // otherwise the student is inaudible and has no way to know it.
+        let micOk = true;
+        await room.localParticipant.setMicrophoneEnabled(this.local.audio).catch(() => {
+          micOk = false;
+        });
         await room.localParticipant.setCameraEnabled(this.local.video).catch(() => undefined);
+        if (!micOk && this.local.audio) avStore.setStatus('denied');
         // Peers already close/near are subscribed as LiveKit reports their
         // publications; anyone already present is handled here.
         for (const participant of room.remoteParticipants.values()) {
           this.applySubscription(participant.identity);
         }
       } catch (err) {
+        avStore.setStatus('failed');
         reportWarning('rooms: livekit connect failed; placeholder bubbles remain', err);
       }
     });
