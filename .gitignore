@@ -49,3 +49,7 @@ Thumbs.db
 # Scratch git worktrees — separate checkouts, never content of this one
 .claude/worktrees/
 
+
+# Playwright drive output — traces and screenshots of a local run
+apps/e2e/test-results/
+apps/e2e/playwright-report/

@@ -32,7 +32,15 @@ export function RoomCanvas({ userId, displayName, selfAudio }: RoomCanvasProps) 
     if (!container) return;
     const game = createRoomGame(container, { userId, displayName: displayNameRef.current });
     return () => {
+      // Phaser DEFERS destroy to its next step, so a game torn down before it
+      // has ever stepped — StrictMode's double-invoke in development, or a
+      // fast route change — never removes its canvas. The dead canvas then
+      // stacks on top of the live one and the world renders as a black
+      // rectangle, which is exactly what the first browser drive found.
+      // Removing this game's own canvas is precise and idempotent.
+      const canvas = game.canvas;
       game.destroy(true);
+      canvas?.remove();
     };
   }, [userId]);
 
