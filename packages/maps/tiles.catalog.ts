@@ -19,6 +19,12 @@ const at = (sheet: string, col: number, row: number): TileRef => ({ sheet, col, 
  * wood in the preview but each block carries a large motif spanning all six
  * tiles, so tiling them across a room produced repeating barrel shapes rather
  * than a floor. A floor is background: uniform beats interesting.
+ *
+ * The subtler version of the same trap cost the Commons and the conference
+ * room their first impression: a block whose 3x2 area is a single LARGE TILE
+ * with a lit edge (e.g. 0,22 and 12,10) looks perfectly flat in the sheet
+ * preview, then tiles into a lattice of offset rectangles across a whole room.
+ * Judge a floor by rendering a map with it, never by the tile alone.
  */
 export const FLOORS = {
   // Pale horizontal boards — project rooms.
@@ -26,26 +32,29 @@ export const FLOORS = {
     [at('floors', 4, 12), at('floors', 5, 12), at('floors', 6, 12)],
     [at('floors', 4, 13), at('floors', 5, 13), at('floors', 6, 13)],
   ],
-  // Plain cream — the Commons, so the two rooms read as different places.
-  stone: [
-    [at('floors', 0, 22), at('floors', 1, 22), at('floors', 2, 22)],
-    [at('floors', 0, 23), at('floors', 1, 23), at('floors', 2, 23)],
-  ],
+  // Plain cream tile — the Commons, so the atrium reads as a different place
+  // from the wooden project rooms. One tile; see the note on `carpet`.
+  stone: [[at('floors', 5, 5)]],
   // Soft sage — the classroom.
-  sage: [
-    [at('floors', 12, 2), at('floors', 13, 2), at('floors', 14, 2)],
-    [at('floors', 12, 3), at('floors', 13, 3), at('floors', 14, 3)],
-  ],
-  // Warm red herringbone parquet — the lounge.
+  sage: [[at('floors', 13, 3)]],
+  // Warm terracotta boards — the lounge. The red herringbone that lived here
+  // tiled correctly but at room scale it read as a migraine: a floor is
+  // background, and this one was the loudest thing in the room.
   herringbone: [
-    [at('floors', 8, 10), at('floors', 9, 10), at('floors', 10, 10)],
-    [at('floors', 8, 11), at('floors', 9, 11), at('floors', 10, 11)],
+    [at('floors', 8, 12), at('floors', 9, 12), at('floors', 10, 12)],
+    [at('floors', 8, 13), at('floors', 9, 13), at('floors', 10, 13)],
   ],
-  // Quiet grey carpet — the conference room.
-  carpet: [
-    [at('floors', 12, 10), at('floors', 13, 10), at('floors', 14, 10)],
-    [at('floors', 12, 11), at('floors', 13, 11), at('floors', 14, 11)],
-  ],
+  /**
+   * Quiet grey-lavender carpet — the conference room.
+   *
+   * ONE tile, not a 3x2 block. Most of this sheet's "floors" are designed as
+   * 3x2 units with a lit edge around the unit, so tiling them lays a lattice
+   * of offset rectangles over the whole room — which is what the Commons and
+   * this room shipped with. Where a material has that edge, repeating a single
+   * interior tile is the flat floor; where it genuinely tiles (the wood
+   * boards), the 3x2 block gives a better grain.
+   */
+  carpet: [[at('floors', 13, 15)]],
 } as const;
 
 export type FloorKey = keyof typeof FLOORS;
@@ -190,10 +199,13 @@ export const BLOCKS = {
   /** Red three-seater sofa. */
   sofaRed: block('generic', 6, 10, 3, 2, 1),
   /**
-   * Small round side table. NOTE: generic rows 4-9 cols 0-3 look like tables in
-   * the grid but are BEDS — do not catalogue them as furniture for a study room.
+   * Small round side table, one tile. NOTE: generic rows 4-9 cols 0-3 look
+   * like tables in the grid but are BEDS — do not catalogue them as furniture
+   * for a study room. This entry used to point at (6,4), which is a small
+   * CRATE stacked on a sofa arm; it rendered in four rooms as an unidentifiable
+   * wooden slab before anyone looked at it next to a chair.
    */
-  tableRound: block('generic', 6, 4, 1, 2, 1),
+  tableRound: block('generic', 5, 5, 1, 1, 1),
   window: block('generic', 7, 8, 2, 1, 0, 'wall'),
   windowWhite: block('generic', 5, 9, 2, 1, 0, 'wall'),
   paintingField: block('generic', 0, 13, 2, 1, 0, 'wall'),
@@ -206,6 +218,25 @@ export const BLOCKS = {
   chair: block('generic', 0, 11, 1, 2, 1),
   chair2: block('generic', 1, 11, 1, 2, 1),
   chair3: block('generic', 4, 11, 1, 2, 1),
+  /**
+   * Sittable chairs — the same models as `decor`, so they can be SAT ON.
+   *
+   * A seat interactable moves the avatar onto the chair's tile and the server
+   * validates that position against the collision layer, so a solid chair
+   * would reject the move and resync the sitter straight back out. These are
+   * drawn in `objects` (behind the avatar, which is right: you sit in front of
+   * the backrest) with no collision — the trick every Gather-like world uses.
+   *
+   * The model matches the FACING, because a chair whose back is on the wrong
+   * side turns a seated avatar into a floating one. Front pair (lattice back,
+   * one with a cushion) for up/down; the side chairs at cols 4 and 5 have
+   * their backs on the left and right respectively, so a sitter faces right
+   * and left.
+   */
+  seatFrontA: block('generic', 0, 11, 1, 2, 0, 'decor'),
+  seatFrontB: block('generic', 1, 11, 1, 2, 0, 'decor'),
+  seatRight: block('generic', 4, 11, 1, 2, 0, 'decor'),
+  seatLeft: block('generic', 5, 11, 1, 2, 0, 'decor'),
   pouf: block('generic', 0, 17, 1, 1, 0, 'decor'),
   pouf2: block('generic', 1, 17, 1, 1, 0, 'decor'),
   tv: block('generic', 3, 18, 2, 2, 1),

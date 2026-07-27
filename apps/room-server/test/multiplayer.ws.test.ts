@@ -151,26 +151,33 @@ describe('room-server multiplayer', () => {
   });
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
-    // The desk whose base blocks (14,6) in the seeded studio_a. Asserted from
-    // the map so re-authoring the room fails here with a readable message
-    // instead of a bare timeout further down.
-    const BLOCKED = { x: 14, y: 6 };
+    // Walk north into the WALL, not into a desk. This test used to name a
+    // specific desk tile (14,6) and broke the moment the room was re-furnished,
+    // with a failure that read like a protocol bug rather than a map edit. The
+    // wall ring is structural: every room has one, and no furniture pass moves it.
     const map = instantiate('studio_a', 'studio_a');
-    expect(map && isBlocked(map, BLOCKED.x, BLOCKED.y), 'studio_a no longer blocks (14,6)').toBe(true);
-    expect(map && isBlocked(map, BLOCKED.x - 1, BLOCKED.y)).toBe(false);
+    if (!map) throw new Error('studio_a failed to instantiate');
+    const column = Math.floor(SPAWN.x);
+    expect(isBlocked(map, column, 1), 'studio_a has no north wall above the spawn').toBe(true);
+    expect(isBlocked(map, column, 2)).toBe(false);
 
     const b = await connectAndJoin('user-b');
-    // Walk legally from spawn (10.5,7.5) up a row and east along it…
-    b.send({ t: 'move', x: 10.5, y: 6.5, dir: 'up', moving: true });
-    b.send({ t: 'move', x: 12.5, y: 6.5, dir: 'right', moving: true });
-    b.send({ t: 'move', x: 13.5, y: 6.5, dir: 'right', moving: true });
+    // Legal steps (<= 2 tiles each) straight up the spawn column to the tile
+    // just below the wall. Only the LANDING tile is collision-checked.
+    for (let y = SPAWN.y - 2; y > 2.5; y -= 2) {
+      b.send({ t: 'move', x: SPAWN.x, y, dir: 'up', moving: true });
+    }
+    b.send({ t: 'move', x: SPAWN.x, y: 2.5, dir: 'up', moving: true });
     const before = ofType(b, 'snapshot').length;
-    // …then step one tile into the desk: distance legal, target blocked.
-    b.send({ t: 'move', x: 14.5, y: 6.5, dir: 'right', moving: true });
+    // …then one more step, into the wall: distance legal, target blocked.
+    b.send({ t: 'move', x: SPAWN.x, y: 1.5, dir: 'up', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
     const resync = ofType(b, 'snapshot').at(-1);
-    // Authoritative position is the last legal one, not the desk.
-    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 13.5, y: 6.5 });
+    // Authoritative position is the last legal one, not inside the wall.
+    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({
+      x: SPAWN.x,
+      y: 2.5,
+    });
   });
 
   it('caps move relays at 20/s per connection, dropping the excess silently', async () => {

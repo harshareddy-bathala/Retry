@@ -1,6 +1,7 @@
 import { writeFileSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rng } from '../art/canvas.js';
 import { TILE } from '../assets.config.js';
 import {
   BLOCKS,
@@ -293,58 +294,221 @@ const whiteboardAt = (x: number, y: number, w = 2) => ({
   props: [{ name: 'interactive', type: 'string', value: 'whiteboard' }],
 });
 
+/**
+ * A tile you can sit on. Always placed on a WALKABLE tile — the seat mechanic
+ * moves the avatar onto it, and the server validates every position against
+ * the collision layer, so a seat on a solid tile would be rejected and the
+ * sitter resynced back out. That is why the sittable chair blocks below are
+ * `decor` (drawn in `objects`, no collision) rather than solid furniture.
+ */
+const seatAt = (x: number, y: number, facing: 'up' | 'down' | 'left' | 'right') => ({
+  name: 'seat',
+  x,
+  y,
+  w: 1,
+  props: [
+    { name: 'interactive', type: 'string', value: 'seat' },
+    { name: 'facing', type: 'string', value: facing },
+  ],
+});
+
+/**
+ * Deterministic pick from a list of interchangeable blocks. Rows of identical
+ * furniture are the clearest tell that a room was generated rather than
+ * arranged, and varying the model costs nothing: the seed is the map name plus
+ * the position, so the same room comes out of every run byte-identical.
+ */
+function variant<T>(options: readonly T[], seedKey: string): T {
+  let hash = 0;
+  for (const ch of seedKey) hash = (Math.imul(hash, 31) + ch.charCodeAt(0)) | 0;
+  const pick = rng(Math.abs(hash))();
+  return options[Math.floor(pick * options.length) % options.length]!;
+}
+
+type Facing = 'up' | 'down' | 'left' | 'right';
+
+/**
+ * A chair and the seat marker that makes it usable, as one call — they were
+ * two lists that had to agree about an off-by-one (the chair block is 1x2 and
+ * the seat is its LOWER tile), which is exactly the kind of bookkeeping a
+ * generator should be doing rather than a person.
+ *
+ * The model follows the facing: the pack's side chairs at cols 4 and 5 have
+ * their backs on opposite sides, and a sitter with the backrest in front of
+ * them reads as floating.
+ */
+function sittable(
+  x: number,
+  y: number,
+  facing: Facing,
+  room: string,
+): { prop: Placement; mark: ReturnType<typeof seatAt> } {
+  const key: BlockKey =
+    facing === 'right' ? 'seatRight'
+    : facing === 'left' ? 'seatLeft'
+    : variant(['seatFrontA', 'seatFrontB'] as const, `${room}:${x},${y}`);
+  return { prop: p(key, x, y), mark: seatAt(x, y + 1, facing) };
+}
+
+/** Every chair in a room, as the two lists the map spec needs. */
+function seating(
+  room: string,
+  spots: ReadonlyArray<[number, number, Facing]>,
+): { props: Placement[]; marks: Array<ReturnType<typeof seatAt>> } {
+  const built = spots.map(([x, y, facing]) => sittable(x, y, facing, room));
+  return { props: built.map((s) => s.prop), marks: built.map((s) => s.mark) };
+}
+
+/**
+ * Wall-hung decoration along the north wall, at every free slot on a loose
+ * rhythm. Every room had bare walls above the furniture line — the pack ships
+ * posters, windows and charts for exactly this, and a blank wall is the
+ * difference between "a room" and "a grid with things in it".
+ *
+ * `taken` is every x already claimed at the wall (doors, boards, windows the
+ * spec placed itself); a decoration is skipped rather than shifted, because a
+ * shifted one lands on the next thing along.
+ */
+function wallDecor(
+  room: string,
+  width: number,
+  taken: ReadonlyArray<[number, number]>,
+  options: readonly BlockKey[],
+  step = 4,
+): Placement[] {
+  const claimed = (x: number, w: number): boolean =>
+    taken.some(([from, to]) => x < to && x + w > from);
+  const out: Placement[] = [];
+  const next = rng(room.length * 7919);
+  for (let x = 2; x < width - 3; x += step) {
+    // Leave roughly a third of the slots empty: evenly spaced decoration is
+    // its own kind of grid.
+    if (next() < 0.34) continue;
+    const key = variant(options, `${room}:wall:${x}`);
+    const block = BLOCKS[key];
+    if (claimed(x, block.w)) continue;
+    out.push(p(key, x, 0));
+    taken = [...taken, [x, x + block.w]];
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
-// The Commons — the atrium everyone arrives in. Six door slots north; benches,
-// rugs and plants make the middle a place to stand and talk rather than a
-// corridor. A WIP sign, because every project in the building is one.
+// The Commons — the atrium everyone arrives in, and the first thing any
+// student ever sees of Retry. It used to be 28x12 with six doors and an empty
+// middle; it is now a proper hall.
+//
+// TWELVE door slots, not six. Six was a demo constraint that became a hard
+// product ceiling — the seventh public room could not be created at all. The
+// API now overflows gracefully into doorless rooms, but the wall should still
+// hold most of a cohort's rooms without ever reaching that path. Twelve at a
+// four-tile pitch keeps two clear tiles between doors, which is what the
+// plaques and the swing animation need; sixteen at a three-tile pitch fit, but
+// the doors read as one continuous row of doors and the name plaques collide.
 // ---------------------------------------------------------------------------
+
+const COMMONS_DOORS = 12;
+/**
+ * Tiles between door slots. The door SPRITE is one tile wide (it is drawn on
+ * the rect's left tile); the two-tile rect is only the zone `E` works in. So a
+ * three-tile pitch still leaves two clear tiles of wall between neighbouring
+ * doors, and a 40-tile hall holds twelve of them without becoming a corridor
+ * you have to walk the length of to read.
+ */
+const COMMONS_DOOR_PITCH = 3;
+const COMMONS_DOOR_X = (slot: number): number => 2 + slot * COMMONS_DOOR_PITCH;
+
+// Every chair in the Commons, once — the props and the seat markers below are
+// both derived from this list so they can never drift apart.
+const commonsSeats = seating('commons', [
+  [6, 10, 'right'],
+  [8, 10, 'left'],
+  [17, 11, 'up'],
+  [19, 11, 'up'],
+  [30, 6, 'right'],
+  [32, 6, 'left'],
+  [34, 10, 'right'],
+  [36, 10, 'left'],
+]);
 
 const commons: MapSpec = {
   name: 'commons',
-  width: 28,
-  height: 12,
+  width: 40,
+  height: 16,
   floor: 'stone',
   wall: 'teal',
-  spawn: { x: 14, y: 9 },
+  spawn: { x: 20, y: 12 },
   props: [
-    // Reading corners flanking the hall.
+    ...commonsSeats.props,
+    // --- West bay: the reading corner you arrive beside ---
     p('bookcase', 1, 3),
-    p('bookcase2', 25, 3),
-    p('plantPalm', 1, 8),
-    p('plantBush', 26, 8),
-    // The centre: a big rug with benches around it.
-    p('rugRed', 12, 5),
-    p('bench', 9, 5),
-    p('bench', 17, 5),
-    p('bench', 9, 8),
-    p('bench', 17, 8),
-    // Small-talk clusters and honest signage.
-    p('wipSign', 24, 8),
-    p('tableRound', 5, 6),
-    p('tableRound', 22, 6),
-    p('notice', 6, 1),
-    p('notice', 21, 1),
+    p('bookcase2', 3, 3),
+    p('libShelf', 1, 10),
+    p('plantPalm', 6, 3),
+    p('tableRound', 7, 11),
+    p('bench', 4, 7),
+    p('lampRed', 9, 6),
+
+    // --- The middle. This was bare floor, in the one room every student
+    // crosses on the way to everywhere. It is now an island: a rug with
+    // seating on all four sides, so the centre of the Commons is somewhere to
+    // STOP and talk rather than a corridor to walk down. ---
+    p('rugRed', 17, 6),
+    p('bench', 15, 6),
+    p('bench', 15, 9),
+    p('bench', 22, 6),
+    p('bench', 22, 9),
+    p('tableRound', 18, 12),
+    p('palmBig', 13, 12),
+    p('bigPlant', 25, 12),
+
+    // --- East bay: two tables you can actually sit at, and the noticeboard ---
+    p('tableRound', 31, 7),
+    p('tableRound', 35, 11),
+    p('bookcase', 37, 3),
+    p('wipSign', 28, 3),
+    p('lampBlue', 27, 8),
+    p('plantBush', 11, 4),
+    p('plantBush2', 33, 13),
+    p('plantSmall', 26, 5),
+    p('plantSmall2', 38, 12),
   ],
   animated: [
-    { key: 'cat', x: 23, y: 9 },
-    { key: 'sprout', x: 4, y: 3 },
+    { key: 'cat', x: 29, y: 12 },
+    { key: 'sprout', x: 10, y: 12 },
+    { key: 'coffee', x: 12, y: 3 },
   ],
-  interactables: [0, 1, 2, 3, 4, 5].map((slot) => ({
-    name: `door_${slot}`,
-    x: 2 + slot * 4,
-    y: 1,
-    w: 2,
-    props: [
-      { name: 'interactive', type: 'string', value: 'door' },
-      { name: 'door_slot', type: 'int', value: slot },
-    ],
-  })),
+  interactables: [
+    ...Array.from({ length: COMMONS_DOORS }, (_, slot) => ({
+      name: `door_${slot}`,
+      x: COMMONS_DOOR_X(slot),
+      y: 1,
+      w: 2,
+      props: [
+        { name: 'interactive', type: 'string', value: 'door' },
+        { name: 'door_slot', type: 'int', value: slot },
+      ],
+    })),
+    ...commonsSeats.marks,
+  ],
 };
 
 // ---------------------------------------------------------------------------
 // studio_a — the default project room: PC desks in pairs, a whiteboard wall,
 // a bookshelf corner, a sofa to argue on.
 // ---------------------------------------------------------------------------
+
+// Desks in pairs, but the pairs sit at different heights and the chairs are
+// not all pushed in — three rows at the same y read as a computer lab in a
+// stock photo.
+const studioSeats = seating('studio_a', [
+  [2, 7, 'up'],
+  [4, 7, 'up'],
+  [14, 6, 'up'],
+  [16, 6, 'up'],
+  [3, 12, 'up'],
+  [12, 10, 'right'],
+]);
 
 const studioA: MapSpec = {
   name: 'studio_a',
@@ -354,39 +518,44 @@ const studioA: MapSpec = {
   wall: 'sky',
   spawn: { x: 10, y: 7 },
   props: [
+    ...studioSeats.props,
     p('blackboard', 2, 0),
-    p('window', 7, 0),
-    p('window', 12, 0),
     p('rugBlue', 8, 5),
-    // Work desks, two pairs facing the board.
+    // Work desks. The west pair sits a row lower than the east pair.
     p('deskPc', 2, 4),
     p('deskPc2', 4, 4),
-    p('deskPc', 14, 4),
-    p('deskPc2', 16, 4),
+    p('deskPc', 14, 3),
+    p('deskPc2', 16, 3),
     p('deskPc', 2, 9),
     p('deskPc2', 4, 9),
     // Library corner.
-    p('shelfBooks', 17, 2),
-    p('shelfBooks2', 18, 2),
+    p('shelfBooks', 17, 6),
+    p('shelfBooks2', 18, 6),
     p('bookcase', 15, 9),
     // Sofa corner, south-east.
     p('sofaRed', 15, 12),
     p('tableRound', 13, 11),
     p('plantBush', 1, 12),
     p('printer', 1, 2),
-    p('globe', 18, 8),
+    p('tv', 9, 12),
   ],
   animated: [
-    { key: 'server', x: 18, y: 5 },
+    { key: 'server', x: 18, y: 3 },
     { key: 'sprout', x: 12, y: 2 },
   ],
-  interactables: [whiteboardAt(2, 1, 3), exitDoor(9, 14)],
+  interactables: [whiteboardAt(2, 1, 3), exitDoor(9, 14), ...studioSeats.marks],
 };
 
 // ---------------------------------------------------------------------------
 // classroom — rows of school desks facing the blackboard, library shelving at
 // the back. For project crits and study groups.
 // ---------------------------------------------------------------------------
+
+const classroomSeats = seating('classroom', [
+  [16, 6, 'left'],
+  [15, 10, 'right'],
+  [4, 4, 'down'],
+]);
 
 const classroom: MapSpec = {
   name: 'classroom',
@@ -396,28 +565,39 @@ const classroom: MapSpec = {
   wall: 'cream',
   spawn: { x: 10, y: 8 },
   props: [
+    ...classroomSeats.props,
     p('blackboard', 8, 0),
     p('wallChart', 4, 1),
-    p('window', 14, 0),
     p('boardStand', 2, 2),
-    p('globe', 17, 2),
-    // Desk rows, three columns by three rows, all facing the board.
-    ...[3, 8, 13].flatMap((x) => [5, 8, 11].map((y) => p('schoolDesk', x, y))),
+    p('globe', 17, 3),
+    // Desk rows. Alternate rows are offset by a tile and the back row is one
+    // desk short: a perfect 3x3 grid was the clearest tell in any of the five
+    // rooms that nobody had arranged this by hand.
+    ...[3, 8, 13].map((x) => p('schoolDesk', x, 6)),
+    ...[4, 9, 14].map((x) => p('schoolDesk', x, 9)),
+    ...[3, 8].map((x) => p('schoolDesk', x, 12)),
     // Library along the back.
-    p('libShelf', 2, 12),
-    p('libShelf', 16, 12),
+    p('libShelf', 1, 12),
     p('bookcase2', 1, 5),
     p('plantBush2', 18, 12),
-    p('deskBook', 16, 5),
+    p('deskBook', 16, 8),
   ],
-  animated: [{ key: 'sprout', x: 17, y: 10 }],
-  interactables: [whiteboardAt(8, 1, 3), exitDoor(9, 14)],
+  animated: [{ key: 'sprout', x: 18, y: 5 }],
+  interactables: [whiteboardAt(8, 1, 3), exitDoor(9, 14), ...classroomSeats.marks],
 };
 
 // ---------------------------------------------------------------------------
 // lounge — the café corner: coffee bar, sofas around a fireplace, warm floor.
 // Where a team goes when the build is green (or very red).
 // ---------------------------------------------------------------------------
+
+const loungeSeats = seating('lounge', [
+  [4, 6, 'right'],
+  [8, 3, 'down'],
+  [11, 3, 'down'],
+  [16, 10, 'left'],
+  [3, 11, 'up'],
+]);
 
 const lounge: MapSpec = {
   name: 'lounge',
@@ -427,6 +607,7 @@ const lounge: MapSpec = {
   wall: 'weave',
   spawn: { x: 10, y: 8 },
   props: [
+    ...loungeSeats.props,
     p('fireplace', 9, 0),
     p('paintingSunset', 3, 0),
     p('paintingSea', 15, 0),
@@ -461,13 +642,30 @@ const lounge: MapSpec = {
     { key: 'candle', x: 10, y: 4 },
     { key: 'cat', x: 16, y: 11 },
   ],
-  interactables: [whiteboardAt(9, 1, 2), exitDoor(9, 14)],
+  interactables: [whiteboardAt(9, 1, 2), exitDoor(9, 14), ...loungeSeats.marks],
 };
 
 // ---------------------------------------------------------------------------
 // conference — the demo stage: projection screen, podium, a big table, and
 // audience chairs. Where a team rehearses before facing faculty.
 // ---------------------------------------------------------------------------
+
+// Every chair here is sittable — this is the room a team rehearses a demo in,
+// so "everyone take a seat" has to mean something.
+const conferenceSeats = seating('conference', [
+  // Around the meeting table: two sides, plus one at each end.
+  [8, 7, 'up'],
+  [10, 7, 'up'],
+  [7, 4, 'right'],
+  [12, 4, 'left'],
+  // Audience rows for demo day, offset so they are not a lattice.
+  [4, 11, 'up'],
+  [5, 11, 'up'],
+  [6, 11, 'up'],
+  [13, 10, 'up'],
+  [14, 10, 'up'],
+  [15, 10, 'up'],
+]);
 
 const conference: MapSpec = {
   name: 'conference',
@@ -477,30 +675,46 @@ const conference: MapSpec = {
   wall: 'indigo',
   spawn: { x: 10, y: 9 },
   props: [
+    ...conferenceSeats.props,
     p('projScreen', 7, 0),
     p('bannerRed', 4, 0),
     p('bannerBlue', 14, 0),
     p('podium', 5, 2),
     // The table you actually meet around.
     p('confTable', 8, 4),
-    p('chair', 7, 9),
-    p('chair', 9, 9),
-    p('chair', 11, 9),
-    // Audience rows for demo day.
-    p('chair', 4, 11),
-    p('chair', 5, 11),
-    p('chair', 6, 11),
-    p('chair', 13, 11),
-    p('chair', 14, 11),
-    p('chair', 15, 11),
     p('bench', 1, 3),
     p('plantBush2', 17, 2),
     p('plantSmall', 1, 12),
     p('plantSmall2', 18, 12),
     p('rugTallBlue', 16, 6),
   ],
-  interactables: [whiteboardAt(7, 1, 5), exitDoor(9, 14)],
+  interactables: [whiteboardAt(7, 1, 5), exitDoor(9, 14), ...conferenceSeats.marks],
 };
+
+// Wall decoration, added last so it can see everything already claimed at the
+// wall line. Every room had a bare band above the furniture — the pack ships
+// posters, windows and charts for exactly this, and an empty wall is most of
+// the difference between "a room" and "a grid with things in it".
+const WALL_ART = ['paintingSunset', 'paintingSea', 'paintingField', 'window', 'windowWhite'] as const;
+
+/** x ranges already occupied along a map's wall row, read from its own spec. */
+function wallClaims(spec: MapSpec): Array<[number, number]> {
+  const claims: Array<[number, number]> = [];
+  for (const placement of spec.props) {
+    const b = BLOCKS[placement.block];
+    if (placement.y <= 1) claims.push([placement.x, placement.x + b.w]);
+  }
+  for (const o of spec.interactables) {
+    if (o.y <= 1) claims.push([o.x, o.x + o.w]);
+  }
+  return claims;
+}
+
+// The Commons north wall is doors from end to end; there is nowhere to hang
+// anything and nothing would be seen behind twelve door leaves.
+for (const spec of [studioA, classroom, lounge, conference]) {
+  spec.props.push(...wallDecor(spec.name, spec.width, wallClaims(spec), WALL_ART));
+}
 
 for (const spec of [commons, studioA, classroom, lounge, conference]) {
   const path = resolve(root, 'maps', `${spec.name}.json`);

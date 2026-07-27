@@ -116,6 +116,34 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
   }
 
   /**
+   * Drop door coordinates that no longer name a slot, then re-hand the doors out.
+   *
+   * Re-authoring the Commons moves the slots. A room holding the old
+   * coordinates is not caught by anything: the room server maps rooms onto
+   * slots BY COORDINATE, so a stale pair silently matches nothing and the room
+   * loses its door while still claiming to have one. `docs/authoring-maps.md`
+   * warns that moving furniture moves people; this is the same hazard one
+   * level up, and the fix is to make the mismatch self-healing rather than to
+   * ask whoever edits the map to remember.
+   *
+   * Idempotent, and cheap enough to run at every boot.
+   */
+  async function reconcileDoors(): Promise<number> {
+    const valid = new Set(COMMONS_DOOR_SLOTS.map((s) => `${s.x},${s.y}`));
+    const withDoors = await db
+      .select({ id: rooms.id, doorX: rooms.doorX, doorY: rooms.doorY })
+      .from(rooms)
+      .where(and(eq(rooms.visibility, 'public'), isNotNull(rooms.doorX)));
+    const stale = withDoors.filter((r) => !valid.has(`${r.doorX},${r.doorY}`));
+    for (const room of stale) {
+      await db.update(rooms).set({ doorX: null, doorY: null }).where(eq(rooms.id, room.id));
+    }
+    const moved = await reclaimDoorSlots();
+    if (stale.length > 0 || moved) await roomServer.doorsChanged();
+    return stale.length;
+  }
+
+  /**
    * Hand every free door to the public rooms that have been waiting longest.
    * Called after anything that can release a slot — a room deleted, or turned
    * private. Without this a doorless room stays doorless forever and the
@@ -721,6 +749,7 @@ export function createRoomsService({ db, roomServer }: RoomsServiceDeps) {
   return {
     createRoom,
     listRooms,
+    reconcileDoors,
     getRoom,
     updateRoom,
     deleteRoom,

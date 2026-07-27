@@ -14,7 +14,10 @@ export const DEFAULT_SPAWN = 'default';
 export const EXPECTED_TILE_SIZE = 32;
 
 /** The `interactive` values the renderer knows how to activate. */
-export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit'] as const;
+export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit', 'seat'] as const;
+
+/** Which way a seated avatar looks. Mirrors the protocol's `dir`. */
+export const SEAT_FACINGS = ['up', 'down', 'left', 'right'] as const;
 
 /**
  * Animated ambience. Each object's NAME on this layer is an animation key from
@@ -189,6 +192,23 @@ export function validateMap(raw: unknown, options: ValidateOptions = {}): Valida
       const slot = props.find((p) => p.name === 'door_slot')?.value;
       if (typeof slot !== 'number' || !Number.isInteger(slot) || slot < 0) {
         errors.push(`door '${obj.name || '(unnamed)'}' needs a non-negative integer door_slot`);
+      }
+    }
+    if (kind === 'seat') {
+      const facing = props.find((p) => p.name === 'facing')?.value;
+      if (typeof facing !== 'string' || !(SEAT_FACINGS as readonly string[]).includes(facing)) {
+        errors.push(
+          `seat '${obj.name || '(unnamed)'}' needs a facing of ${SEAT_FACINGS.join('/')}`,
+        );
+      }
+      // A seat moves the avatar onto its tile and the server validates that
+      // position against the collision layer, so a seat on a solid tile is a
+      // seat nobody can use — and it fails at runtime, silently, as a resync.
+      const collision = tileLayers.get('collision');
+      const tx = Math.floor(obj.x / EXPECTED_TILE_SIZE);
+      const ty = Math.floor(obj.y / EXPECTED_TILE_SIZE);
+      if (collision && collision.data[ty * map.width + tx] !== 0) {
+        errors.push(`seat '${obj.name || '(unnamed)'}' at ${tx},${ty} sits on a collision tile`);
       }
     }
   }
