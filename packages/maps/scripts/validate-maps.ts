@@ -43,6 +43,7 @@ if (files.length === 0) {
 }
 
 let failed = false;
+let warned = 0;
 for (const file of files) {
   let raw: unknown;
   try {
@@ -60,10 +61,15 @@ for (const file of files) {
     console.error(`✗ ${file}`);
     for (const e of result.errors) console.error(`    ${e}`);
   }
+  // Warnings print for valid and invalid maps alike, and never set `failed`.
+  // The room server throws at boot on an invalid map, so a rule only earns
+  // error status once it is known not to fire falsely across all five.
+  warned += result.warnings.length;
+  for (const w of result.warnings) console.error(`  ! ${w}`);
 }
 
 if (failed) {
   console.error('\nMap validation FAILED. Fix the errors above before merging.');
   process.exit(1);
 }
-console.log(`\n${files.length} map(s) valid.`);
+console.log(`\n${files.length} map(s) valid${warned > 0 ? `, ${warned} warning(s)` : ''}.`);

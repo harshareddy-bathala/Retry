@@ -15,7 +15,7 @@ const loadJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'
 describe('validateMap', () => {
   it('passes studio_a', () => {
     const result = validateMap(loadJson(studioA));
-    expect(result).toEqual({ ok: true, map: expect.anything() });
+    expect(result).toEqual({ ok: true, map: expect.anything(), warnings: [] });
   });
 
   it('fails the deliberately broken copy, naming each problem', () => {
@@ -134,6 +134,156 @@ describe('validateMap', () => {
     const map = loadJson(studioA) as Record<string, unknown>;
     delete map['tilesets'];
     expect(validateMap(map).ok).toBe(false);
+  });
+});
+
+// The rules added when maps stopped being rectangles. Each one is a failure
+// mode that had no symptom before: a hole you fall through, a seat 32 tiles
+// away, a quiet corner that is not quiet.
+describe('validateMap: non-rectangular maps', () => {
+  type Layers = Array<{
+    type: string;
+    name: string;
+    data?: number[];
+    objects?: Array<{
+      name: string;
+      x: number;
+      y: number;
+      width?: number;
+      height?: number;
+      point?: boolean;
+      properties?: Array<{ name: string; value: unknown }>;
+    }>;
+  }>;
+  const load = (): { width: number; height: number; layers: Layers } =>
+    loadJson(studioA) as { width: number; height: number; layers: Layers };
+  const layer = (map: { layers: Layers }, name: string) => map.layers.find((l) => l.name === name)!;
+
+  it('allows a hole in the ground when it is marked solid', () => {
+    // This is what makes an L-shaped room legal: the space outside the walls
+    // has no floor, and is unreachable.
+    const map = load();
+    layer(map, 'ground').data![0] = 0;
+    layer(map, 'collision').data![0] = layer(map, 'collision').data!.find((g) => g !== 0)!;
+    expect(validateMap(map).ok).toBe(true);
+  });
+
+  it('fails a hole in the ground you can walk into', () => {
+    const map = load();
+    layer(map, 'ground').data![0] = 0;
+    layer(map, 'collision').data![0] = 0;
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("no 'ground' tile"))).toBe(true);
+    }
+  });
+
+  it('fails an object that hangs off the edge of the map', () => {
+    const map = load();
+    layer(map, 'interactables').objects!.push({
+      name: 'runaway',
+      x: map.width * 32 - 16,
+      y: 0,
+      width: 64,
+      height: 32,
+    });
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.includes("'runaway'"))).toBe(true);
+  });
+
+  it('fails a spawn inside a wall, not just the default one', () => {
+    const map = load();
+    const collision = layer(map, 'collision').data!;
+    const solidIndex = collision.findIndex((g) => g !== 0);
+    layer(map, 'spawns').objects!.push({
+      name: 'north',
+      x: (solidIndex % map.width) * 32,
+      y: Math.floor(solidIndex / map.width) * 32,
+      point: true,
+    });
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes("'north'") && e.includes('collision'))).toBe(true);
+    }
+  });
+
+  it('fails an unknown zone kind and a zero-area zone', () => {
+    const map = load();
+    map.layers.push({
+      type: 'objectgroup',
+      name: 'zones',
+      objects: [
+        { name: 'nope', x: 0, y: 0, width: 64, height: 64, properties: [{ name: 'zone', value: 'karaoke' }] },
+        { name: 'flat', x: 0, y: 0, width: 64, height: 0, properties: [{ name: 'zone', value: 'quiet' }] },
+      ],
+    });
+    const result = validateMap(map);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.includes('karaoke'))).toBe(true);
+      expect(result.errors.some((e) => e.includes("'flat'"))).toBe(true);
+    }
+  });
+
+  it('fails overlapping booths, and accepts adjacent ones', () => {
+    const booth = (name: string, x: number, width: number) => ({
+      name,
+      x,
+      y: 0,
+      width,
+      height: 64,
+      properties: [{ name: 'zone', value: 'booth' }],
+    });
+    const overlapping = load();
+    overlapping.layers.push({
+      type: 'objectgroup',
+      name: 'zones',
+      objects: [booth('a', 0, 128), booth('b', 96, 128)],
+    });
+    expect(validateMap(overlapping).ok).toBe(false);
+
+    // Sharing an edge is not sharing a tile — booths line a wall side by side.
+    const adjacent = load();
+    adjacent.layers.push({
+      type: 'objectgroup',
+      name: 'zones',
+      objects: [booth('a', 0, 128), booth('b', 128, 128)],
+    });
+    expect(validateMap(adjacent).ok).toBe(true);
+  });
+
+  it('warns rather than fails on a tileset nothing draws from', () => {
+    const map = loadJson(studioA) as {
+      tilesets: Array<{ name: string; firstgid: number; tilecount: number }>;
+      layers: Layers;
+    };
+    const top = Math.max(...map.tilesets.map((t) => t.firstgid + t.tilecount));
+    map.tilesets.push({ name: 'unused', firstgid: top, tilecount: 16 });
+    const result = validateMap(map);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some((w) => w.includes("'unused'"))).toBe(true);
+  });
+
+  it('warns on a door slot gap, which is a door no room can ever own', () => {
+    const map = load();
+    const doors = [0, 2].map((slot) => ({
+      name: `door_${slot}`,
+      x: slot * 32,
+      y: 32,
+      width: 32,
+      height: 32,
+      properties: [
+        { name: 'interactive', value: 'door' },
+        { name: 'door_slot', value: slot },
+      ],
+    }));
+    layer(map, 'interactables').objects!.push(...doors);
+    const result = validateMap(map);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some((w) => w.includes('not contiguous'))).toBe(true);
   });
 });
 

@@ -14,7 +14,22 @@ export const DEFAULT_SPAWN = 'default';
 export const EXPECTED_TILE_SIZE = 32;
 
 /** The `interactive` values the renderer knows how to activate. */
-export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit', 'seat'] as const;
+export const INTERACTIVE_KINDS = ['door', 'whiteboard', 'exit', 'seat', 'board', 'podium'] as const;
+
+/**
+ * Named regions on the optional `zones` object layer.
+ *
+ * Two are drawn by the client and mean nothing to the server; three change who
+ * hears whom and are enforced by the proximity engine. The split matters when
+ * reading a map: a `quiet` rectangle is a promise the server keeps, a
+ * `whiteboard` rectangle is only a hint the camera obeys.
+ */
+export const CLIENT_ZONE_KINDS = ['whiteboard', 'audience'] as const;
+export const SERVER_ZONE_KINDS = ['spotlight', 'booth', 'quiet'] as const;
+export const ZONE_KINDS = [...CLIENT_ZONE_KINDS, ...SERVER_ZONE_KINDS] as const;
+export type ZoneKind = (typeof ZONE_KINDS)[number];
+
+export const ZONES_LAYER = 'zones';
 
 /** Which way a seated avatar looks. Mirrors the protocol's `dir`. */
 export const SEAT_FACINGS = ['up', 'down', 'left', 'right'] as const;
@@ -91,9 +106,18 @@ export type TiledMap = z.infer<typeof tiledMapSchema>;
 export type TileLayer = z.infer<typeof tileLayerSchema>;
 export type ObjectLayer = z.infer<typeof objectLayerSchema>;
 
+/**
+ * Errors fail the build; warnings are printed and do not.
+ *
+ * The distinction is not squeamishness — it is what makes it possible to add a
+ * check at all. The room server THROWS AT BOOT on an invalid map, so promoting
+ * a stylistic rule to an error is a decision to take the world down over a
+ * misplaced shadow tile. Warnings let a rule ship, get looked at across all
+ * five maps, and be promoted once it is known not to fire falsely.
+ */
 export type ValidationResult =
-  | { ok: true; map: TiledMap }
-  | { ok: false; errors: string[] };
+  | { ok: true; map: TiledMap; warnings: string[] }
+  | { ok: false; errors: string[]; warnings: string[] };
 
 export type ValidateOptions = {
   /**
@@ -110,11 +134,13 @@ export function validateMap(raw: unknown, options: ValidateOptions = {}): Valida
     return {
       ok: false,
       errors: parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`),
+      warnings: [],
     };
   }
 
   const map = parsed.data;
   const errors: string[] = [];
+  const warnings: string[] = [];
 
   if (map.tilewidth !== EXPECTED_TILE_SIZE || map.tileheight !== EXPECTED_TILE_SIZE) {
     errors.push(
@@ -169,6 +195,125 @@ export function validateMap(raw: unknown, options: ValidateOptions = {}): Valida
       errors.push(
         `tile layer '${layer.name}' references gid ${bad}, outside every declared tileset (max valid gid ${maxGid})`,
       );
+    }
+  }
+
+  // A sheet nobody draws from is 500KB-4MB of texture the browser downloads and
+  // uploads to the GPU for nothing. Cheap to leave behind when a map is
+  // reworked, invisible in the file, and it costs every visitor.
+  const usedRanges = new Set<string>();
+  for (const layer of tileLayers.values()) {
+    for (const rawGid of layer.data) {
+      const gid = rawGid & GID_FLAG_MASK;
+      if (gid === 0) continue;
+      const owner = ranges.find((r) => gid >= r.from && gid <= r.to);
+      if (owner) usedRanges.add(owner.name);
+    }
+  }
+  for (const range of ranges) {
+    if (!usedRanges.has(range.name)) {
+      warnings.push(`tileset '${range.name}' is declared but no tile references it — drop it`);
+    }
+  }
+
+  const ground = tileLayers.get('ground');
+  const collision = tileLayers.get('collision');
+
+  // The floor-vs-void rule, and the reason maps are allowed to be L-shaped.
+  //
+  // Nothing requires `ground` to be completely filled — the space outside a
+  // non-rectangular room SHOULD be empty, and forcing a floor there is what
+  // made every map a box. What is required is that the two agree: any tile you
+  // can stand on has something to stand on. An empty tile that is also
+  // unblocked is a hole an avatar walks into and hovers over the page
+  // background, which reads as a rendering bug rather than a map bug.
+  if (ground && collision) {
+    let hole: { x: number; y: number } | null = null;
+    let holes = 0;
+    for (let i = 0; i < ground.data.length; i++) {
+      if ((ground.data[i] ?? 0) !== 0) continue;
+      if ((collision.data[i] ?? 0) !== 0) continue;
+      holes += 1;
+      hole ??= { x: i % map.width, y: Math.floor(i / map.width) };
+    }
+    if (hole) {
+      errors.push(
+        `${holes} walkable tile(s) have no 'ground' tile, starting at ${hole.x},${hole.y} — floor them, or mark them solid on 'collision'`,
+      );
+    }
+  }
+
+  // Drawn above the avatar AND impassable: the walk-behind rule applied
+  // backwards. Nothing can ever appear behind it, so it is an ordinary object
+  // paying for an extra layer — usually a tile pasted onto the wrong one.
+  const above = tileLayers.get('objects_above');
+  if (above && collision) {
+    let count = 0;
+    let first: { x: number; y: number } | null = null;
+    for (let i = 0; i < above.data.length; i++) {
+      if ((above.data[i] ?? 0) === 0 || (collision.data[i] ?? 0) === 0) continue;
+      count += 1;
+      first ??= { x: i % map.width, y: Math.floor(i / map.width) };
+    }
+    if (first) {
+      warnings.push(
+        `${count} tile(s) on 'objects_above' are also solid, starting at ${first.x},${first.y} — nothing can pass behind them, so they belong on 'objects'`,
+      );
+    }
+  }
+
+  // Every object, on every layer, inside the map. Tiled stores objects in
+  // PIXELS while everything else here is tiles, so an off-by-one in an
+  // authoring script lands a seat 32 tiles away rather than one — far enough
+  // out that the renderer simply never draws it and the map looks fine.
+  const mapPxWidth = map.width * map.tilewidth;
+  const mapPxHeight = map.height * map.tileheight;
+  for (const layer of map.layers) {
+    if (layer.type !== 'objectgroup') continue;
+    for (const obj of layer.objects) {
+      const w = obj.width ?? 0;
+      const h = obj.height ?? 0;
+      if (obj.x < 0 || obj.y < 0 || obj.x + w > mapPxWidth || obj.y + h > mapPxHeight) {
+        errors.push(
+          `object '${obj.name || '(unnamed)'}' on '${layer.name}' spans ${obj.x},${obj.y} +${w}x${h}px, outside the ${mapPxWidth}x${mapPxHeight}px map`,
+        );
+      }
+    }
+  }
+
+  // Zones: a typo'd kind is a rectangle the server ignores, which is a room
+  // whose quiet corner is not quiet — and the only symptom is that someone can
+  // hear you.
+  const zones = map.layers.find(
+    (l): l is ObjectLayer => l.type === 'objectgroup' && l.name === ZONES_LAYER,
+  );
+  const booths: Array<{ name: string; x: number; y: number; w: number; h: number }> = [];
+  for (const obj of zones?.objects ?? []) {
+    const kind = (obj.properties ?? []).find((p) => p.name === 'zone')?.value;
+    if (typeof kind !== 'string' || !(ZONE_KINDS as readonly string[]).includes(kind)) {
+      errors.push(
+        `zone '${obj.name || '(unnamed)'}' has unknown zone kind ${JSON.stringify(kind)}; expected one of ${ZONE_KINDS.join(', ')}`,
+      );
+      continue;
+    }
+    const w = obj.width ?? 0;
+    const h = obj.height ?? 0;
+    if (w <= 0 || h <= 0) {
+      errors.push(`zone '${obj.name || '(unnamed)'}' (${kind}) needs a non-zero width and height`);
+      continue;
+    }
+    if (kind === 'booth') booths.push({ name: obj.name || '(unnamed)', x: obj.x, y: obj.y, w, h });
+  }
+  // A booth makes its occupants close to each other and out to everyone else.
+  // Standing in two of them at once has no defined answer, so it is forbidden
+  // here rather than resolved arbitrarily at 10Hz in the proximity engine.
+  for (let i = 0; i < booths.length; i++) {
+    for (let j = i + 1; j < booths.length; j++) {
+      const a = booths[i]!;
+      const b = booths[j]!;
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) {
+        errors.push(`booth zones '${a.name}' and '${b.name}' overlap; a tile may be in only one`);
+      }
     }
   }
 
@@ -239,15 +384,42 @@ export function validateMap(raw: unknown, options: ValidateOptions = {}): Valida
     } else if (defaultSpawn.point !== true) {
       errors.push(`spawn '${DEFAULT_SPAWN}' must be a point object`);
     }
+    // Every spawn, not just the default. A room offering four entry points
+    // where one of them is inside a wall fails for a quarter of arrivals, and
+    // it fails as a resync — the avatar appears, jumps, and the player is left
+    // wondering what they did.
+    for (const spawn of spawns.objects) {
+      if (spawn.point !== true) {
+        errors.push(`spawn '${spawn.name || '(unnamed)'}' must be a point object`);
+        continue;
+      }
+      const tx = Math.floor(spawn.x / EXPECTED_TILE_SIZE);
+      const ty = Math.floor(spawn.y / EXPECTED_TILE_SIZE);
+      if (collision && (collision.data[ty * map.width + tx] ?? 0) !== 0) {
+        errors.push(`spawn '${spawn.name || '(unnamed)'}' at ${tx},${ty} sits on a collision tile`);
+      }
+    }
   }
 
+  const doors = extractDoorSlots(map);
   const slots = new Set<number>();
-  for (const door of extractDoorSlots(map)) {
+  for (const door of doors) {
     if (slots.has(door.slot)) errors.push(`duplicate door_slot ${door.slot}`);
     slots.add(door.slot);
   }
+  // Slots are an array index everywhere downstream: the API assigns rooms to
+  // them and `reconcileDoors` walks 0..n-1. A gap does not crash anything, it
+  // just makes one door permanently unassignable.
+  for (let i = 0; i < doors.length; i++) {
+    if (!slots.has(i)) {
+      warnings.push(
+        `door slots are not contiguous — ${doors.length} doors but no slot ${i}; the gap will never be assigned a room`,
+      );
+      break;
+    }
+  }
 
-  return errors.length > 0 ? { ok: false, errors } : { ok: true, map };
+  return errors.length > 0 ? { ok: false, errors, warnings } : { ok: true, map, warnings };
 }
 
 // ---------------------------------------------------------------------------
