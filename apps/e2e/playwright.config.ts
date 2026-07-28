@@ -34,5 +34,33 @@ export default defineConfig({
     // camera is a supported state anyway — bubbles fall back to initials.
     permissions: [],
   },
-  projects: [{ name: 'edge', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'edge',
+      // AV runs in its own project below, because it needs the opposite media
+      // setup: this one deliberately has NO camera and NO microphone, which is
+      // a state the app supports and these tests quietly cover.
+      testIgnore: /av\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'edge-av',
+      testMatch: /av\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['camera', 'microphone'],
+        launchOptions: {
+          args: [
+            // A synthetic camera and a 440Hz mic tone, so nobody needs hardware
+            // and CI is not silently testing a machine's default input.
+            '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream',
+            // WebAudio starts suspended without a gesture, and the gain chain
+            // is what proximity drives.
+            '--autoplay-policy=no-user-gesture-required',
+          ],
+        },
+      },
+    },
+  ],
 });

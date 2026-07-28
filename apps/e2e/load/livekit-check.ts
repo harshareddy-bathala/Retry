@@ -16,6 +16,7 @@ type Config = { url: string; apiKey: string; apiSecret: string };
 
 let pass = 0;
 let fail = 0;
+let skipped = 0;
 const ok = (label: string, detail = ''): void => {
   pass++;
   console.log(`  ok   ${label}${detail ? ` — ${detail}` : ''}`);
@@ -24,6 +25,24 @@ const bad = (label: string, detail = ''): void => {
   fail++;
   console.log(`  FAIL ${label}${detail ? ` — ${detail}` : ''}`);
 };
+/**
+ * Not applicable here, and therefore not a failure.
+ *
+ * The local dev server is plain `ws://` on localhost with no TLS and no relay,
+ * so the TURN check has nothing to connect to. Reporting that as FAIL would
+ * train everyone to ignore a red line in the one check that matters most on a
+ * real deployment.
+ */
+const skip = (label: string, why: string): void => {
+  skipped++;
+  console.log(`  skip ${label} — ${why}`);
+};
+
+/** A plain-ws localhost server is the dev container, not a deployment. */
+function isLocalDev(config: Config): boolean {
+  const url = new URL(config.url);
+  return url.protocol === 'ws:' || url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+}
 
 /** Read the room server's .env without importing its env module (which exits). */
 function loadConfig(): Config | null {
@@ -66,20 +85,40 @@ async function checkSignalling(config: Config): Promise<void> {
   }
 }
 
-/** The WebSocket upgrade itself, which is what the browser actually does. */
+/**
+ * The WebSocket upgrade itself, which is what the browser actually does.
+ *
+ * `terminate()`, not `close()`, and it matters. The expected outcome here is
+ * `unexpected-response` with a 401 — a handshake that reached LiveKit and was
+ * correctly refused. But at that point the connection was never established,
+ * and `close()` on such a socket THROWS; `removeAllListeners()` a line earlier
+ * has just taken away the handler that would have caught it, so the throw
+ * surfaced as an unhandled 'error' event and killed the process.
+ *
+ * In other words this script crashed on its own success path, and had done so
+ * since it was written — because until the dev container existed there was no
+ * server to run it against.
+ */
 async function checkWebSocket(config: Config): Promise<void> {
   await new Promise<void>((resolve) => {
     const ws = new WebSocket(`${config.url.replace(/\/$/, '')}/rtc`, { handshakeTimeout: 8000 });
+    let settled = false;
     const done = (good: boolean, detail: string): void => {
+      if (settled) return;
+      settled = true;
       ws.removeAllListeners();
-      ws.close();
+      // Swallow anything the teardown itself emits — we already have our answer.
+      ws.on('error', () => undefined);
+      ws.terminate();
       if (good) ok('websocket upgrade reaches LiveKit', detail);
       else bad('websocket upgrade failed', detail);
       resolve();
     };
     // A 401 here is a PASS: the handshake reached LiveKit and it refused an
     // unauthenticated connection, which is exactly what it should do.
-    ws.on('unexpected-response', (_req, res) => done(res.statusCode === 401, `HTTP ${res.statusCode}`));
+    ws.on('unexpected-response', (_req, res) =>
+      done(res.statusCode === 401, `HTTP ${res.statusCode}`),
+    );
     ws.on('open', () => done(true, 'accepted'));
     ws.on('error', (err) => done(false, err.message));
   });
@@ -92,6 +131,10 @@ async function checkWebSocket(config: Config): Promise<void> {
  * silently never connects and a bug report that says "the app is broken".
  */
 async function checkTurn443(config: Config): Promise<void> {
+  if (isLocalDev(config)) {
+    skip('TURN/TLS on 443', 'local dev server has no TLS and needs no relay');
+    return;
+  }
   const host = new URL(config.url).hostname;
   await new Promise<void>((resolve) => {
     const socket = tlsConnect({ host, port: 443, servername: host, timeout: 8000 }, () => {
@@ -138,13 +181,22 @@ async function main(): Promise<void> {
   await checkWebSocket(config);
   await checkTurn443(config);
 
-  console.log(`\n${pass} passed, ${fail} failed`);
+  console.log(
+    `\n${pass} passed, ${fail} failed${skipped > 0 ? `, ${skipped} not applicable` : ''}`,
+  );
+  if (isLocalDev(config)) {
+    console.log(`
+This is the dev container, and it proves the CODE, not the network. A student
+on campus wifi still needs TURN on TCP/443, which nothing here has exercised —
+docs/livekit-vps.md, and run this again against the VPS once it exists.`);
+  }
   console.log(`
 Still to check by hand — these need ears, eyes and a phone (docs/livekit-vps.md §6):
   1. Audio connects in under a second when two avatars walk within 2 tiles.
   2. chrome://webrtc-internals: inbound streams track the number of close/near
-     peers. Walking away must DROP subscriptions, not merely mute them — that
-     is the whole mechanic and nothing automated can confirm it.
+     peers. Walking away must DROP subscriptions, not merely mute them.
+     ("pnpm --filter @retry/e2e drive av" now asserts this; the ear check is
+     that it also SOUNDS right.)
   3. The gain ramp is audible rather than a step: 1.0 close, 0.5 near, 200ms.
   4. Refuse camera permission: bubbles fall back to initials, audio keeps
      working, and the HUD says the mic was blocked.

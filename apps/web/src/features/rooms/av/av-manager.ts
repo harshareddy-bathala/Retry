@@ -268,6 +268,75 @@ class AvManager {
       reportWarning('rooms: livekit operation failed', err);
     });
   }
+
+  /**
+   * What is actually subscribed, right now, per peer.
+   *
+   * Exists for the drive, and it has to exist there because the mechanic this
+   * whole design rests on is INVISIBLE from the DOM: a peer whose tracks are
+   * subscribed and a peer whose tracks are merely muted render identically —
+   * same bubble, same initials, same silence. The claim being tested is that
+   * walking away DROPS the subscription rather than muting it, and only the
+   * LiveKit room object knows the difference.
+   */
+  probe(): AvProbe {
+    const room = this.room;
+    return {
+      status: avStore.getStatus(),
+      room: this.currentRoomName,
+      peers: [...(room?.remoteParticipants.values() ?? [])].map((p) => ({
+        userId: p.identity,
+        zone: this.zones.get(p.identity) ?? 'out',
+        subscribed: [...p.trackPublications.values()]
+          .filter((pub) => pub.isSubscribed)
+          .map((pub) => String(pub.source)),
+      })),
+    };
+  }
+
+  /**
+   * Bytes actually received, per peer, from the WebRTC stats.
+   *
+   * `isSubscribed` is a SIGNALLING fact — it says the SFU was asked to forward
+   * a track, not that a single packet arrived. If ICE fails (the classic dev
+   * failure: LiveKit advertising a container address the browser cannot reach)
+   * every subscription still reports true and the room is silent. This is the
+   * difference between "we asked for audio" and "audio is here".
+   */
+  async probeBytes(): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    for (const participant of this.room?.remoteParticipants.values() ?? []) {
+      let total = 0;
+      for (const publication of participant.trackPublications.values()) {
+        const track = publication.track;
+        if (!track) continue;
+        const report = await track.getRTCStatsReport().catch(() => null);
+        report?.forEach((stat: { type?: string; bytesReceived?: number }) => {
+          if (stat.type === 'inbound-rtp') total += stat.bytesReceived ?? 0;
+        });
+      }
+      out[participant.identity] = total;
+    }
+    return out;
+  }
 }
 
+export type AvProbe = {
+  status: ReturnType<typeof avStore.getStatus>;
+  room: string | null;
+  peers: Array<{ userId: string; zone: Zone; subscribed: string[] }>;
+};
+
 export const avManager = new AvManager();
+
+// Dev-only handle, mirroring `__roomGame` in game/create-game.ts and there for
+// the same reason: some of what this code does cannot be observed from outside
+// it, and a drive that can only see the DOM would be asserting the wrong thing.
+if (import.meta.env.DEV) {
+  const w = window as unknown as {
+    __av?: () => AvProbe;
+    __avBytes?: () => Promise<Record<string, number>>;
+  };
+  w.__av = () => avManager.probe();
+  w.__avBytes = () => avManager.probeBytes();
+}
