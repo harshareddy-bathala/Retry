@@ -1,3 +1,5 @@
+import { HelpCircle, UserRound } from 'lucide-react';
+import { IconButton } from '../../../components/ui/icon-button.js';
 import { AVControls } from '../AVControls.js';
 import { EmoteBar } from '../EmoteBar.js';
 import { roomEvents } from '../event-bus.js';
@@ -8,6 +10,13 @@ type DockProps = {
   av: AvState;
   onToggleAv: (next: AvState) => void;
 };
+
+const KEYS = [
+  'WASD or the arrow keys to walk',
+  'E to sit down or go through a door',
+  'Enter to speak to whoever is near you',
+  '1–8 to react',
+].join(' · ');
 
 /**
  * The bottom dock: everything you DO, in one row, centred under the world.
@@ -29,20 +38,17 @@ export function Dock({ av, onToggleAv }: DockProps) {
       <SayBar />
       <EmoteBar />
 
-      <button
-        type="button"
+      <IconButton
+        label="Change how you look"
+        side="top"
         onClick={() => roomEvents.emit('creator:open')}
-        className="shrink-0 rounded-card border border-edge px-3 py-1.5 font-mono text-[11px] text-ink-muted hover:text-ink"
-      >
-        Change look
-      </button>
+        icon={<UserRound size={18} aria-hidden />}
+      />
 
-      <span
-        className="shrink-0 font-mono text-[10px] text-ink-muted"
-        title="WASD or arrow keys to walk · E to sit or enter a door · 1–8 to react · Enter to speak"
-      >
-        WASD · E · 1–8
-      </span>
+      {/* The key list used to be a permanently visible 300px pill in the
+          bottom-left cluster — the single widest thing in the row that
+          collided, and read once and never again. */}
+      <IconButton label={KEYS} side="top" icon={<HelpCircle size={18} aria-hidden />} />
     </div>
   );
 }

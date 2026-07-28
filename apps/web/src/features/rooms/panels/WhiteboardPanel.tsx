@@ -46,7 +46,7 @@ export default function WhiteboardPanel({ roomId, onClose }: WhiteboardPanelProp
   });
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col bg-surface">
+    <div className="absolute inset-0 z-modal flex flex-col bg-surface">
       <div className="flex items-center justify-between border-b border-edge px-3 py-1.5">
         <p className="font-mono text-[11px] uppercase text-ink-muted">Whiteboard</p>
         <button
@@ -63,7 +63,13 @@ export default function WhiteboardPanel({ roomId, onClose }: WhiteboardPanelProp
             The whiteboard is for room members only.
           </p>
         ) : (
-          <Tldraw store={store} licenseKey={LICENSE_KEY} />
+          <Tldraw
+            store={store}
+            licenseKey={LICENSE_KEY}
+            // Without this tldraw renders its default LIGHT canvas inside a
+            // #1d2127 surface — a white slab in the middle of a dark world.
+            onMount={(editor) => editor.user.updateUserPreferences({ colorScheme: 'dark' })}
+          />
         )}
       </div>
     </div>

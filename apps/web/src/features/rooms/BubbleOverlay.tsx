@@ -126,8 +126,8 @@ export function BubbleOverlay({ selfUserId, selfDisplayName, selfAudio }: Bubble
           bubbleRefs.current.set(userId, el);
           if (!el) bubbleRefs.current.delete(userId);
         }}
-        className={`absolute left-0 top-0 flex items-center justify-center rounded-full border-2 font-display font-semibold text-white shadow-lg transition-[width,height,opacity] duration-200 ${
-          speaking ? 'border-emerald-400 ring-2 ring-emerald-400/60 animate-pulse' : 'border-white/80'
+        className={`absolute left-0 top-0 flex items-center justify-center rounded-full border-2 font-display font-semibold text-accent-ink shadow-lg transition-[width,height,opacity] duration-200 ${
+          speaking ? 'border-success ring-2 ring-success/60 animate-pulse' : 'border-ink/60'
         }`}
         style={{
           width: size,
@@ -147,7 +147,7 @@ export function BubbleOverlay({ selfUserId, selfDisplayName, selfAudio }: Bubble
           initials(name)
         )}
         {muted && (
-          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px]">
+          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[10px] text-danger-ink">
             🔇
           </span>
         )}

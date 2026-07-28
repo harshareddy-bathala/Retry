@@ -266,7 +266,9 @@ export default function WorldPage() {
         }
         modal={
           <>
-            <CharacterCreator />
+            {/* Nothing modal belongs over a world that is not being drawn —
+                you cannot build a character you cannot see walking. */}
+            {fit === 'ok' && <CharacterCreator />}
             {active === 'whiteboard' && roomId && (
               <Suspense
                 fallback={

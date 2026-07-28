@@ -18,6 +18,7 @@
   --success: #7fb69b; /* patina — grades, positive states */
   --success-tint: rgba(127, 182, 155, 0.12);
   --danger: #d9776b;
+  --danger-ink: #1a0a07; /* text on danger — white on #d9776b fails WCAG */
   --danger-tint: rgba(217, 119, 107, 0.12);
   --warn: #d9a05b; /* amber — reconnecting, degraded, "still working on it" */
   --warn-tint: rgba(217, 160, 91, 0.12);
@@ -45,6 +46,7 @@
   --success: #4f8068;
   --success-tint: #dceae2;
   --danger: #b0503f;
+  --danger-ink: #fdf6f4;
   --danger-tint: #f2ddd6;
   --warn: #a3651c;
   --warn-tint: #f6e6cd;
@@ -63,6 +65,7 @@
   --color-success: var(--success);
   --color-success-tint: var(--success-tint);
   --color-danger: var(--danger);
+  --color-danger-ink: var(--danger-ink);
   --color-danger-tint: var(--danger-tint);
   --color-warn: var(--warn);
   --color-warn-tint: var(--warn-tint);
@@ -73,6 +76,9 @@
    * at 20 and the panel rail at 30, so a knock at the door rendered UNDER the
    * rail. Toasts outrank the sidebar here, deliberately.
    */
+  --z-index-header: 10; /* the app shell's sticky header */
+  --z-index-popover: 30; /* dropdowns anchored to app chrome */
+
   --z-index-world: 0; /* the Phaser canvas */
   --z-index-overlay: 10; /* DOM AV bubbles glued to avatars */
   --z-index-hud: 20; /* top bar, dock, rail, minimap */

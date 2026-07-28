@@ -52,7 +52,7 @@ export default function RoomsPage() {
         <h2 className="font-display text-xl font-semibold text-ink">Rooms</h2>
         <Link
           to="/world"
-          className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-white hover:opacity-90"
+          className="rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-accent-ink hover:opacity-90"
         >
           Enter the world
         </Link>
@@ -200,15 +200,21 @@ function CreateRoomForm() {
         });
       }}
     >
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Room name"
-        minLength={2}
-        maxLength={80}
-        required
-        className="rounded-card border border-edge bg-page px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-      />
+      <label className="flex flex-col gap-1.5">
+        {/* A placeholder is not a label: it disappears the moment you type,
+            and a screen reader announcing "edit text, blank" for the only
+            required field on the form is not a form anyone can fill in. */}
+        <span className="font-display text-[13px] font-medium text-ink">Room name</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Second-year capstone"
+          minLength={2}
+          maxLength={80}
+          required
+          className="rounded-card border border-edge bg-page px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+        />
+      </label>
       <div className="flex items-center gap-4">
         <label className="flex items-center gap-2 text-sm text-ink">
           <span className="font-mono text-[11px] uppercase text-ink-muted">Visibility</span>
@@ -260,13 +266,13 @@ function CreateRoomForm() {
         </div>
         <p className="text-xs text-ink-muted">{ROOM_MAP_TEMPLATE_LABELS[mapTemplate].blurb}</p>
       </fieldset>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <p className="text-sm text-danger">{error}</p>}
       <div className="flex gap-2">
         <button
           type="submit"
           disabled={create.isPending}
           className={cn(
-            'rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-white',
+            'rounded-card bg-accent px-4 py-2 font-display text-sm font-medium text-accent-ink',
             create.isPending ? 'opacity-60' : 'hover:opacity-90',
           )}
         >

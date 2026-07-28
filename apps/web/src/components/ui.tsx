@@ -1,6 +1,12 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import type { InputHTMLAttributes, ReactNode } from 'react';
 import { forwardRef } from 'react';
 import { cn } from '../lib/cn.js';
+import { Button as BaseButton, type ButtonProps as BaseButtonProps } from './ui/button.js';
+
+export { buttonClass } from './ui/button.js';
+export { IconButton } from './ui/icon-button.js';
+export { Dialog } from './ui/dialog.js';
+export { Tooltip, TooltipProvider } from './ui/tooltip.js';
 
 // Primitives matching the Figma auth frames: 18px panel radius, 12px controls,
 // copper primary button, Space Grotesk labels, mono helper text.
@@ -18,23 +24,11 @@ export function AuthPanel({ children, className }: { children: ReactNode; classN
   );
 }
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'ghost';
-};
-
-export function Button({ variant = 'primary', className, ...props }: ButtonProps) {
-  return (
-    <button
-      {...props}
-      className={cn(
-        'w-full rounded-card px-4 py-2.5 font-display text-sm font-medium transition-opacity',
-        'disabled:cursor-not-allowed disabled:opacity-60',
-        variant === 'primary' && 'bg-accent text-accent-ink hover:opacity-90',
-        variant === 'ghost' && 'text-ink hover:bg-accent-tint',
-        className,
-      )}
-    />
-  );
+// The auth forms want a full-width control; everything else does not. One
+// implementation either way — the variants and the contrast rule live in
+// ui/button.tsx.
+export function Button({ className, ...props }: BaseButtonProps) {
+  return <BaseButton {...props} className={cn('w-full py-2.5', className)} />;
 }
 
 type InputProps = InputHTMLAttributes<HTMLInputElement> & {

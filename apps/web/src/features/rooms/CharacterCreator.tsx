@@ -7,9 +7,10 @@ import {
   type AvatarSelection,
 } from '@retry/maps';
 import { CHARACTER_GEOMETRY, CHARACTER_LAYERS } from '@retry/maps/generated/characters';
+import { Button } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import { cn } from '../../lib/cn.js';
 import { roomEvents } from './event-bus.js';
-import { useInputLayer } from './input/useInputLayer.js';
 import { roomSocket } from './net/room-socket.js';
 
 // The character creator (FR-ROOM-24, grown from six presets into a builder).
@@ -88,24 +89,6 @@ export function CharacterCreator() {
   );
   useEffect(() => roomEvents.on('creator:open', () => setOpen(true)), []);
 
-  // While the creator is open it owns the keyboard, exactly like a panel —
-  // browsing outfits must not walk the avatar around the room.
-  //
-  // Escape closes the creator rather than the whole world, and on a first-ever
-  // visit it is SWALLOWED: declining still ends the walk because this layer
-  // captures keys, so a student who has not picked a character yet cannot press
-  // Escape and find themselves ejected from the room they just walked into.
-  useInputLayer(open, {
-    kind: 'modal',
-    name: 'character-creator',
-    capturesKeys: true,
-    onEscape: () => {
-      if (!chosen) return false;
-      setOpen(false);
-      return true;
-    },
-  });
-
   const urls = useMemo(() => selectionUrls(selection), [selection]);
 
   // The live preview: composite the five strips, then step the walk cycle.
@@ -162,8 +145,6 @@ export function CharacterCreator() {
     [setSelection],
   );
 
-  if (!open) return null;
-
   const labelFor = (layer: LayerKey): string => {
     const id = selection[layer];
     if (id === null) return 'None';
@@ -177,14 +158,26 @@ export function CharacterCreator() {
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-      <div className="max-h-full w-full max-w-xl overflow-y-auto rounded-panel border border-edge bg-surface p-5">
-        <h2 className="font-display text-lg font-semibold text-ink">Build your character</h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          This is you in every room. You can change it any time from the world.
-        </p>
-
-        <div className="mt-4 flex gap-5">
+    // A real dialog: focus is trapped, the background is inert, and focus
+    // returns to whatever opened it. This used to be a bare `absolute inset-0`
+    // div with a scrim — Tab from behind it walked straight through to the
+    // Leave link and the presence chips underneath.
+    //
+    // `dismissible` is false until a character has been chosen. On a first-ever
+    // entry there is nothing to cancel back to, and letting Escape or an
+    // outside click close it would leave the student in the world as nobody.
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && chosen) setOpen(false);
+      }}
+      dismissible={chosen}
+      title="Build your character"
+      description="This is you in every room. You can change it any time from the world."
+      className="w-[min(36rem,calc(100vw-2rem))]"
+    >
+      <div>
+        <div className="flex gap-5">
           <div className="flex shrink-0 items-start justify-center rounded-card border border-edge bg-page p-3">
             <canvas
               ref={canvasRef}
@@ -251,23 +244,13 @@ export function CharacterCreator() {
 
         <div className="mt-5 flex items-center justify-end gap-2">
           {chosen && (
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="rounded-card border border-edge px-3 py-1.5 text-sm text-ink-muted hover:text-ink"
-            >
+            <Button variant="secondary" onClick={() => setOpen(false)}>
               Cancel
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            onClick={save}
-            className="rounded-card bg-accent px-4 py-1.5 font-display text-sm font-semibold text-accent-ink hover:opacity-90"
-          >
-            {chosen ? 'Save' : "That's me"}
-          </button>
+          <Button onClick={save}>{chosen ? 'Save' : "That's me"}</Button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

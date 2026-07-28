@@ -75,7 +75,7 @@ export function DesktopOnlyGate({ roomId }: { roomId?: string }) {
           {roomId && (
             <Link
               to={`/rooms/${roomId}`}
-              className="rounded-card bg-accent px-3 py-1.5 font-display text-sm font-medium text-white hover:opacity-90"
+              className="rounded-card bg-accent px-3 py-1.5 font-display text-sm font-medium text-accent-ink hover:opacity-90"
             >
               Open the Workspace
             </Link>

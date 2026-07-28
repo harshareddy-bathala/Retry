@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { TooltipProvider } from './components/ui/tooltip.js';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
@@ -90,9 +91,11 @@ if (!rootElement) throw new Error('#root element missing');
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,
 );

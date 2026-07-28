@@ -22,7 +22,11 @@ async function student(browser: Browser, name: string): Promise<Page> {
 
 /** Open the panel rail's chat panel. Rooms have one; the Commons does not. */
 async function openChat(page: Page): Promise<void> {
-  await page.getByTitle(/chat/i).click();
+  // By accessible NAME, not by title attribute. The rail is icon-only, and a
+  // `title` is not a reliable name for assistive tech and shows nothing at all
+  // on touch — so the buttons carry aria-label and a tooltip instead. The name
+  // gains ", N unread" when messages are waiting.
+  await page.getByRole('button', { name: /^chat/i }).click();
   await page.getByPlaceholder(/message…/i).waitFor({ timeout: 10_000 });
 }
 
@@ -35,7 +39,7 @@ test.describe('rooms', () => {
     await ana.goto('/rooms');
     await ana.getByRole('button', { name: /new room/i }).click();
     const roomName = `Drive ${Date.now().toString(36)}`;
-    await ana.getByPlaceholder(/room name/i).fill(roomName);
+    await ana.getByLabel(/room name/i).fill(roomName);
     await ana.getByRole('combobox').first().selectOption('public');
     await ana.getByRole('button', { name: /create room/i }).click();
     await expect(ana.getByText(roomName)).toBeVisible();

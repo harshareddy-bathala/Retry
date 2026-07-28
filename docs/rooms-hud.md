@@ -98,7 +98,40 @@ goes.
 
 ---
 
-## 3. Phaser or DOM?
+## 3. Primitives, tokens, and the lint that guards them
+
+`apps/web/src/components/ui/` holds the whole set: `button`, `icon-button`,
+`dialog`, `tooltip`. Radix supplies **Dialog and Tooltip only** — taken for the
+focus trap, `aria-modal` and focus restore, which are the parts that hand-rolling
+gets subtly wrong. Everything else is written here.
+
+- **`text-accent-ink`, never `text-white`.** White on the copper accent is about
+  1.9:1 — a WCAG failure at any size — and it was written that way at six call
+  sites while the correct token was used at others, so the same button existed
+  in two incompatible versions.
+- **Semantic colour tokens only**: `success`, `danger`, `warn` and their
+  `-tint` / `-ink` pairs. Raw `emerald`/`red`/`amber` sat beside them and the
+  same state got drawn two different ways in two different files.
+- **Icon-only controls use `IconButton`, which requires a `label`.** It becomes
+  both the `aria-label` and the tooltip. A `title` attribute is not a reliable
+  name for assistive tech and shows nothing at all on touch — which is what the
+  rail used to ship, with the unread count as a purely visual badge that was
+  never announced.
+- **Icons are `lucide-react`, not emoji and not the pack's UI sheet.** Emoji
+  render as full colour on Windows, monochrome on Linux, and at different
+  metrics everywhere. The licensed `UI_32x32.png` is tempting and was declined:
+  it is non-redistributable raster, so routing chrome through it would mean the
+  HUD does not render without the pack — and raster cannot take `currentColor`,
+  so every hover and disabled state would need its own crop. Pixel art stays
+  *inside* the world, where the emote strip already is.
+
+`node scripts/lint-tokens.mjs` (wired into `pnpm lint`) enforces all of the
+above plus the two rules from sections 1 and 2 — no raw z-index, no bare
+`keydown` listener. ESLint cannot see inside a class string; this can.
+
+---
+
+## 4. Phaser or DOM?
 
 > Anything that must occlude, or be occluded by, world geometry lives in Phaser.
 > Anything that hosts a DOM media element lives in the overlay.
@@ -114,7 +147,7 @@ files, two coordinate systems, one implicit contract.
 
 ---
 
-## 4. The renderer, and the gate
+## 5. The renderer, and the gate
 
 **`Phaser.AUTO`, never `Phaser.WEBGL`.** Forcing WebGL for the performance is
 tempting and wrong: a machine that cannot create a WebGL context then renders

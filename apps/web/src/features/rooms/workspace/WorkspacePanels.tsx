@@ -68,14 +68,14 @@ export function WorkspacePanels({ roomId, selfUserId }: { roomId: string; selfUs
       {tab === 'whiteboard' && whiteboardOpen && (
         <Suspense
           fallback={
-            <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+            <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/40">
               <p className="rounded-panel bg-surface px-4 py-2 text-sm text-ink">
                 Loading whiteboard…
               </p>
             </div>
           }
         >
-          <div className="fixed inset-0 z-40">
+          <div className="fixed inset-0 z-modal">
             <WhiteboardPanel
               key={roomId}
               roomId={roomId}

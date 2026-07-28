@@ -8,6 +8,8 @@ import type {
   RoomSummary,
   RoomVisibility,
 } from '@retry/types';
+import { Button } from '../../components/ui/button.js';
+import { Dialog } from '../../components/ui/dialog.js';
 import { api, ApiError, getAccessToken } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
 import { formatWhen } from '../../lib/when.js';
@@ -443,42 +445,51 @@ function OwnerSettings({ room, onChanged }: { room: RoomSummary; onChanged: () =
         <p className="text-sm text-ink-muted">
           The chat, the board and the whiteboard go with it. This cannot be undone.
         </p>
-        {deleting ? (
-          <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => setDeleting(true)}
+          className="self-start border-danger/50 text-danger hover:bg-danger-tint"
+        >
+          Delete room
+        </Button>
+
+        {/* A real dialog rather than the form unfolding in place: this is the
+            one irreversible action in the room, and it deserves to take focus
+            and hold it until answered. */}
+        <Dialog
+          open={deleting}
+          onOpenChange={(next) => {
+            setDeleting(next);
+            if (!next) setConfirmName('');
+          }}
+          title={`Delete "${room.name}"?`}
+          description="The chat, the board and the whiteboard go with it. This cannot be undone."
+          className="w-[min(28rem,calc(100vw-2rem))]"
+        >
+          <label className="block">
+            <span className="font-display text-[13px] font-medium text-ink">
+              Type the room&apos;s name to confirm
+            </span>
             <input
               value={confirmName}
               onChange={(e) => setConfirmName(e.target.value)}
-              placeholder={`Type "${room.name}" to confirm`}
-              className="min-w-[16rem] flex-1 rounded-card border border-edge bg-page px-3 py-2 text-sm text-ink outline-none focus:border-danger"
+              placeholder={room.name}
+              className="mt-1.5 w-full rounded-card border border-edge bg-page px-3 py-2 text-sm text-ink outline-none focus:border-danger"
             />
-            <button
-              type="button"
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setDeleting(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
               disabled={confirmName !== room.name || destroy.isPending}
               onClick={() => destroy.mutate()}
-              className="rounded-card bg-danger px-4 py-2 font-display text-sm font-medium text-white disabled:opacity-50"
             >
               Delete for everyone
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setDeleting(false);
-                setConfirmName('');
-              }}
-              className="rounded-card border border-edge px-4 py-2 text-sm text-ink-muted hover:text-ink"
-            >
-              Cancel
-            </button>
+            </Button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setDeleting(true)}
-            className="self-start rounded-card border border-danger/50 px-4 py-2 text-sm text-danger hover:bg-danger-tint"
-          >
-            Delete room
-          </button>
-        )}
+        </Dialog>
       </div>
       {error && <p className="text-sm text-danger">{error}</p>}
     </section>
