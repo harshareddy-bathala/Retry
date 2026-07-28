@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { roomEvents } from '../event-bus.js';
+import { useInputLayer } from '../input/useInputLayer.js';
 import { ChatPanel } from './ChatPanel.js';
 import { KanbanPanel } from './KanbanPanel.js';
 import { PresencePanel } from './PresencePanel.js';
@@ -63,23 +64,22 @@ export function RoomPanels({ selfUserId }: RoomPanelsProps) {
     [roomId],
   );
 
-  // Tell the scene when a panel holds focus, and handle Escape.
   useEffect(() => {
-    roomEvents.emit('panel:state', { open: active !== null });
     if (active === 'chat') setUnread(0);
-    if (active === null) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      // CAPTURE phase, and preventDefault: WorldPage also listens for Escape to
-      // leave the world, and it listens on window from mount — so a bubble-phase
-      // handler here runs second and the panel closed only after the route had
-      // already changed. Escape now peels one layer at a time.
-      e.preventDefault();
-      setActive(null);
-    };
-    window.addEventListener('keydown', onKey, { capture: true });
-    return () => window.removeEventListener('keydown', onKey, { capture: true });
   }, [active]);
+
+  // An open panel owns the keyboard and owns Escape. Note this layer is NOT
+  // pushed for the whiteboard: that opens as its own modal layer which declines
+  // Escape, so the key reaches tldraw to deselect instead of closing the board.
+  useInputLayer(active !== null && active !== 'whiteboard', {
+    kind: 'sidebar',
+    name: `panel:${active ?? 'none'}`,
+    capturesKeys: true,
+    onEscape: () => {
+      setActive(null);
+      return true;
+    },
+  });
 
   if (!roomId) return null;
 

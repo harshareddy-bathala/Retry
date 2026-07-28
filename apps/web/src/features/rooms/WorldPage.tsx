@@ -8,6 +8,7 @@ import { CharacterCreator } from './CharacterCreator.js';
 import { AVControls } from './AVControls.js';
 import { DesktopOnlyGate, useCanRenderWorld } from './DesktopOnlyGate.js';
 import { EmoteBar } from './EmoteBar.js';
+import { useInputLayer, useInputRoot } from './input/useInputLayer.js';
 import { Minimap } from './Minimap.js';
 import { SayBar } from './SayBar.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
@@ -124,14 +125,21 @@ export default function WorldPage() {
     };
   }, []);
 
-  // Escape leaves the world — but only when no panel has taken the key first.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !e.defaultPrevented) navigate('/rooms');
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [navigate]);
+  // The world installs the single keydown listener and keeps Phaser in step
+  // with whoever currently owns the keyboard.
+  useInputRoot();
+
+  // The base layer, always at the bottom of the stack. Escape reaches it only
+  // once every panel, modal and text field above it has been peeled — so
+  // leaving the world is the LAST thing Escape can do, never the first.
+  useInputLayer(true, {
+    kind: 'canvas',
+    name: 'world',
+    onEscape: () => {
+      navigate('/rooms');
+      return true;
+    },
+  });
 
   const onToggleAv = (next: AvState): void => {
     setAv(next);

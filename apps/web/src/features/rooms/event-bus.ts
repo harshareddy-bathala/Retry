@@ -14,9 +14,15 @@ export type RoomEventMap = {
   'interact:whiteboard': undefined;
   'net:server-message': ServerMessage;
   'net:status': RoomSocketStatus;
-  // Phase 6: a panel holds keyboard focus — the scene must release input so
+  // Who owns the keyboard. Emitted by the input-layer stack
+  // (features/rooms/input/input-layers.ts) and by nothing else — the scene
+  // surrenders keys entirely whenever any DOM layer above it captures them, so
   // typing in chat never moves the avatar.
-  'panel:state': { open: boolean };
+  //
+  // This replaced a `panel:state` boolean that three components emitted
+  // independently. Closing the say bar while the chat panel was open said
+  // "nothing has focus" and re-enabled WASD mid-sentence. One owner, refcounted.
+  'input:canvas-keys': { enabled: boolean };
   // Reopen the character creator from the HUD (a look is editable, not a vow).
   'creator:open': undefined;
   // A rename repaints the name tag; it must not rebuild the world.

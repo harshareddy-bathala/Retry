@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { EMOTE_CHOICES, EMOTE_STRIP, TYPING_FRAME } from '@retry/maps/generated/emotes';
 import { roomEvents } from './event-bus.js';
+import { useHotkey } from './input/useInputLayer.js';
 
 // The emote bar. Eight reactions from the pack's thought-bubble atlas, picked
 // by click or by number key — the two ways people actually use these in a
@@ -20,25 +21,16 @@ const STRIP_PX = STRIP_FRAMES * BUTTON_PX;
 export function EmoteBar() {
   const [open, setOpen] = useState(false);
 
-  // 1..8 fire the emote in picker order without opening anything. Deliberately
-  // NOT captured: while a panel or the character creator holds the keyboard,
-  // typing "3" must stay a "3".
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
-      const target = e.target;
-      if (target instanceof HTMLElement) {
-        const tag = target.tagName;
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
-      }
-      const index = Number(e.key) - 1;
-      const choice = EMOTE_CHOICES[index];
-      if (!Number.isInteger(index) || index < 0 || !choice) return;
-      roomEvents.emit('self:emote', { key: choice.key });
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // 1..8 fire the emote in picker order without opening anything.
+  //
+  // Registered as CANVAS hotkeys, so they are inert the moment any layer above
+  // the canvas captures keys. The old version guarded on INPUT/TEXTAREA/
+  // contentEditable, and the whiteboard is none of those — picking a tldraw
+  // tool with "3" also broadcast an emote to the whole room.
+  useHotkey(['1', '2', '3', '4', '5', '6', '7', '8'], (e) => {
+    const choice = EMOTE_CHOICES[Number(e.key) - 1];
+    if (choice) roomEvents.emit('self:emote', { key: choice.key });
+  });
 
   // No pack, no strip — the world does not render at all in that state, but
   // this component is cheap to make honest rather than conditional upstream.

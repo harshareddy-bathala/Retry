@@ -9,6 +9,7 @@ import {
 import { CHARACTER_GEOMETRY, CHARACTER_LAYERS } from '@retry/maps/generated/characters';
 import { cn } from '../../lib/cn.js';
 import { roomEvents } from './event-bus.js';
+import { useInputLayer } from './input/useInputLayer.js';
 import { roomSocket } from './net/room-socket.js';
 
 // The character creator (FR-ROOM-24, grown from six presets into a builder).
@@ -89,24 +90,21 @@ export function CharacterCreator() {
 
   // While the creator is open it owns the keyboard, exactly like a panel —
   // browsing outfits must not walk the avatar around the room.
-  useEffect(() => {
-    if (!open) return;
-    roomEvents.emit('panel:state', { open: true });
-    // Escape closes the creator rather than the whole world. It is SWALLOWED
-    // even on a first-ever visit, when there is nothing to cancel back to: a
-    // student who has not picked a character yet pressing Escape should not be
-    // ejected from the room they just walked into.
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
-      if (chosen) setOpen(false);
-    };
-    window.addEventListener('keydown', onKey, { capture: true });
-    return () => {
-      window.removeEventListener('keydown', onKey, { capture: true });
-      roomEvents.emit('panel:state', { open: false });
-    };
-  }, [open, chosen]);
+  //
+  // Escape closes the creator rather than the whole world, and on a first-ever
+  // visit it is SWALLOWED: declining still ends the walk because this layer
+  // captures keys, so a student who has not picked a character yet cannot press
+  // Escape and find themselves ejected from the room they just walked into.
+  useInputLayer(open, {
+    kind: 'modal',
+    name: 'character-creator',
+    capturesKeys: true,
+    onEscape: () => {
+      if (!chosen) return false;
+      setOpen(false);
+      return true;
+    },
+  });
 
   const urls = useMemo(() => selectionUrls(selection), [selection]);
 

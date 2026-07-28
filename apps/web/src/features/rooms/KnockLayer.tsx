@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { roomEvents } from './event-bus.js';
+import { useInputLayer } from './input/useInputLayer.js';
 import { roomSocket } from './net/room-socket.js';
 
 // Knock UX (rooms build plan Phase 4).
@@ -93,20 +94,19 @@ export function KnockLayer() {
   );
 
   // While waiting at someone's door, Escape withdraws the knock — it must not
-  // fall through to WorldPage and drop you out of the world with a request
-  // still pending on the other side. Capture phase for the same reason as the
-  // panels: WorldPage's window listener is registered first.
-  useEffect(() => {
-    if (!myKnock) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault();
+  // fall through and drop you out of the world with a request still pending on
+  // the other side. This layer does NOT capture keys: you can still walk away
+  // from the door while you wait.
+  useInputLayer(myKnock !== null, {
+    kind: 'hud',
+    name: 'knock-pending',
+    onEscape: () => {
+      if (!myKnock) return false;
       roomSocket.send({ t: 'knockCancel', requestId: myKnock.requestId });
       setMyKnock(null);
-    };
-    window.addEventListener('keydown', onKey, { capture: true });
-    return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [myKnock]);
+      return true;
+    },
+  });
 
   const respond = (requestId: string, grant: boolean): void => {
     roomSocket.send({ t: 'knockRespond', requestId, grant });

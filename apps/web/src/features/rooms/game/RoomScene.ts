@@ -355,11 +355,12 @@ export class RoomScene extends Phaser.Scene {
       this.nameTag = this.buildPill(displayName, 0xffffff, '#2d2926');
       this.nameTag.setVisible(visible);
     });
-    // While a panel holds focus, the scene surrenders the keyboard entirely —
-    // "typing in chat never moves the avatar" (Phase 6 acceptance).
-    const unsubscribePanel = roomEvents.on('panel:state', ({ open }) => {
-      keyboard.enabled = !open;
-      if (open && this.currentTemplate) {
+    // While any DOM layer above the canvas holds the keyboard, the scene
+    // surrenders it entirely — "typing in chat never moves the avatar"
+    // (Phase 6 acceptance). The stack decides; the scene just obeys.
+    const unsubscribePanel = roomEvents.on('input:canvas-keys', ({ enabled }) => {
+      keyboard.enabled = enabled;
+      if (!enabled && this.currentTemplate) {
         keyboard.resetKeys();
         this.playerBody.setVelocity(0, 0);
         this.wasMoving = false;
