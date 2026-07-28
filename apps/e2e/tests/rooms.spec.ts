@@ -110,6 +110,50 @@ test.describe('rooms', () => {
     await ben.context().close();
   });
 
+  test('narrowing the window explains itself without dropping you out of the world', async ({
+    browser,
+  }) => {
+    // The gate used to be an early return, and `canRenderWorld` also sat in the
+    // connect effect's dependencies — so dragging a window narrower for one
+    // second disconnected the socket, stopped LiveKit and dropped the avatar
+    // out of the map, then rejoined from scratch on the way back. A slow drag
+    // across the boundary thrashed it dozens of times.
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await login(page, await createStudent('Resize Drive'));
+    await page.goto('/world');
+    await waitForWorld(page);
+    await dismissCreator(page);
+
+    // Count sockets from here on. A surviving session opens none.
+    await page.evaluate(() => {
+      const w = window as unknown as { __wsOpens: number };
+      w.__wsOpens = 0;
+      const Original = WebSocket;
+      const Counting = function (...args: unknown[]): WebSocket {
+        w.__wsOpens += 1;
+        return new (Original as unknown as new (...a: unknown[]) => WebSocket)(...args);
+      };
+      (window as unknown as { WebSocket: unknown }).WebSocket = Counting;
+    });
+
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(page.getByText(/needs a bigger screen/i)).toBeVisible();
+    // No game loop runs behind an explanation nobody can read past.
+    await expect(page.locator('canvas')).toHaveCount(0);
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByText(/needs a bigger screen/i)).toBeHidden();
+    await expect(page.getByText('Live', { exact: true })).toBeVisible();
+
+    const opened = await page.evaluate(
+      () => (window as unknown as { __wsOpens?: number }).__wsOpens ?? 0,
+    );
+    expect(opened, 'the session must survive a resize across the gate').toBe(0);
+
+    await context.close();
+  });
+
   test('a phone-sized viewport gets an explanation, not a broken canvas', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 480, height: 900 } });
     const page = await context.newPage();

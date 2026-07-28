@@ -1,59 +1,99 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { ART_SOURCE } from '@retry/maps/generated/tilesets';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
 import { CharacterCreator } from './CharacterCreator.js';
-import { AVControls } from './AVControls.js';
-import { DesktopOnlyGate, useCanRenderWorld } from './DesktopOnlyGate.js';
-import { EmoteBar } from './EmoteBar.js';
+import { DesktopOnlyGate, useWorldFit } from './DesktopOnlyGate.js';
+import { Dock } from './hud/Dock.js';
+import { RoomHud } from './hud/RoomHud.js';
+import { Sidebar } from './hud/Sidebar.js';
+import { SidebarRail } from './hud/SidebarRail.js';
+import { ToastRegion } from './hud/ToastRegion.js';
+import { TopBar } from './hud/TopBar.js';
+import { toastStore } from './hud/toast-store.js';
+import { hudStore, useHud } from './hud/hud-store.js';
 import { useInputLayer, useInputRoot } from './input/useInputLayer.js';
 import { Minimap } from './Minimap.js';
-import { SayBar } from './SayBar.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
 import { KnockLayer } from './KnockLayer.js';
-import { RoomPanels } from './panels/RoomPanels.js';
+import { useRoomPanels } from './panels/use-room-panels.js';
 import { roomEvents } from './event-bus.js';
 import { roomSocket } from './net/room-socket.js';
-import { PresenceStrip } from './PresenceStrip.js';
 import { RoomCanvas } from './RoomCanvas.js';
+
+// tldraw is enormous; only pull it when the whiteboard actually opens.
+const WhiteboardPanel = lazy(() => import('./panels/WhiteboardPanel.js'));
 
 const ROOM_WS_URL =
   (import.meta.env.VITE_ROOM_WS_URL as string | undefined) ?? 'ws://localhost:4100/ws';
 
+const STATIC_MAP_NAMES: Record<string, string> = {
+  commons: 'The Commons',
+  studio_a: 'Sandbox studio',
+};
+
 /**
- * Non-blocking connection banner (build plan Phase 8.1). Deliberately does not
- * cover the world: while it is up you can still walk around, and the people
- * around you are dimmed rather than deleted. 'failed' is the only state that
- * asks the student to do something, because it is the only one where waiting
- * will not help.
+ * Connection lifecycle, deliberately separated from anything about layout.
+ *
+ * Its dependencies are the user and the map and NOTHING else. `canRenderWorld`
+ * used to be in here, so narrowing the browser window past 1024px ran this
+ * effect's cleanup — disconnecting the socket, stopping LiveKit and dropping
+ * your avatar out of the map. The gate is a display decision; this is a session.
  */
-function ConnectionBanner() {
-  const status = useSyncExternalStore(roomSocket.subscribe, roomSocket.getStatus);
-  if (status === 'open' || status === 'closed' || status === 'connecting') return null;
-  const failed = status === 'failed';
-  return (
-    <div className="pointer-events-auto absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-3 rounded-card border border-amber-500/40 bg-surface/95 px-3 py-1.5 shadow-lg backdrop-blur">
-      <span
-        className={`inline-block h-2 w-2 rounded-full ${failed ? 'bg-red-500' : 'animate-pulse bg-amber-500'}`}
-      />
-      <p className="text-xs text-ink">
-        {failed
-          ? 'Lost the connection to the world.'
-          : 'Reconnecting — the people around you may be out of date.'}
-      </p>
-      {failed && (
-        <button
-          type="button"
-          onClick={() => roomSocket.rejoin()}
-          className="rounded-card border border-edge px-2.5 py-1 text-xs text-ink hover:bg-accent-tint"
-        >
-          Rejoin
-        </button>
-      )}
-    </div>
+function useRoomSession(userId: string | undefined, mapId: string | undefined, name: string): void {
+  const nameRef = useRef(name);
+  nameRef.current = name;
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!userId || !token) return;
+    // AV first: the manager must be listening before the server can push the
+    // avToken that follows the join snapshot.
+    avManager.start(loadAvState());
+    roomSocket.connect({
+      url: ROOM_WS_URL,
+      token,
+      mapId,
+      displayName: nameRef.current,
+      sprite: DEFAULT_SPRITE,
+    });
+    return () => {
+      roomSocket.disconnect();
+      avManager.stop();
+      toastStore.clear();
+    };
+  }, [userId, mapId]);
+}
+
+/** Connection state, as a toast rather than a floating banner of its own. */
+function useConnectionToast(): void {
+  useEffect(
+    () =>
+      roomSocket.subscribe(() => {
+        const status = roomSocket.getStatus();
+        if (status === 'open' || status === 'closed' || status === 'connecting') {
+          toastStore.dismiss('connection');
+          return;
+        }
+        toastStore.show(
+          status === 'failed'
+            ? {
+                id: 'connection',
+                tone: 'danger',
+                body: 'Lost the connection to the world.',
+                action: { label: 'Rejoin', run: () => roomSocket.rejoin() },
+              }
+            : {
+                id: 'connection',
+                tone: 'warn',
+                body: 'Reconnecting — the people around you may be out of date.',
+              },
+        );
+      }),
+    [],
   );
 }
 
@@ -61,29 +101,42 @@ function ConnectionBanner() {
 //
 // This route deliberately renders OUTSIDE AppShell: the app shell wraps its
 // children in `max-w-5xl px-4 py-8`, and a world inside an article column reads
-// as a widget no matter how good the art is. Everything that used to sit above
-// and below the canvas is now a HUD floating on top of it.
+// as a widget no matter how good the art is.
 export default function WorldPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const mapId = searchParams.get('map') ?? undefined;
-  const canRenderWorld = useCanRenderWorld();
+  const fit = useWorldFit();
   const [av, setAv] = useState<AvState>(loadAvState);
   const avRef = useRef(av);
   avRef.current = av;
 
-  // Being moved out of a room is jarring unless the world says why (R3).
-  const [notice, setNotice] = useState<string | null>(null);
+  const { sidebar, minimapOpen } = useHud();
+  const { roomId, unread, active, board } = useRoomPanels(user?.id ?? '');
+  const [placeName, setPlaceName] = useState<string | null>(null);
+
+  useRoomSession(user?.id, mapId, user?.name ?? '');
+  useConnectionToast();
+
+  // Name the place from the snapshot. A room instance has a uuid mapId, so the
+  // template is the only name available until the workspace names it properly.
   useEffect(
     () =>
       roomEvents.on('net:server-message', (msg) => {
+        if (msg.t === 'snapshot') {
+          setPlaceName(STATIC_MAP_NAMES[msg.mapId] ?? msg.template.replace(/_/g, ' '));
+        }
         if (msg.t !== 'evicted') return;
-        setNotice(
-          msg.reason === 'roomDeleted'
-            ? 'That room was deleted. You are back in the Commons.'
-            : 'You are no longer a member of that room. You are back in the Commons.',
-        );
+        toastStore.show({
+          id: 'evicted',
+          tone: 'warn',
+          dismissible: true,
+          body:
+            msg.reason === 'roomDeleted'
+              ? 'That room was deleted. You are back in the Commons.'
+              : 'You are no longer a member of that room. You are back in the Commons.',
+        });
       }),
     [],
   );
@@ -97,24 +150,21 @@ export default function WorldPage() {
     [],
   );
 
+  // Below the gate the SESSION survives but the canvas does not: there is no
+  // reason to run a game loop behind an explanation nobody can read past. The
+  // socket and the LiveKit room stay up, so widening the window puts you back
+  // where you were standing — a bare `join` is the protocol's own resync
+  // request, which is exactly what a scene with no world needs.
+  const wasGated = useRef(false);
   useEffect(() => {
-    const token = getAccessToken();
-    if (!user || !token || !canRenderWorld) return;
-    // AV first: the manager must be listening before the server can push the
-    // avToken that follows the join snapshot.
-    avManager.start(avRef.current);
-    roomSocket.connect({
-      url: ROOM_WS_URL,
-      token,
-      mapId,
-      displayName: user.name,
-      sprite: DEFAULT_SPRITE,
-    });
-    return () => {
-      roomSocket.disconnect();
-      avManager.stop();
-    };
-  }, [user, mapId, canRenderWorld]);
+    if (fit !== 'ok') {
+      wasGated.current = true;
+      return;
+    }
+    if (!wasGated.current) return;
+    wasGated.current = false;
+    roomSocket.send({ t: 'join' });
+  }, [fit]);
 
   // A world that fills the window must not also scroll the page behind it.
   useEffect(() => {
@@ -124,6 +174,10 @@ export default function WorldPage() {
       document.body.style.overflow = previous;
     };
   }, []);
+
+  // Back where you came from. "← Leave" always went to /rooms, even when you
+  // had walked in from a specific room's Workspace one click earlier.
+  const leaveTo = roomId ? `/rooms/${roomId}` : '/rooms';
 
   // The world installs the single keydown listener and keeps Phaser in step
   // with whoever currently owns the keyboard.
@@ -136,7 +190,7 @@ export default function WorldPage() {
     kind: 'canvas',
     name: 'world',
     onEscape: () => {
-      navigate('/rooms');
+      navigate(leaveTo);
       return true;
     },
   });
@@ -150,10 +204,9 @@ export default function WorldPage() {
 
   if (!user) return null;
 
-  // A phone gets an explanation, not a canvas it cannot drive. Checked before
-  // the art gate: on a phone the pack is irrelevant either way, and "install
-  // the art pack" would be advice nobody there can act on.
-  if (!canRenderWorld) return <DesktopOnlyGate roomId={mapId} />;
+  // A phone will never drive this world, so nothing is mounted and no session
+  // is opened. A NARROW DESKTOP is different — see the overlay below.
+  if (fit === 'pointer') return <DesktopOnlyGate roomId={mapId} />;
 
   // No licensed art, no world. The pack cannot be committed (its licence
   // forbids redistribution), so a fresh clone reaches here with typed stubs —
@@ -162,7 +215,7 @@ export default function WorldPage() {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-page">
         <div className="max-w-md rounded-panel border border-edge bg-surface p-6 shadow-lg">
-          <h1 className="font-display text-lg text-ink">The world's art is not built</h1>
+          <h1 className="font-display text-lg text-ink">The world&apos;s art is not built</h1>
           <p className="mt-2 text-sm text-ink-muted">
             Rooms are drawn from a licensed art pack that is not in the repository. Follow{' '}
             <code className="font-mono text-xs">docs/assets-setup.md</code> to get the pack, then
@@ -183,73 +236,64 @@ export default function WorldPage() {
   }
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-page">
-      <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
+    <>
+      <RoomHud
+        sidebarOpen={sidebar !== null && sidebar !== 'whiteboard' && roomId !== null}
+        top={<TopBar selfUserId={user.id} leaveTo={leaveTo} placeName={placeName} />}
+        stage={
+          <>
+            {fit === 'ok' && (
+              <>
+                <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
+                {minimapOpen && <Minimap selfUserId={user.id} />}
+              </>
+            )}
+            <ToastRegion />
+            <KnockLayer />
+          </>
+        }
+        dock={<Dock av={av} onToggleAv={onToggleAv} />}
+        rail={
+          <SidebarRail
+            active={active}
+            unread={unread}
+            minimapOpen={minimapOpen}
+            roomId={roomId}
+          />
+        }
+        sidebar={
+          <Sidebar active={active} roomId={roomId} selfUserId={user.id} board={board} />
+        }
+        modal={
+          <>
+            <CharacterCreator />
+            {active === 'whiteboard' && roomId && (
+              <Suspense
+                fallback={
+                  <div className="absolute inset-0 z-modal flex items-center justify-center bg-black/40">
+                    <p className="rounded-panel bg-surface px-4 py-2 text-sm text-ink">
+                      Loading whiteboard…
+                    </p>
+                  </div>
+                }
+              >
+                <WhiteboardPanel
+                  key={roomId}
+                  roomId={roomId}
+                  onClose={() => hudStore.closePanel()}
+                />
+              </Suspense>
+            )}
+          </>
+        }
+      />
 
-      {/* HUD. `pointer-events-none` on the frame so clicks fall through to the
-          world; each control re-enables them for itself. */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2">
-          <Link
-            to="/rooms"
-            className="rounded-card border border-edge bg-surface/90 px-3 py-1.5 font-display text-sm text-ink backdrop-blur hover:bg-surface"
-          >
-            ← Leave
-          </Link>
-          <div className="rounded-card border border-edge bg-surface/90 px-3 py-1.5 backdrop-blur">
-            <PresenceStrip
-              selfUserId={user.id}
-              onLocate={(userId) => roomEvents.emit('camera:locate', { userId })}
-            />
-          </div>
-        </div>
-
-        <ConnectionBanner />
-
-        {/* Bottom left: the panel rail owns the top-right corner. */}
-        <div className="absolute bottom-4 left-3 flex items-end gap-2">
-          <p className="rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur">
-            WASD or arrows · E to sit or enter · 1–8 to react
-          </p>
-          <SayBar />
-          <EmoteBar />
-          <button
-            type="button"
-            onClick={() => roomEvents.emit('creator:open')}
-            className="pointer-events-auto rounded-card border border-edge bg-surface/80 px-3 py-1.5 font-mono text-[11px] text-ink-muted backdrop-blur hover:text-ink"
-          >
-            Change look
-          </button>
-        </div>
-
-        {notice && (
-          <div className="pointer-events-auto absolute left-1/2 top-16 flex -translate-x-1/2 items-center gap-3 rounded-panel border border-edge bg-surface px-4 py-2.5 shadow-lg">
-            <p className="text-sm text-ink">{notice}</p>
-            <button
-              type="button"
-              onClick={() => setNotice(null)}
-              className="rounded-card border border-edge px-2.5 py-1 text-xs text-ink-muted hover:text-ink"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 rounded-panel border border-edge bg-surface/90 px-2 py-2 shadow-lg backdrop-blur">
-          <AVControls av={av} onToggle={onToggleAv} />
-        </div>
-
-        {/* Bottom right, clear of the panel rail at the top right. */}
-        <div className="absolute bottom-4 right-3">
-          <Minimap selfUserId={user.id} />
-        </div>
-
-        <div className="pointer-events-auto">
-          <KnockLayer />
-          <CharacterCreator />
-          <RoomPanels selfUserId={user.id} />
-        </div>
-      </div>
-    </div>
+      {/*
+        Narrow, but a real pointer: an OVERLAY, not an early return. The world,
+        the socket and the LiveKit room all keep running underneath, so widening
+        the window puts you back where you were standing instead of rejoining.
+      */}
+      {fit === 'narrow' && <DesktopOnlyGate roomId={roomId ?? mapId} />}
+    </>
   );
 }

@@ -24,9 +24,6 @@ export function PresencePanel({ roomId }: PresencePanelProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <p className="border-b border-edge px-3 py-2 font-mono text-[11px] uppercase text-ink-muted">
-        Members
-      </p>
       <div className="flex-1 overflow-y-auto px-3 py-2">
         {memberBlocked && (
           <p className="mb-2 rounded-card bg-page px-2 py-1.5 text-xs text-ink-muted">

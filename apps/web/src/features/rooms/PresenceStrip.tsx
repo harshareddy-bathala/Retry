@@ -1,6 +1,3 @@
-import { useSyncExternalStore } from 'react';
-import type { RoomSocketStatus } from './event-bus.js';
-import { roomSocket } from './net/room-socket.js';
 import { useRoomActors } from './useRoomActors.js';
 import { cn } from '../../lib/cn.js';
 
@@ -10,44 +7,22 @@ type PresenceStripProps = {
   onLocate?: (userId: string) => void;
 };
 
-const STATUS_LABEL: Record<RoomSocketStatus, string> = {
-  connecting: 'Connecting…',
-  open: 'Live',
-  reconnecting: 'Reconnecting…',
-  closed: 'Offline',
-  failed: 'Disconnected',
-};
-
 // Member strip (rooms build plan Phase 2): everyone currently in the map,
 // updated live from snapshot / actorJoin / actorLeave over the EventBus.
 //
-// Status is READ from the socket rather than accumulated from events. This
-// strip mounts and unmounts around route changes and transitions, so seeding
-// it with a guess left it showing a status the socket had already moved on
-// from — the "Reconnecting… while everything works" report.
+// This is WHO is here, and only that. Connection status used to sit in front of
+// the names, and once the world grew a top bar the same word appeared twice on
+// one row — the strip is a passenger in that bar now, so the bar owns status.
 export function PresenceStrip({ selfUserId, onLocate }: PresenceStripProps) {
   const actors = useRoomActors();
-  const status = useSyncExternalStore(roomSocket.subscribe, roomSocket.getStatus);
 
   const list = [...actors.values()].sort((a, b) =>
     a.userId === selfUserId ? -1 : b.userId === selfUserId ? 1 : a.displayName.localeCompare(b.displayName),
   );
 
   return (
-    <div className="flex items-center gap-3 rounded-panel border border-edge bg-surface px-4 py-2">
-      <span
-        className={cn(
-          'inline-block h-2 w-2 rounded-full',
-          status === 'open'
-            ? 'bg-emerald-500'
-            : status === 'closed' || status === 'failed'
-              ? 'bg-red-500'
-              : 'bg-amber-500',
-        )}
-        title={STATUS_LABEL[status]}
-      />
-      <span className="font-mono text-[11px] uppercase text-ink-muted">{STATUS_LABEL[status]}</span>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto">
         {list.map((actor) => {
           const isSelf = actor.userId === selfUserId;
           const label = (

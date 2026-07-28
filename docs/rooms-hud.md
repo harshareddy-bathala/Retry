@@ -1,0 +1,139 @@
+# The Live Space HUD
+
+Two contracts hold the world together. Both were learned by breaking them, and
+both are cheap to break again by accident.
+
+---
+
+## 1. Layout is a grid. Nothing positions itself.
+
+`apps/web/src/features/rooms/hud/RoomHud.tsx` and the `.room-hud` rules in
+`apps/web/src/styles/theme.css`.
+
+```
+grid-template-columns: minmax(0,1fr)  var(--hud-sidebar-w)  var(--hud-rail-w);
+grid-template-rows:    auto           minmax(0,1fr)         auto;
+
+  ┌──────────────────────────────────────────────┐
+  │ top          (spans everything)              │
+  ├──────────────────────────┬─────────┬─────────┤
+  │ stage                    │ sidebar │  rail   │
+  ├──────────────────────────┤         │         │
+  │ dock                     │         │         │
+  └──────────────────────────┴─────────┴─────────┘
+```
+
+**The sidebar is a column track, not an overlay.** `--hud-sidebar-w` is `0px`
+closed and `min(20rem, 30vw)` open, flipped by `data-sidebar` on the frame.
+When it opens the stage genuinely narrows, so the canvas, the minimap and the
+toasts move out of its way. There is nothing to overlap, and therefore no
+z-index to arbitrate.
+
+That is the whole design. The HUD it replaced was eight independently
+absolutely-positioned children with hand-picked insets, and at the supported
+minimum of 1024px three of them physically collided:
+
+- the AV controls (`left-1/2`) painted over the say bar (`left-3`, in a ~660px
+  row) and — being a later DOM sibling at the same z — swallowed its clicks;
+- an open panel (`right-14 w-80`) completely buried the minimap (`right-3`,
+  132px wide) **including its own "show map" button**, so there was no way to
+  get it back without closing the panel;
+- the knock toast sat at `z-20` and the panel rail at `z-30`, so somebody
+  knocking at the door while you had chat open rendered underneath the rail.
+
+### Rules
+
+- **A new control gets a slot, not an inset.** If it needs `absolute`, it
+  belongs *inside* the stage and is anchoring to the world, not to the viewport.
+- **The stage is `position: relative`.** Anything glued to the canvas anchors
+  there, which is what makes it move when the sidebar opens.
+- **Use the z tokens**, never a raw `z-40`: `z-world`, `z-overlay`, `z-hud`,
+  `z-sidebar`, `z-toast`, `z-modal`. Note that **toast outranks sidebar** —
+  that inversion is the knock-toast bug, fixed.
+- **The canvas needs the `ResizeObserver`** in `RoomCanvas.tsx`. Phaser's
+  `Scale.RESIZE` listens to `window.resize` and nothing else, so without it the
+  world silently keeps its old width when the sidebar opens and the camera fit
+  drifts. This is not optional decoration; it is what makes the canvas legal in
+  a moving grid track.
+
+---
+
+## 2. One keyboard, one owner.
+
+`apps/web/src/features/rooms/input/input-layers.ts`. There is exactly **one**
+`keydown` listener in the world, installed by `useInputRoot`.
+
+Push a layer with `useInputLayer(active, spec)`. Escape walks the stack from the
+top down:
+
+1. `onEscape()` returns `true` → handled: `preventDefault`, stop.
+2. the layer has `capturesKeys` → stop regardless, **without** `preventDefault`.
+3. otherwise, keep walking down.
+
+Rule 2 is the load-bearing one, and it does two jobs. It is how Escape reaches
+tldraw to deselect while the whiteboard panel stays open (a capturing layer with
+no `onEscape`), and it is how the character creator swallows Escape on a
+first-ever visit, where there is no previous look to cancel back to and being
+ejected from the room would be the worse outcome.
+
+Release is by **handle identity**, not by name or position, so two layers can
+close in either order and the canvas gets its keys back only when the last one
+goes.
+
+### Rules
+
+- **Never add a bare `window.addEventListener('keydown')` in a room component.**
+  Six of them used to coexist, three in the capture phase specifically to beat
+  the other three. That arrangement produced three bugs: Escape in the
+  whiteboard tore down the board mid-stroke; `3` in the whiteboard picked a
+  tldraw tool *and* broadcast an emote to the room; and closing the say bar
+  while the chat panel was open re-enabled Phaser's keyboard, so WASD walked
+  your avatar through your own sentence.
+- **World hotkeys go through `useHotkey`.** They go inert automatically under
+  any capturing layer. A tag check does not work — the whiteboard is a canvas,
+  which is neither an `INPUT` nor a `TEXTAREA`.
+- **Anything hosting a text input or a rich editor sets `capturesKeys`.**
+- Phaser hears about this over exactly one event, `input:canvas-keys`. The
+  scene obeys; the stack decides.
+
+---
+
+## 3. Phaser or DOM?
+
+> Anything that must occlude, or be occluded by, world geometry lives in Phaser.
+> Anything that hosts a DOM media element lives in the overlay.
+
+So: name tags, speech pills and emote bubbles are Phaser — they y-sort with the
+world and scale with camera zoom, and both would be wrong in DOM. AV bubbles are
+DOM, because a `<video>` cannot reach a Phaser texture without a per-frame GPU
+copy, and the bubble must host the video the instant a track arrives.
+
+The pixel offsets shared across that boundary live in one place, `overlay-metrics.ts`.
+They used to be duplicated in `BubbleOverlay.tsx` and `RoomScene.ts` — two
+files, two coordinate systems, one implicit contract.
+
+---
+
+## 4. The renderer, and the gate
+
+**`Phaser.AUTO`, never `Phaser.WEBGL`.** Forcing WebGL for the performance is
+tempting and wrong: a machine that cannot create a WebGL context then renders
+*nothing* — a black rectangle where the world should be, with no error. Headless
+browsers are the obvious case, but so is an old campus lab machine. A slow world
+beats no world. The Canvas fallback is reported as a toast rather than being
+silent, which was the actual complaint.
+
+**The gate distinguishes `narrow` from `pointer`, and the difference matters.**
+
+- `pointer` is a phone. It will never drive this world whatever happens to the
+  viewport, so nothing mounts and no socket opens.
+- `narrow` is a desktop window one drag away from working. **The session
+  survives**: the socket and the LiveKit room stay up and only the canvas
+  unmounts, so widening puts you back where you were standing. Re-mounting
+  sends a bare `join`, which is the protocol's own resync request.
+
+Both used to be one early return, and `canRenderWorld` also sat in the connect
+effect's dependency array — so dragging a window narrower for one second
+disconnected you, and a slow drag across the boundary thrashed connect/disconnect
+dozens of times. `apps/e2e/tests/rooms.spec.ts` counts `WebSocket` constructions
+across a resize cycle and asserts zero.

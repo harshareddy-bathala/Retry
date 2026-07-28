@@ -151,9 +151,6 @@ export function ChatPanel({ roomId, selfUserId, canSpeakNearby = false }: ChatPa
 
   return (
     <div className="flex h-full flex-col">
-      <p className="border-b border-edge px-3 py-2 font-mono text-[11px] uppercase text-ink-muted">
-        Chat
-      </p>
       <div
         ref={scrollRef}
         onScroll={(e) => {

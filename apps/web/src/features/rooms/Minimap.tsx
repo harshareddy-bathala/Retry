@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { avatarTilePositions, minimapWorld } from './avatar-positions.js';
+import { useHud } from './hud/hud-store.js';
 
 // A small plan of the room, with a dot per person.
 //
@@ -11,7 +12,6 @@ import { avatarTilePositions, minimapWorld } from './avatar-positions.js';
 // Drawn on a canvas from the same per-frame store the bubble overlay uses. It
 // never re-renders React: the whole thing is one rAF loop writing pixels.
 
-const STORAGE_KEY = 'retry.rooms.minimap';
 /** Longest side of the drawing, in CSS pixels. Rooms are wider than they are tall. */
 const MAX_PX = 132;
 /** Smallest a room may draw at, so a 20x15 studio is not a postage stamp. */
@@ -21,12 +21,11 @@ type Props = { selfUserId: string };
 
 export function Minimap({ selfUserId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [open, setOpen] = useState(() => localStorage.getItem(STORAGE_KEY) !== 'closed');
+  // Visibility lives in the HUD store, and its toggle lives on the rail. It
+  // used to be local state with the toggle button attached to the map itself,
+  // which meant an open panel covered the map AND the only way to get it back.
+  const { minimapOpen: open } = useHud();
   const [size, setSize] = useState({ w: MAX_PX, h: MAX_PX });
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, open ? 'open' : 'closed');
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -92,24 +91,16 @@ export function Minimap({ selfUserId }: Props) {
     return () => cancelAnimationFrame(raf);
   }, [open, selfUserId]);
 
+  if (!open) return null;
+
+  // Anchored to the STAGE, not the viewport: when the sidebar opens the stage
+  // narrows and the map slides with it, instead of being buried under a panel.
   return (
-    <div className="pointer-events-auto flex flex-col items-end gap-1">
-      {open && (
-        <canvas
-          ref={canvasRef}
-          aria-hidden
-          style={{ width: size.w, height: size.h, imageRendering: 'pixelated' }}
-          className="rounded-card border border-edge shadow-lg"
-        />
-      )}
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        className="rounded-card border border-edge bg-surface/90 px-2 py-1 font-mono text-[10px] text-ink-muted backdrop-blur hover:text-ink"
-      >
-        {open ? 'Hide map' : 'Map'}
-      </button>
-    </div>
+    <canvas
+      ref={canvasRef}
+      aria-hidden
+      style={{ width: size.w, height: size.h, imageRendering: 'pixelated' }}
+      className="pointer-events-none absolute bottom-3 right-3 z-hud rounded-card border border-edge shadow-lg"
+    />
   );
 }

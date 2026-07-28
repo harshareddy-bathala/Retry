@@ -14,38 +14,52 @@ import { Link } from 'react-router-dom';
 
 const MIN_WIDTH_PX = 1024;
 
+const WIDE = `(min-width: ${MIN_WIDTH_PX}px)`;
+const COARSE = '(pointer: coarse)';
+
 /**
- * Whether this device can drive the world. Both conditions matter: a narrow
- * desktop window is a resize away from working, but a coarse pointer means
- * there is no keyboard, which no amount of resizing fixes.
+ * Why the world cannot draw here — and the two answers mean different things.
+ *
+ * `pointer` is a phone. It will never drive this world no matter what happens
+ * to the viewport, so there is nothing to keep alive: mount no canvas, open no
+ * socket, and say so.
+ *
+ * `narrow` is a desktop window one drag away from working. That session must
+ * SURVIVE. The gate used to be an early return for both cases, and because
+ * `canRenderWorld` also sat in the connect effect's dependencies, dragging a
+ * window narrower for one second disconnected the socket, stopped LiveKit and
+ * dropped your avatar out of the map — then rejoined from scratch on the way
+ * back. A slow drag across the boundary thrashed it dozens of times.
  */
-function canRenderWorld(): boolean {
-  if (typeof window === 'undefined') return true;
-  const coarse = window.matchMedia('(pointer: coarse)').matches;
-  return !coarse && window.innerWidth >= MIN_WIDTH_PX;
+export type WorldFit = 'ok' | 'narrow' | 'pointer';
+
+function measure(): WorldFit {
+  if (typeof window === 'undefined') return 'ok';
+  if (window.matchMedia(COARSE).matches) return 'pointer';
+  return window.matchMedia(WIDE).matches ? 'ok' : 'narrow';
 }
 
-export function useCanRenderWorld(): boolean {
-  const [ok, setOk] = useState(canRenderWorld);
+/**
+ * Two media queries, not a resize listener. `matchMedia` fires only when a
+ * threshold is actually crossed, so this is not a debounced resize handler —
+ * it is the absence of one.
+ */
+export function useWorldFit(): WorldFit {
+  const [fit, setFit] = useState(measure);
   useEffect(() => {
-    // A desktop user who narrows the window should get the explanation, and
-    // get the world back when they widen it again.
-    const update = (): void => setOk(canRenderWorld());
-    window.addEventListener('resize', update);
-    const pointer = window.matchMedia('(pointer: coarse)');
-    pointer.addEventListener('change', update);
-    return () => {
-      window.removeEventListener('resize', update);
-      pointer.removeEventListener('change', update);
-    };
+    const queries = [window.matchMedia(WIDE), window.matchMedia(COARSE)];
+    const update = (): void => setFit(measure());
+    queries.forEach((q) => q.addEventListener('change', update));
+    update();
+    return () => queries.forEach((q) => q.removeEventListener('change', update));
   }, []);
-  return ok;
+  return fit;
 }
 
 /** Shown instead of the canvas. Modelled on the missing-art setup screen. */
 export function DesktopOnlyGate({ roomId }: { roomId?: string }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-page p-6">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-page p-6">
       <div className="max-w-md rounded-panel border border-edge bg-surface p-6 shadow-lg">
         <h1 className="font-display text-lg text-ink">The world needs a bigger screen</h1>
         <p className="mt-2 text-sm text-ink-muted">
