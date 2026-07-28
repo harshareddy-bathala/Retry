@@ -6,6 +6,46 @@
 
 ## Current State
 
+**Rooms R8 — AV, run for the first time (2026-07-28).** The line above this
+entry said "AV has never run" for three weeks. It does now.
+
+*The whole of turning it on* was a `livekit-server --dev` service in
+`docker-compose.yml` and three env lines. `env.ts` already treated "all three
+set" as the switch and the `avToken` schema already accepted `ws://localhost`,
+so **no application code changed** to go from never-run to running. Two flags in
+the compose file are load-bearing: `--bind 0.0.0.0` (LiveKit binds its signal
+server to 127.0.0.1, which in a container is unreachable) and `--node-ip
+127.0.0.1` (otherwise it advertises a 172.x address in its ICE candidates —
+signalling succeeds, tracks report subscribed, and no packet ever arrives, which
+from the UI is indistinguishable from a muted mic).
+
+*The mechanic is confirmed.* `av.spec.ts` asserts what the whole AV design rests
+on and nothing had ever checked: walking away **drops** the subscription rather
+than muting it. That is invisible from the DOM — subscribed and muted render the
+same bubble, initials and silence — so it reads the LiveKit room through a
+dev-only probe, and counts inbound RTP bytes, because `isSubscribed` alone would
+pass with a broken ICE path.
+
+*Mic and camera now default OFF.* They defaulted on, which was harmless for
+exactly as long as no server existed; the day one did, that default meant every
+student who opened a room began broadcasting having agreed to nothing. A
+pre-join check ("Can they hear you?") with a live level meter is offered once
+per session, answering the failure `AVControls.tsx` has named in a comment since
+it was written: a silent room is indistinguishable from a broken one.
+
+*Screen share bypasses proximity*, deliberately and as the only exception: a
+demo is for the room, and a five-tile radius means the back row watches someone
+gesture at a screen they cannot see. Their audio still follows proximity.
+Spatial audio is written, driven and **off behind a runtime flag**, because the
+open question is not whether it works but whether it earns its CPU.
+
+*Three bugs found by reading, and four by driving.* `setLocal` never reported a
+mic denial (only `switchRoom` did), so unmuting into a refusal was silent. The
+AudioContext was built on the first remote track, long after any gesture, so it
+could start suspended. And `livekit-check.ts` crashed on its own **success**
+path — the expected 401 leaves a socket that `close()` throws on — which nobody
+had found because there had never been a server to run it against.
+
 **Rooms R7 — the world, rebuilt (2026-07-28).** Eight commits reworking
 `apps/web/src/features/rooms` and all five maps. The complaint that started it
 was "everything is broken in the UI", and rendering the old maps side by side
@@ -67,7 +107,10 @@ canvas with a live socket is the failure mode types cannot see.
 
 *Verification.* 181 tests (100 room-server, 52 API, 18 maps, 12 protocol) plus a **committed browser drive** (`apps/e2e`, two students over system Edge — presence, nearby speech vs room chat, typing, Escape, walking, and the phone gate) and a load script: **50 sockets, p50 1.9 ms / p95 67.8 ms / p99 100.4 ms** against the 150 ms NFR-PERF-06 budget. Three real bugs came out of driving it rather than testing it: `typing` and nearby `chat` were both refused in the Commons because each checked "am I in a room?" before looking at what was being asked; `actorTyping` was missing from `WATCHER_EVENTS` so no Workspace ever saw it; and a Phaser game torn down before its first step left its canvas behind, stacked over the live one, so the world rendered as a black rectangle under StrictMode.
 
-**Still open: AV has never run.** LiveKit is coded, unit-tested and shipped **off** — no server is provisioned, so the four items below remain unverified. That is the largest single gap before a real beta.
+**~~Still open: AV has never run.~~ It runs — see R8 above (2026-07-28).** Kept
+here rather than deleted, because it stood as the largest gap in this document
+for three weeks and the shape of the fix is the point: nothing was wrong with
+the code, there was simply nowhere to point it.
 
 **Renamed Foundry → Retry (2026-07-25, ADR-011).** One mechanical pass across 103 files: package scope `@foundry/*` → `@retry/*`, root package, spec filenames (`foundry_srs.md` → `retry_srs.md` and siblings, via `git mv` so history follows), env vars, CI, docker-compose, systemd/deploy paths in `DEPLOYMENT.md`, the `foundry_refresh` cookie, the `foundry.rooms.av` localStorage key, and every user-facing string. **No domain is hard-coded anywhere** — the domain is still unchosen (availability decides), so `API_BASE_URL`/`WEB_BASE_URL` remain env vars and the deploy docs say `<domain>`. The local database was renamed in place (`ALTER DATABASE foundry RENAME TO retry`, same for `foundry_test`, plus `ALTER ROLE`) — no volume wipe, all 10 dev accounts and 5 dev rooms intact. Verified: 7 workspaces typecheck + lint clean, 83 tests green (36 api incl. integration, 41 room-server, 6 maps), and a headless-Edge drive — login → Rooms tab → live world → walk — 9/9 checks. Developers need `pnpm install` (package scope changed) and will be logged out once (cookie name changed).
 
@@ -105,13 +148,13 @@ canvas with a live socket is the failure mode types cannot see.
 | Phase 2 — Lineage, Social & Feed (M3) | Fork, CTE traversal, social, ranked feeds | 🔲 Not started |
 | Phase 3 — Grading Pipeline (M4–5) | Submit → AI → faculty approval → release | 🔲 Not started |
 | Phase 4 — Rooms: Workspace (M6–7) | WS server, context, blueprint, kanban, chat, journey | ✅ Shipped (2026-07-25, rooms track R4) |
-| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, **LiveKit**, tldraw | ✅ Shipped (2026-07-26, rooms R5) — **AV never run** |
+| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, **LiveKit**, tldraw | ✅ Shipped (2026-07-26, rooms R5); AV exercised locally 2026-07-28 (R8) — **VPS still unprovisioned** |
 | Phase 6 — Idea Hub + Hardening (M9–10) | Ideas, FRs, alumni, perf/security pass, **P1 launch** | 🔲 Not started |
 | Phase 7 — P2 + Pilot (M11–12) | Assignments, exports, follows, AI FRs, polish | 🔲 Not started |
 
 The rooms run on their own track (R2–R6 above, plus the "rooms build plan" Phase 0–8), which is why this table and the prose disagreed for a while. Two live deviations from the original design, both deliberate:
 
-- **LiveKit replaced Daily.co** (ADR-012) and has **never been run against a real server**. This is the largest gap before a beta.
+- **LiveKit replaced Daily.co** (ADR-012) and now runs locally via `docker compose` (R8). The remaining gap is the NETWORK, not the code: TURN on TCP/443 is mandatory on Indian campus and mobile networks and has never been exercised. `docs/livekit-vps.md` is the runbook; `infra/livekit/setup.sh` runs it.
 - **Workspace and Live Space are separate routes** (`/rooms/:id` and `/world?map=`) with separate sockets. Leaving the world tears down Phaser, the WebSocket and LiveKit. Unifying them is scoped but not scheduled.
 
 ## Phase 0 Checklist (current phase — next actions)

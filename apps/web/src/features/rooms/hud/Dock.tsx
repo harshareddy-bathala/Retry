@@ -1,5 +1,7 @@
-import { HelpCircle, SlidersHorizontal, UserRound } from 'lucide-react';
+import { HelpCircle, MonitorUp, MonitorX, SlidersHorizontal, UserRound } from 'lucide-react';
+import { useState } from 'react';
 import { IconButton } from '../../../components/ui/icon-button.js';
+import { avManager } from '../av/av-manager.js';
 import { AVControls } from '../AVControls.js';
 import { EmoteBar } from '../EmoteBar.js';
 import { roomEvents } from '../event-bus.js';
@@ -29,6 +31,11 @@ const KEYS = [
  * One row, one flow, no insets. It cannot overlap itself.
  */
 export function Dock({ av, onToggleAv }: DockProps) {
+  // Sharing is NOT part of AvState and so is not persisted: coming back to a
+  // page and finding yourself still presenting your desktop is a privacy
+  // failure, not a convenience. It lives for as long as this component does.
+  const [sharing, setSharing] = useState(false);
+
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 border-t border-edge bg-surface/80 px-3 py-2 backdrop-blur">
       <AVControls av={av} onToggle={onToggleAv} />
@@ -37,6 +44,19 @@ export function Dock({ av, onToggleAv }: DockProps) {
 
       <SayBar />
       <EmoteBar />
+
+      <IconButton
+        label={sharing ? 'Stop sharing your screen' : 'Share your screen'}
+        aria-pressed={sharing}
+        side="top"
+        onClick={() => {
+          void avManager.setScreenShare(!sharing).then(setSharing);
+        }}
+        icon={
+          sharing ? <MonitorX size={18} aria-hidden /> : <MonitorUp size={18} aria-hidden />
+        }
+        className={sharing ? 'text-accent hover:text-accent' : undefined}
+      />
 
       <IconButton
         label="Check mic and camera"

@@ -5,6 +5,14 @@
 
 export type PeerAv = {
   videoTrack: MediaStreamTrack | null;
+  /**
+   * A shared screen, kept separate from the camera on purpose.
+   *
+   * They are not interchangeable: a camera goes in a 72px circle and a screen
+   * does not. Reusing one field would mean either cropping someone's slides
+   * into a bubble or blowing their face up to fill the world.
+   */
+  screenTrack: MediaStreamTrack | null;
   speaking: boolean;
 };
 
@@ -45,8 +53,29 @@ class AvStoreImpl {
   setVideoTrack(userId: string, track: MediaStreamTrack | null): void {
     const current = this.peers.get(userId);
     if ((current?.videoTrack ?? null) === track) return;
-    this.peers.set(userId, { videoTrack: track, speaking: current?.speaking ?? false });
+    this.peers.set(userId, {
+      videoTrack: track,
+      screenTrack: current?.screenTrack ?? null,
+      speaking: current?.speaking ?? false,
+    });
     this.commit();
+  }
+
+  setScreenTrack(userId: string, track: MediaStreamTrack | null): void {
+    const current = this.peers.get(userId);
+    if ((current?.screenTrack ?? null) === track) return;
+    this.peers.set(userId, {
+      videoTrack: current?.videoTrack ?? null,
+      screenTrack: track,
+      speaking: current?.speaking ?? false,
+    });
+    this.commit();
+  }
+
+  /** Whoever is presenting, or null. At most one screen is shown at a time. */
+  getSharer(): string | null {
+    for (const [userId, peer] of this.peers) if (peer.screenTrack) return userId;
+    return null;
   }
 
   /** Active-speaker model: at most one speaking peer at a time. */
@@ -60,7 +89,7 @@ class AvStoreImpl {
       }
     }
     if (userId && !this.peers.has(userId)) {
-      this.peers.set(userId, { videoTrack: null, speaking: true });
+      this.peers.set(userId, { videoTrack: null, screenTrack: null, speaking: true });
       changed = true;
     }
     if (changed) this.commit();

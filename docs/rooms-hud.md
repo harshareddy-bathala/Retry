@@ -217,3 +217,50 @@ Two consequences worth knowing before touching this:
 
 A sheet that fails to load raises a toast and lets `buildWorld` throw a named
 error into the ErrorBoundary — which beats a black rectangle with a live socket.
+
+
+## AV: what is decided where
+
+Three different things govern whether you can hear someone, and keeping them
+apart is what makes the system explainable:
+
+| Decision | Owner | Mechanism |
+|---|---|---|
+| Am I publishing? | the student | `AvState`, persisted, **default off** |
+| Can I hear *them*? | the server | proximity + map zones → `subscribe`/`unsubscribe` |
+| How loud? | the client | WebAudio gain, ramped 200 ms |
+
+The zone gain is an **envelope over server policy**, not a volume control:
+`out` is 0 because the track is unsubscribed, not because it is far away. That
+is why the optional `PannerNode` is inserted *before* the gain — downstream, it
+could make an unsubscribed peer audible and would be overruling the server from
+the client.
+
+**Screen share is the one exception to proximity**, and it is deliberate. A
+demo is for the room; a five-tile radius would mean the back row watches someone
+gesture at a screen they cannot see. Their *audio* still follows proximity —
+sharing a screen is not on its own a claim on everyone's ears, and `spotlight`
+(Phase 6) is how that claim is made.
+
+Screen share renders into the **`stage` grid area**, dimming the world rather
+than unmounting it: Phaser keeps running, avatars keep moving, and closing the
+share does not mean rebuilding the world.
+
+### Spatial audio
+
+Off. `localStorage.setItem('retry.rooms.spatial', 'on')` and reload. It is a
+runtime switch rather than a build flag because the open question is not whether
+it works but whether it earns its CPU on a lab machine with eight people in
+earshot — and only someone listening on that hardware can answer it.
+
+### Testing AV
+
+`apps/e2e/tests/av.spec.ts`, in its own Playwright project (`edge-av`) with a
+fake camera and synthetic mic. The default project has **no media devices at
+all**, which is a supported state the other specs quietly cover — granting
+permissions globally would delete that coverage.
+
+It asserts through `window.__av()` rather than the DOM, because subscribed and
+muted render identically: same bubble, same initials, same silence. And it
+counts inbound RTP bytes, because `isSubscribed` is a signalling fact — with a
+broken ICE path every subscription still reports true and the room is silent.

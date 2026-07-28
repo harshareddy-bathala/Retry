@@ -12,7 +12,39 @@ import type { ServerMessage, Zone } from '@retry/protocol';
 import { reportWarning } from '../../../lib/report.js';
 import { roomEvents } from '../event-bus.js';
 import type { AvState } from '../av-state.js';
+import { avatarTilePositions } from '../avatar-positions.js';
 import { avStore } from './av-store.js';
+
+/**
+ * Position an AudioListener or PannerNode.
+ *
+ * Both grew AudioParam `positionX/Y/Z` and both still carry a deprecated
+ * `setPosition`, and which one exists depends on the browser — Safari only
+ * shipped the params recently. Ramping to the value rather than setting it
+ * avoids a zipper noise when someone walks.
+ */
+function setXYZ(
+  node: AudioListener | PannerNode,
+  x: number,
+  y: number,
+  z: number,
+  now: number,
+): void {
+  const target = node as unknown as {
+    positionX?: AudioParam;
+    positionY?: AudioParam;
+    positionZ?: AudioParam;
+    setPosition?: (x: number, y: number, z: number) => void;
+  };
+  if (target.positionX && target.positionY && target.positionZ) {
+    const ease = now + 1 / PANNER_HZ;
+    target.positionX.linearRampToValueAtTime(x, ease);
+    target.positionY.linearRampToValueAtTime(y, ease);
+    target.positionZ.linearRampToValueAtTime(z, ease);
+  } else {
+    target.setPosition?.(x, y, z);
+  }
+}
 
 // LiveKit session manager (rooms Phase 5; migrated from Daily.co — ADR-012).
 // One Room connection per map instance; a door transition disconnects the old
@@ -29,10 +61,38 @@ const GAIN_BY_ZONE: Record<Zone, number> = { close: 1.0, near: 0.5, out: 0 };
 // An abrupt gain change is audible; ramp over 200ms (plan §3).
 const GAIN_RAMP_S = 0.2;
 
+/**
+ * Spatial audio: OFF unless someone turns it on.
+ *
+ * `localStorage.setItem('retry.rooms.spatial', 'on')` and reload. Deliberately
+ * a runtime switch rather than a build flag, because the open question is not
+ * "does it work" — it is whether it is worth its cost on a lab machine with
+ * eight people in earshot, and that can only be answered by someone listening
+ * on the hardware in question.
+ *
+ * Honest about the trade: with a hard 5-tile cutoff the perceptual win is real
+ * but modest — you can tell left from right, and that is roughly it — while
+ * HRTF panning costs measurable CPU per stream and starts to show above about
+ * six concurrent.
+ */
+const SPATIAL_KEY = 'retry.rooms.spatial';
+function spatialEnabled(): boolean {
+  try {
+    return localStorage.getItem(SPATIAL_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+/** How often panner positions are refreshed. Ears do not resolve faster. */
+const PANNER_HZ = 10;
+
 type AudioChain = {
   trackId: string;
   source: MediaStreamAudioSourceNode;
   gain: GainNode;
+  /** Present only when spatial audio is on. */
+  panner: PannerNode | null;
   // Chrome quirk: a remote WebRTC track is silent in WebAudio unless it is
   // also attached to a (muted) HTMLAudioElement. Long-standing crbug/121673.
   el: HTMLAudioElement;
@@ -48,6 +108,7 @@ class AvManager {
   private ops: Promise<void> = Promise.resolve();
   private audioCtx: AudioContext | null = null;
   private chains = new Map<string, AudioChain>();
+  private pannerTimer: ReturnType<typeof setInterval> | null = null;
 
   start(local: AvState): void {
     this.local = local;
@@ -65,6 +126,7 @@ class AvManager {
       if (room) await room.disconnect().catch(() => undefined);
     });
     for (const userId of [...this.chains.keys()]) this.dropAudioChain(userId);
+    this.stopPannerLoop();
     void this.audioCtx?.close().catch(() => undefined);
     this.audioCtx = null;
     avStore.clear();
@@ -227,8 +289,13 @@ class AvManager {
       this.attachTrack(p.identity, track),
     );
     room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
-      if (track.kind === Track.Kind.Video) avStore.setVideoTrack(p.identity, null);
-      else this.dropAudioChain(p.identity);
+      if (track.kind !== Track.Kind.Video) {
+        this.dropAudioChain(p.identity);
+      } else if (track.source === Track.Source.ScreenShare) {
+        avStore.setScreenTrack(p.identity, null);
+      } else {
+        avStore.setVideoTrack(p.identity, null);
+      }
     });
     room.on(RoomEvent.ParticipantDisconnected, (p: RemoteParticipant) => {
       this.dropAudioChain(p.identity);
@@ -246,7 +313,11 @@ class AvManager {
 
   private attachTrack(userId: string, track: RemoteTrack): void {
     if (track instanceof RemoteVideoTrack) {
-      avStore.setVideoTrack(userId, track.mediaStreamTrack);
+      if (track.source === Track.Source.ScreenShare) {
+        avStore.setScreenTrack(userId, track.mediaStreamTrack);
+      } else {
+        avStore.setVideoTrack(userId, track.mediaStreamTrack);
+      }
     } else if (track instanceof RemoteAudioTrack) {
       // Routed through WebAudio rather than LiveKit's setVolume so a zone
       // change can be RAMPED — an instant volume step is audible.
@@ -255,14 +326,50 @@ class AvManager {
     }
   }
 
-  /** Subscribe/unsubscribe every publication of a peer according to its zone. */
+  /**
+   * Subscribe/unsubscribe every publication of a peer according to its zone —
+   * EXCEPT a shared screen, which ignores distance entirely.
+   *
+   * This one line is the difference between a demo and a huddle. Proximity is
+   * right for conversation: you hear who you are standing near. It is exactly
+   * wrong for a presentation, where the whole point is that everyone can see
+   * it, and a five-tile radius would mean the back of the room watches someone
+   * gesture at a screen they cannot see.
+   *
+   * The AUDIO of a presenter still follows proximity. Use the `spotlight` zone
+   * (Phase 6) if they should be heard across the map too — sharing a screen is
+   * not on its own a claim on everyone's ears.
+   */
   private applySubscription(userId: string): void {
     const participant = this.room?.remoteParticipants.get(userId);
     if (!participant) return;
     const zone = this.zones.get(userId);
-    const wanted = zone === 'close' || zone === 'near';
+    const near = zone === 'close' || zone === 'near';
     for (const publication of participant.trackPublications.values()) {
+      const wanted = publication.source === Track.Source.ScreenShare ? true : near;
       if (publication.isSubscribed !== wanted) publication.setSubscribed(wanted);
+    }
+  }
+
+  /**
+   * Start or stop sharing this screen.
+   *
+   * Not part of `AvState`: mic and camera are persisted intent that survives a
+   * reload, and a screen share is not — coming back to a page and finding
+   * yourself still presenting your desktop is a privacy failure, not a
+   * convenience.
+   */
+  async setScreenShare(enabled: boolean): Promise<boolean> {
+    const room = this.room;
+    if (!room) return false;
+    try {
+      await room.localParticipant.setScreenShareEnabled(enabled);
+      return enabled;
+    } catch (err) {
+      // Cancelling the browser's own picker lands here, and is not an error —
+      // it is the answer "no".
+      reportWarning('rooms: screen share not started', err);
+      return false;
     }
   }
 
@@ -285,8 +392,70 @@ class AvManager {
     const source = ctx.createMediaStreamSource(stream);
     const gain = ctx.createGain();
     gain.gain.value = 0; // fade in from silence to the zone's level
-    source.connect(gain).connect(ctx.destination);
-    this.chains.set(userId, { trackId: track.id, source, gain, el });
+
+    // source → [panner] → gain → destination.
+    //
+    // The panner goes BEFORE the gain, never after, and the order is the whole
+    // safety property: the zone gain is the ENVELOPE and encodes server policy
+    // — `out` is 0 because the track is unsubscribed, not because it is
+    // distant. A panner downstream of it could make an unsubscribed peer
+    // audible or a close one faint, and would be overruling the server from
+    // the client.
+    const panner = spatialEnabled() ? this.createPanner(ctx) : null;
+    if (panner) source.connect(panner).connect(gain).connect(ctx.destination);
+    else source.connect(gain).connect(ctx.destination);
+
+    this.chains.set(userId, { trackId: track.id, source, gain, panner, el });
+    this.startPannerLoop();
+  }
+
+  private createPanner(ctx: AudioContext): PannerNode {
+    const panner = ctx.createPanner();
+    panner.panningModel = 'HRTF';
+    panner.distanceModel = 'inverse';
+    // One tile is "right next to you"; NEAR_TILES is the hard cutoff the
+    // server already enforces by unsubscribing, so rolling off past it would
+    // be attenuating something that is not there.
+    panner.refDistance = 1;
+    panner.maxDistance = 5;
+    panner.rolloffFactor = 1;
+    return panner;
+  }
+
+  /**
+   * Move the panners to where the avatars are, at 10Hz.
+   *
+   * Reads `avatarTilePositions` — the same per-frame module map the minimap
+   * uses — rather than subscribing to anything: positions change 60 times a
+   * second and this needs them six times less often than that. Phase 5 is the
+   * standing reminder about what per-frame work costs.
+   *
+   * The tile plane maps to WebAudio's X/Z (Z is depth), with the listener at
+   * the local avatar. Y stays 0: nobody is above anybody.
+   */
+  private startPannerLoop(): void {
+    if (this.pannerTimer !== null) return;
+    this.pannerTimer = setInterval(() => {
+      const ctx = this.audioCtx;
+      const selfId = this.room?.localParticipant.identity;
+      if (!ctx || !selfId) return;
+      const self = avatarTilePositions.get(selfId);
+      if (!self) return;
+
+      setXYZ(ctx.listener, self.x, 0, self.y, ctx.currentTime);
+      for (const [userId, chain] of this.chains) {
+        if (!chain.panner) continue;
+        const at = avatarTilePositions.get(userId);
+        if (!at) continue;
+        setXYZ(chain.panner, at.x, 0, at.y, ctx.currentTime);
+      }
+    }, 1000 / PANNER_HZ);
+  }
+
+  private stopPannerLoop(): void {
+    if (this.pannerTimer === null) return;
+    clearInterval(this.pannerTimer);
+    this.pannerTimer = null;
   }
 
   private dropAudioChain(userId: string): void {
@@ -294,8 +463,10 @@ class AvManager {
     if (!chain) return;
     this.chains.delete(userId);
     chain.source.disconnect();
+    chain.panner?.disconnect();
     chain.gain.disconnect();
     chain.el.srcObject = null;
+    if (this.chains.size === 0) this.stopPannerLoop();
   }
 
   private applyGain(userId: string): void {

@@ -182,6 +182,86 @@ test.describe('proximity AV', () => {
   });
 });
 
+test.describe('screen share', () => {
+  test('is subscribed at ANY distance, unlike a camera', async ({ browser }) => {
+    const ana = await student(browser, 'Ana Share');
+    const ben = await student(browser, 'Ben Share');
+
+    for (const page of [ana, ben]) {
+      await page.goto('/world?map=studio_a');
+      await waitForWorld(page);
+      await dismissCreator(page);
+      await expect.poll(async () => (await probe(page)).status, { timeout: 30_000 }).toBe('live');
+      await joinWithMic(page);
+    }
+
+    // Walk Ben out of earshot FIRST, so the assertion cannot be satisfied by
+    // ordinary proximity. Without this the test would pass whether or not the
+    // bypass existed.
+    await ben.locator('canvas').first().click();
+    await walk(ben, 'd', 2_200);
+    await expect
+      .poll(async () => (await subscribedSources(ana)).length, { timeout: 30_000 })
+      .toBe(0);
+
+    // Chromium's fake device auto-accepts the picker, so this needs no click.
+    await ana.getByRole('button', { name: /share your screen/i }).click();
+
+    // Ben is `out` — no microphone, no camera — and still gets the screen. That
+    // is the whole point: a demo is for the room, not for whoever is within
+    // five tiles.
+    await expect
+      .poll(async () => (await subscribedSources(ben)).join(','), { timeout: 30_000 })
+      .toContain('screen_share');
+    expect((await probe(ben)).peers[0]?.zone).toBe('out');
+    await expect(ben.getByText(/Ana Share is sharing their screen/i)).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // And audio is still governed by distance — sharing a screen is not a claim
+    // on everyone's ears. (`spotlight` in Phase 6 is how you make that claim.)
+    expect(await subscribedSources(ben)).not.toContain('microphone');
+
+    await ana.context().close();
+    await ben.context().close();
+  });
+});
+
+test.describe('spatial audio', () => {
+  test('the flag inserts a panner and audio still arrives', async ({ browser }) => {
+    // Off by default, so without this test the whole feature is unexecuted
+    // code that merely compiles. What is being checked is not that it SOUNDS
+    // spatial — that needs ears — but that turning it on does not silence the
+    // room, which is the way an extra node in an audio graph usually fails.
+    const anaCtx = await browser.newContext();
+    await anaCtx.addInitScript(() => localStorage.setItem('retry.rooms.spatial', 'on'));
+    const ana = await anaCtx.newPage();
+    await login(ana, await createStudent('Ana Spatial'));
+
+    const ben = await student(browser, 'Ben Spatial');
+
+    for (const page of [ana, ben]) {
+      await page.goto('/world?map=studio_a');
+      await waitForWorld(page);
+      await dismissCreator(page);
+      await expect.poll(async () => (await probe(page)).status, { timeout: 30_000 }).toBe('live');
+      await joinWithMic(page);
+    }
+
+    await expect
+      .poll(async () => (await subscribedSources(ana)).includes('microphone'), { timeout: 30_000 })
+      .toBe(true);
+
+    // The panner sits BEFORE the gain, so a mistake there mutes the peer
+    // rather than mispositioning them. Bytes prove the transport; this proves
+    // the graph.
+    await expect.poll(async () => inboundBytes(ana), { timeout: 30_000 }).toBeGreaterThan(0);
+
+    await anaCtx.close();
+    await ben.context().close();
+  });
+});
+
 // The pre-join check. Its whole value is that it appears at the right moment
 // and does not gate the world, so those are the assertions.
 test.describe('pre-join check', () => {

@@ -21,6 +21,7 @@ import { Minimap } from './Minimap.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
 import { PreJoinDialog } from './av/PreJoinDialog.js';
+import { ScreenShareView } from './av/ScreenShareView.js';
 import { KnockLayer } from './KnockLayer.js';
 import { useRoomPanels } from './panels/use-room-panels.js';
 import { roomEvents } from './event-bus.js';
@@ -352,6 +353,9 @@ export default function WorldPage() {
                 {minimapOpen && <Minimap selfUserId={user.id} />}
               </ErrorBoundary>
             )}
+            {/* Over the world, INSIDE the stage: the grid keeps the dock,
+                rail and sidebar working underneath it. */}
+            <ScreenShareView selfUserId={user.id} />
             <ToastRegion />
             <KnockLayer />
           </>

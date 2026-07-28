@@ -153,7 +153,7 @@ The AI never grades autonomously. Every grade requires explicit faculty approval
 
 Check `PROGRESS.md` for the current state — and trust the prose there over the phase table, which lags.
 
-The one thing worth knowing up front: **AV has never run.** LiveKit is coded and unit-tested but no SFU has been provisioned, so proximity audio/video has never been exercised against a real server. Everything else in the rooms has been driven end to end.
+The one thing worth knowing up front: **AV runs locally but has never met a real network.** `docker compose up -d` starts a LiveKit dev server and `apps/e2e/tests/av.spec.ts` drives proximity subscription, screen share and the pre-join check against it. What is still unproven is the part local dev cannot prove — TURN on TCP/443, which ADR-012 flags as mandatory on Indian campus and mobile networks. `docs/livekit-vps.md` is the runbook.
 
 ---
 
