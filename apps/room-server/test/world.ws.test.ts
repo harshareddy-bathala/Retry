@@ -4,17 +4,31 @@ import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
-import { COMMONS_DOOR_SLOTS } from '../src/world/maps.js';
+import { COMMONS_DOOR_SLOTS, instantiate } from '../src/world/maps.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 
 // Phase 4 acceptance: one socket across doors, server-side access policy,
 // knock flow, doors state, map-scoped proximity, position restore.
 
+/**
+ * studio_a's default spawn, READ FROM THE MAP rather than written down here.
+ *
+ * It used to be the literal 10.5, 7.5, and every one of these tests failed the
+ * day the studio was re-authored — as a protocol error, in nine different
+ * places, for a map edit. A test may depend on the map having a spawn; it must
+ * not depend on where.
+ */
+function studioSpawn(): { x: number; y: number } {
+  const map = instantiate('studio_a', 'studio_a');
+  if (!map) throw new Error('studio_a failed to instantiate');
+  return map.spawn;
+}
+
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
 const KNOCK_TIMEOUT_MS = 300;
 
 // studio_a spawn; commons spawn is (14, 9).
-const SPAWN = { x: 10.5, y: 7.5 };
+const SPAWN = studioSpawn();
 
 let app: FastifyInstance;
 let baseUrl: string;

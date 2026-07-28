@@ -2475,51 +2475,51 @@
       "objects": [
         {
           "height": 0,
-          "id": 360,
+          "id": 393,
           "name": "default",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 352,
-          "y": 352
+          "x": 368,
+          "y": 368
         },
         {
           "height": 0,
-          "id": 361,
+          "id": 394,
           "name": "north",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 256,
-          "y": 128
+          "x": 272,
+          "y": 144
         },
         {
           "height": 0,
-          "id": 362,
+          "id": 395,
           "name": "east",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 576,
-          "y": 352
+          "x": 592,
+          "y": 368
         },
         {
           "height": 0,
-          "id": 363,
+          "id": 396,
           "name": "alcove",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 352,
-          "y": 480
+          "x": 368,
+          "y": 496
         }
       ],
       "opacity": 1,
@@ -2535,7 +2535,7 @@
       "objects": [
         {
           "height": 96,
-          "id": 331,
+          "id": 364,
           "name": "whiteboard",
           "point": false,
           "properties": [
@@ -2559,7 +2559,7 @@
         },
         {
           "height": 32,
-          "id": 332,
+          "id": 365,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2583,7 +2583,7 @@
         },
         {
           "height": 32,
-          "id": 333,
+          "id": 366,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2607,7 +2607,7 @@
         },
         {
           "height": 32,
-          "id": 334,
+          "id": 367,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2631,7 +2631,7 @@
         },
         {
           "height": 32,
-          "id": 335,
+          "id": 368,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2655,7 +2655,7 @@
         },
         {
           "height": 32,
-          "id": 336,
+          "id": 369,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2679,7 +2679,7 @@
         },
         {
           "height": 32,
-          "id": 337,
+          "id": 370,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2703,7 +2703,7 @@
         },
         {
           "height": 32,
-          "id": 338,
+          "id": 371,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2727,7 +2727,7 @@
         },
         {
           "height": 32,
-          "id": 339,
+          "id": 372,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2751,7 +2751,7 @@
         },
         {
           "height": 32,
-          "id": 340,
+          "id": 373,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2775,7 +2775,7 @@
         },
         {
           "height": 32,
-          "id": 341,
+          "id": 374,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2799,7 +2799,7 @@
         },
         {
           "height": 32,
-          "id": 342,
+          "id": 375,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2823,7 +2823,7 @@
         },
         {
           "height": 32,
-          "id": 343,
+          "id": 376,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2847,7 +2847,7 @@
         },
         {
           "height": 32,
-          "id": 344,
+          "id": 377,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2871,7 +2871,7 @@
         },
         {
           "height": 32,
-          "id": 345,
+          "id": 378,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2895,7 +2895,7 @@
         },
         {
           "height": 32,
-          "id": 346,
+          "id": 379,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2919,7 +2919,7 @@
         },
         {
           "height": 32,
-          "id": 347,
+          "id": 380,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2943,7 +2943,7 @@
         },
         {
           "height": 32,
-          "id": 348,
+          "id": 381,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2967,7 +2967,7 @@
         },
         {
           "height": 32,
-          "id": 349,
+          "id": 382,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2991,7 +2991,7 @@
         },
         {
           "height": 32,
-          "id": 350,
+          "id": 383,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3015,7 +3015,7 @@
         },
         {
           "height": 32,
-          "id": 351,
+          "id": 384,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3039,7 +3039,7 @@
         },
         {
           "height": 32,
-          "id": 352,
+          "id": 385,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3063,7 +3063,7 @@
         },
         {
           "height": 32,
-          "id": 359,
+          "id": 392,
           "name": "exit",
           "point": false,
           "properties": [
@@ -3099,7 +3099,7 @@
       "objects": [
         {
           "height": 32,
-          "id": 356,
+          "id": 389,
           "name": "server",
           "point": false,
           "rotation": 0,
@@ -3111,7 +3111,7 @@
         },
         {
           "height": 32,
-          "id": 357,
+          "id": 390,
           "name": "sprout",
           "point": false,
           "rotation": 0,
@@ -3123,7 +3123,7 @@
         },
         {
           "height": 32,
-          "id": 358,
+          "id": 391,
           "name": "cat",
           "point": false,
           "rotation": 0,
@@ -3147,7 +3147,7 @@
       "objects": [
         {
           "height": 128,
-          "id": 353,
+          "id": 386,
           "name": "west booth",
           "point": false,
           "properties": [
@@ -3166,7 +3166,7 @@
         },
         {
           "height": 128,
-          "id": 354,
+          "id": 387,
           "name": "east booth",
           "point": false,
           "properties": [
@@ -3185,7 +3185,7 @@
         },
         {
           "height": 96,
-          "id": 355,
+          "id": 388,
           "name": "board",
           "point": false,
           "properties": [
@@ -3211,7 +3211,7 @@
     }
   ],
   "nextlayerid": 10,
-  "nextobjectid": 364,
+  "nextobjectid": 397,
   "orientation": "orthogonal",
   "renderorder": "right-down",
   "tiledversion": "1.11.0",

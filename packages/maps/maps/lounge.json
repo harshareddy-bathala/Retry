@@ -2475,51 +2475,51 @@
       "objects": [
         {
           "height": 0,
-          "id": 271,
+          "id": 297,
           "name": "default",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 288,
-          "y": 352
+          "x": 304,
+          "y": 368
         },
         {
           "height": 0,
-          "id": 272,
+          "id": 298,
           "name": "bar",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 448,
-          "y": 192
+          "x": 464,
+          "y": 208
         },
         {
           "height": 0,
-          "id": 273,
+          "id": 299,
           "name": "east",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 480,
-          "y": 352
+          "x": 496,
+          "y": 368
         },
         {
           "height": 0,
-          "id": 274,
+          "id": 300,
           "name": "snug",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 704,
-          "y": 544
+          "x": 720,
+          "y": 560
         }
       ],
       "opacity": 1,
@@ -2535,7 +2535,7 @@
       "objects": [
         {
           "height": 32,
-          "id": 250,
+          "id": 276,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2559,7 +2559,7 @@
         },
         {
           "height": 32,
-          "id": 251,
+          "id": 277,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2583,7 +2583,7 @@
         },
         {
           "height": 32,
-          "id": 252,
+          "id": 278,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2607,7 +2607,7 @@
         },
         {
           "height": 32,
-          "id": 253,
+          "id": 279,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2631,7 +2631,7 @@
         },
         {
           "height": 32,
-          "id": 254,
+          "id": 280,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2655,7 +2655,7 @@
         },
         {
           "height": 32,
-          "id": 255,
+          "id": 281,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2679,7 +2679,7 @@
         },
         {
           "height": 32,
-          "id": 256,
+          "id": 282,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2703,7 +2703,7 @@
         },
         {
           "height": 32,
-          "id": 257,
+          "id": 283,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2727,7 +2727,7 @@
         },
         {
           "height": 32,
-          "id": 258,
+          "id": 284,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2751,7 +2751,7 @@
         },
         {
           "height": 32,
-          "id": 259,
+          "id": 285,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2775,7 +2775,7 @@
         },
         {
           "height": 32,
-          "id": 260,
+          "id": 286,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2799,7 +2799,7 @@
         },
         {
           "height": 32,
-          "id": 261,
+          "id": 287,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2823,7 +2823,7 @@
         },
         {
           "height": 32,
-          "id": 262,
+          "id": 288,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2847,7 +2847,7 @@
         },
         {
           "height": 32,
-          "id": 263,
+          "id": 289,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2871,7 +2871,7 @@
         },
         {
           "height": 32,
-          "id": 264,
+          "id": 290,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2895,7 +2895,7 @@
         },
         {
           "height": 32,
-          "id": 265,
+          "id": 291,
           "name": "seat",
           "point": false,
           "properties": [
@@ -2919,7 +2919,7 @@
         },
         {
           "height": 32,
-          "id": 270,
+          "id": 296,
           "name": "exit",
           "point": false,
           "properties": [
@@ -2955,7 +2955,7 @@
       "objects": [
         {
           "height": 32,
-          "id": 249,
+          "id": 275,
           "name": "coffee",
           "point": false,
           "rotation": 0,
@@ -2967,7 +2967,7 @@
         },
         {
           "height": 32,
-          "id": 267,
+          "id": 293,
           "name": "cat",
           "point": false,
           "rotation": 0,
@@ -2979,7 +2979,7 @@
         },
         {
           "height": 32,
-          "id": 268,
+          "id": 294,
           "name": "candle",
           "point": false,
           "rotation": 0,
@@ -2991,7 +2991,7 @@
         },
         {
           "height": 32,
-          "id": 269,
+          "id": 295,
           "name": "sprout",
           "point": false,
           "rotation": 0,
@@ -3015,7 +3015,7 @@
       "objects": [
         {
           "height": 128,
-          "id": 266,
+          "id": 292,
           "name": "the snug",
           "point": false,
           "properties": [
@@ -3041,7 +3041,7 @@
     }
   ],
   "nextlayerid": 10,
-  "nextobjectid": 275,
+  "nextobjectid": 301,
   "orientation": "orthogonal",
   "renderorder": "right-down",
   "tiledversion": "1.11.0",

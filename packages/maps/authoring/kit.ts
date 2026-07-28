@@ -368,8 +368,17 @@ export function place(map: AuthoredMap, piece: Piece, x: number, y: number): voi
 // Objects
 // ---------------------------------------------------------------------------
 
+/**
+ * A spawn point, at the CENTRE of the named tile.
+ *
+ * The half-tile offset is not cosmetic. Positions on the wire are the avatar's
+ * feet, and a spawn on a tile corner puts those feet on the seam between four
+ * tiles — so which tile the server thinks you are standing in comes down to
+ * floating-point luck, and two people spawning together can land on opposite
+ * sides of a wall. Every map has always done this; only this helper forgot.
+ */
 export function spawn(map: AuthoredMap, name: string, x: number, y: number): void {
-  addObject(map, 'spawns', { name, x, y, point: true });
+  addObject(map, 'spawns', { name, x: x + 0.5, y: y + 0.5, point: true });
 }
 
 export function seat(

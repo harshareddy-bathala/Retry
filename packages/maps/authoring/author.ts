@@ -1,4 +1,5 @@
 import { build as classroom } from './classroom.js';
+import { build as commons } from './commons.js';
 import { build as conference } from './conference.js';
 import { build as lounge } from './lounge.js';
 import { build as studioA } from './studio_a.js';
@@ -16,6 +17,8 @@ const rooms: Record<string, () => void> = {
   classroom,
   lounge,
   conference,
+  // Last on purpose: it is the only map another service reads by coordinate.
+  commons,
 };
 
 const wanted = process.argv.slice(2);

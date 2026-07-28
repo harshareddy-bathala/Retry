@@ -2935,51 +2935,51 @@
       "objects": [
         {
           "height": 0,
-          "id": 349,
+          "id": 400,
           "name": "default",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 416,
-          "y": 384
+          "x": 432,
+          "y": 400
         },
         {
           "height": 0,
-          "id": 350,
+          "id": 401,
           "name": "west",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 96,
-          "y": 224
+          "x": 112,
+          "y": 240
         },
         {
           "height": 0,
-          "id": 351,
+          "id": 402,
           "name": "east",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 704,
-          "y": 224
+          "x": 720,
+          "y": 240
         },
         {
           "height": 0,
-          "id": 352,
+          "id": 403,
           "name": "backstage",
           "point": true,
           "rotation": 0,
           "type": "",
           "visible": true,
           "width": 0,
-          "x": 416,
-          "y": 608
+          "x": 432,
+          "y": 624
         }
       ],
       "opacity": 1,
@@ -2995,7 +2995,7 @@
       "objects": [
         {
           "height": 96,
-          "id": 302,
+          "id": 353,
           "name": "whiteboard",
           "point": false,
           "properties": [
@@ -3019,7 +3019,7 @@
         },
         {
           "height": 96,
-          "id": 303,
+          "id": 354,
           "name": "podium",
           "point": false,
           "properties": [
@@ -3043,7 +3043,7 @@
         },
         {
           "height": 32,
-          "id": 305,
+          "id": 356,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3067,7 +3067,7 @@
         },
         {
           "height": 32,
-          "id": 306,
+          "id": 357,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3091,7 +3091,7 @@
         },
         {
           "height": 32,
-          "id": 307,
+          "id": 358,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3115,7 +3115,7 @@
         },
         {
           "height": 32,
-          "id": 308,
+          "id": 359,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3139,7 +3139,7 @@
         },
         {
           "height": 32,
-          "id": 309,
+          "id": 360,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3163,7 +3163,7 @@
         },
         {
           "height": 32,
-          "id": 310,
+          "id": 361,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3187,7 +3187,7 @@
         },
         {
           "height": 32,
-          "id": 311,
+          "id": 362,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3211,7 +3211,7 @@
         },
         {
           "height": 32,
-          "id": 312,
+          "id": 363,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3235,7 +3235,7 @@
         },
         {
           "height": 32,
-          "id": 313,
+          "id": 364,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3259,7 +3259,7 @@
         },
         {
           "height": 32,
-          "id": 314,
+          "id": 365,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3283,7 +3283,7 @@
         },
         {
           "height": 32,
-          "id": 315,
+          "id": 366,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3307,7 +3307,7 @@
         },
         {
           "height": 32,
-          "id": 316,
+          "id": 367,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3331,7 +3331,7 @@
         },
         {
           "height": 32,
-          "id": 317,
+          "id": 368,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3355,7 +3355,7 @@
         },
         {
           "height": 32,
-          "id": 318,
+          "id": 369,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3379,7 +3379,7 @@
         },
         {
           "height": 32,
-          "id": 319,
+          "id": 370,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3403,7 +3403,7 @@
         },
         {
           "height": 32,
-          "id": 320,
+          "id": 371,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3427,7 +3427,7 @@
         },
         {
           "height": 32,
-          "id": 321,
+          "id": 372,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3451,7 +3451,7 @@
         },
         {
           "height": 32,
-          "id": 322,
+          "id": 373,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3475,7 +3475,7 @@
         },
         {
           "height": 32,
-          "id": 323,
+          "id": 374,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3499,7 +3499,7 @@
         },
         {
           "height": 32,
-          "id": 324,
+          "id": 375,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3523,7 +3523,7 @@
         },
         {
           "height": 32,
-          "id": 325,
+          "id": 376,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3547,7 +3547,7 @@
         },
         {
           "height": 32,
-          "id": 326,
+          "id": 377,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3571,7 +3571,7 @@
         },
         {
           "height": 32,
-          "id": 327,
+          "id": 378,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3595,7 +3595,7 @@
         },
         {
           "height": 32,
-          "id": 328,
+          "id": 379,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3619,7 +3619,7 @@
         },
         {
           "height": 32,
-          "id": 329,
+          "id": 380,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3643,7 +3643,7 @@
         },
         {
           "height": 32,
-          "id": 330,
+          "id": 381,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3667,7 +3667,7 @@
         },
         {
           "height": 32,
-          "id": 331,
+          "id": 382,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3691,7 +3691,7 @@
         },
         {
           "height": 32,
-          "id": 332,
+          "id": 383,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3715,7 +3715,7 @@
         },
         {
           "height": 32,
-          "id": 333,
+          "id": 384,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3739,7 +3739,7 @@
         },
         {
           "height": 32,
-          "id": 334,
+          "id": 385,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3763,7 +3763,7 @@
         },
         {
           "height": 32,
-          "id": 335,
+          "id": 386,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3787,7 +3787,7 @@
         },
         {
           "height": 32,
-          "id": 336,
+          "id": 387,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3811,7 +3811,7 @@
         },
         {
           "height": 32,
-          "id": 338,
+          "id": 389,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3835,7 +3835,7 @@
         },
         {
           "height": 32,
-          "id": 339,
+          "id": 390,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3859,7 +3859,7 @@
         },
         {
           "height": 32,
-          "id": 340,
+          "id": 391,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3883,7 +3883,7 @@
         },
         {
           "height": 32,
-          "id": 341,
+          "id": 392,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3907,7 +3907,7 @@
         },
         {
           "height": 32,
-          "id": 342,
+          "id": 393,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3931,7 +3931,7 @@
         },
         {
           "height": 32,
-          "id": 343,
+          "id": 394,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3955,7 +3955,7 @@
         },
         {
           "height": 32,
-          "id": 344,
+          "id": 395,
           "name": "seat",
           "point": false,
           "properties": [
@@ -3979,7 +3979,7 @@
         },
         {
           "height": 32,
-          "id": 348,
+          "id": 399,
           "name": "exit",
           "point": false,
           "properties": [
@@ -4015,7 +4015,7 @@
       "objects": [
         {
           "height": 32,
-          "id": 346,
+          "id": 397,
           "name": "sprout",
           "point": false,
           "rotation": 0,
@@ -4027,7 +4027,7 @@
         },
         {
           "height": 32,
-          "id": 347,
+          "id": 398,
           "name": "cat",
           "point": false,
           "rotation": 0,
@@ -4051,7 +4051,7 @@
       "objects": [
         {
           "height": 96,
-          "id": 304,
+          "id": 355,
           "name": "the stage",
           "point": false,
           "properties": [
@@ -4070,7 +4070,7 @@
         },
         {
           "height": 192,
-          "id": 337,
+          "id": 388,
           "name": "the floor",
           "point": false,
           "properties": [
@@ -4089,7 +4089,7 @@
         },
         {
           "height": 128,
-          "id": 345,
+          "id": 396,
           "name": "green room",
           "point": false,
           "properties": [
@@ -4115,7 +4115,7 @@
     }
   ],
   "nextlayerid": 10,
-  "nextobjectid": 353,
+  "nextobjectid": 404,
   "orientation": "orthogonal",
   "renderorder": "right-down",
   "tiledversion": "1.11.0",

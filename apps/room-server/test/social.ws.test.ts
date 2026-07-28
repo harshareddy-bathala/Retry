@@ -4,6 +4,7 @@ import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
+import { instantiate } from '../src/world/maps.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 
 // Emotes, typing notices and proximity speech — the three things that make the
@@ -14,12 +15,26 @@ import { InMemoryRoomStore } from '../src/world/store.js';
 // wire without a whitelist. The tests below are mostly about those properties
 // rather than about the happy path, because the happy path is one broadcast.
 
+/**
+ * studio_a's default spawn, READ FROM THE MAP rather than written down here.
+ *
+ * It used to be the literal 10.5, 7.5, and every one of these tests failed the
+ * day the studio was re-authored — as a protocol error, in nine different
+ * places, for a map edit. A test may depend on the map having a spawn; it must
+ * not depend on where.
+ */
+function studioSpawn(): { x: number; y: number } {
+  const map = instantiate('studio_a', 'studio_a');
+  if (!map) throw new Error('studio_a failed to instantiate');
+  return map.spawn;
+}
+
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
 /** Room ids must be uuids: the `watch` schema validates the shape, and a
  *  non-uuid frame is dropped as unparseable with no reply at all. */
 const ROOM = '55555555-5555-4555-8555-555555555555';
 /** studio_a's default spawn, in tiles. Both users land here. */
-const SPAWN = { x: 10.5, y: 7.5 };
+const SPAWN = studioSpawn();
 
 let app: FastifyInstance;
 let baseUrl: string;

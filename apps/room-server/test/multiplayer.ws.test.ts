@@ -6,8 +6,22 @@ import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
 import { instantiate, isBlocked } from '../src/world/maps.js';
 
+/**
+ * studio_a's default spawn, READ FROM THE MAP rather than written down here.
+ *
+ * It used to be the literal 10.5, 7.5, and every one of these tests failed the
+ * day the studio was re-authored — as a protocol error, in nine different
+ * places, for a map edit. A test may depend on the map having a spawn; it must
+ * not depend on where.
+ */
+function studioSpawn(): { x: number; y: number } {
+  const map = instantiate('studio_a', 'studio_a');
+  if (!map) throw new Error('studio_a failed to instantiate');
+  return map.spawn;
+}
+
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
-const SPAWN = { x: 10.5, y: 7.5 }; // studio_a default spawn (336,240 px / 32)
+const SPAWN = studioSpawn();
 
 let app: FastifyInstance;
 let baseUrl: string;
@@ -151,33 +165,56 @@ describe('room-server multiplayer', () => {
   });
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
-    // Walk north into the WALL, not into a desk. This test used to name a
-    // specific desk tile (14,6) and broke the moment the room was re-furnished,
-    // with a failure that read like a protocol bug rather than a map edit. The
-    // wall ring is structural: every room has one, and no furniture pass moves it.
+    // The point of this test is one rule: a move can be a legal DISTANCE and
+    // still be refused because of where it lands. Nothing about it should
+    // depend on the furniture.
+    //
+    // It has now been broken twice by map edits — once naming a desk tile
+    // (14,6), once assuming a clear lane from the spawn to the north wall, and
+    // there is a whiteboard in the way of that. So rather than describe a
+    // route, it SEARCHES for one: a solid tile, and a clear tile within one
+    // legal step of both it and the spawn.
     const map = instantiate('studio_a', 'studio_a');
     if (!map) throw new Error('studio_a failed to instantiate');
-    const column = Math.floor(SPAWN.x);
-    expect(isBlocked(map, column, 1), 'studio_a has no north wall above the spawn').toBe(true);
-    expect(isBlocked(map, column, 2)).toBe(false);
+    // The server's step limit is EUCLIDEAN (hub.ts MAX_STEP_TILES, via
+    // Math.hypot), not per-axis. Searching with a per-axis bound picks pairs
+    // 2.24 tiles apart, which the teleport check rejects before the collision
+    // check ever runs — and the test then fails for the wrong reason.
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean =>
+      Math.hypot(a.x - b.x, a.y - b.y) <= 2;
+
+    // One legal step from the spawn to open floor, then one more into a wall.
+    // The solid tile does NOT have to be near the spawn — requiring that found
+    // nothing, because the spawn is deliberately in the middle of the room.
+    let step: { x: number; y: number } | null = null;
+    let wall: { x: number; y: number } | null = null;
+    for (let sy = 1; sy < map.height - 1 && !wall; sy++) {
+      for (let sx = 1; sx < map.width - 1 && !wall; sx++) {
+        const from = { x: sx + 0.5, y: sy + 0.5 };
+        if (isBlocked(map, sx, sy) || !near(from, SPAWN)) continue;
+        for (let wy = 1; wy < map.height - 1 && !wall; wy++) {
+          for (let wx = 1; wx < map.width - 1 && !wall; wx++) {
+            const target = { x: wx + 0.5, y: wy + 0.5 };
+            if (!isBlocked(map, wx, wy) || !near(from, target)) continue;
+            step = from;
+            wall = target;
+          }
+        }
+      }
+    }
+    expect(wall, 'studio_a has no solid tile a legal step from open floor').not.toBeNull();
+    if (!step || !wall) throw new Error('unreachable');
 
     const b = await connectAndJoin('user-b');
-    // Legal steps (<= 2 tiles each) straight up the spawn column to the tile
-    // just below the wall. Only the LANDING tile is collision-checked.
-    for (let y = SPAWN.y - 2; y > 2.5; y -= 2) {
-      b.send({ t: 'move', x: SPAWN.x, y, dir: 'up', moving: true });
-    }
-    b.send({ t: 'move', x: SPAWN.x, y: 2.5, dir: 'up', moving: true });
+    b.send({ t: 'move', x: step.x, y: step.y, dir: 'up', moving: true });
+    await until(() => app.hub.actorsIn('studio_a').some((a) => a.userId === 'user-b'));
     const before = ofType(b, 'snapshot').length;
-    // …then one more step, into the wall: distance legal, target blocked.
-    b.send({ t: 'move', x: SPAWN.x, y: 1.5, dir: 'up', moving: true });
+    b.send({ t: 'move', x: wall.x, y: wall.y, dir: 'up', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
-    const resync = ofType(b, 'snapshot').at(-1);
-    // Authoritative position is the last legal one, not inside the wall.
-    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({
-      x: SPAWN.x,
-      y: 2.5,
-    });
+    // Authoritative position is the last LEGAL one, not inside the wall.
+    expect(ofType(b, 'snapshot').at(-1)?.actors.find((x) => x.userId === 'user-b')).toMatchObject(
+      step,
+    );
   });
 
   it('caps move relays at 20/s per connection, dropping the excess silently', async () => {
