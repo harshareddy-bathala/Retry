@@ -98,42 +98,39 @@ as unexercised since Phase 5:
   status line under the mic/cam toggles is new and untested against a real
   server).
 
-### 2. An evening in Tiled
+### 2. Author the rooms properly
 
-The five maps are now a **good** programmatic pass rather than a first one —
-the floors are right, the furniture reads, the grid is broken up, the walls are
-decorated. A human will still beat it.
+The generator is gone (`seed-maps.ts`, `tiles.catalog.ts` and the four sheet
+preview scripts were deleted). The five JSONs in `packages/maps/maps/` are the
+only source of truth, and the loop is edit → validate → render → look:
 
 ```bash
-pnpm --filter @retry/maps tiled
+pnpm --filter @retry/maps tiled         # if you want the Tiled palette
 pnpm --filter @retry/maps validate      # after every session, before committing
-pnpm --filter @retry/maps preview commons out.png 1
+pnpm --filter @retry/maps preview:all   # generated/preview/*.png
 ```
 
 Read "Things that will bite you" in `docs/authoring-maps.md` first — especially
 **do not convert the embedded tilesets to external ones**, because Phaser
 cannot follow an external `.tsx` and will render an empty room without erroring.
 
-Note that `scripts/seed-maps.ts` OVERWRITES the maps. The moment you hand-edit
-one, that script becomes a historical artefact rather than a tool.
+Five Room_Builder sheets are already built into `generated/tilesets/` and used
+by **no map**: `walls3d`, `shadows`, `borders`, `entryways`, `connectors`.
+Bringing them in is pure map-JSON work — no build change — and it is what turns
+a walled rectangle into a room.
 
-What is still worth a human eye:
+What is still worth an eye:
 - The Commons is large and its two ends are quieter than its middle.
 - The lounge's counter run reads as floating cabinets rather than a bar.
 - The `podium` in the conference room is not obviously a podium.
 
-### 3. Grow the tile catalogue as you need it
+### 3. Finding tiles
 
-`packages/maps/tiles.catalog.ts` covers ~70 props out of 5,470. **Run
-`preview-blocks` after every catalogue edit** — it has now caught a conference
-table that was two shelf strips, audience chairs that were backpacks, several
-beds catalogued as tables, and a "round table" that was a crate stacked on a
-sofa arm. The pack's grid is misleading and your eye is the only real check.
-
-```bash
-npx tsx scripts/preview-sheet.ts generated/tilesets/<sheet>.png out.png 0 16 2
-npx tsx scripts/preview-blocks.ts out.png
-```
+There is no catalogue to grow. The pack numbers its 5,470 objects rather than
+naming them, so render a map and read it — the grid is misleading and your eye
+is the only real check. Earlier passes shipped a conference table that was two
+shelf strips, audience chairs that were backpacks, and a "round table" that was
+a crate stacked on a sofa arm. All three looked right in a sheet preview.
 
 ### 4. Things I would watch in the first week of real use
 

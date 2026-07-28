@@ -55,10 +55,15 @@
 | Phase 1 — Posts & Profiles (M2) | Post CRUD, teams, profiles, Latest feed | 🔲 Not started |
 | Phase 2 — Lineage, Social & Feed (M3) | Fork, CTE traversal, social, ranked feeds | 🔲 Not started |
 | Phase 3 — Grading Pipeline (M4–5) | Submit → AI → faculty approval → release | 🔲 Not started |
-| Phase 4 — Rooms: Workspace (M6–7) | WS server, context, blueprint, kanban, chat, journey | 🔲 Not started |
-| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, Daily.co, tldraw | 🔲 Not started |
+| Phase 4 — Rooms: Workspace (M6–7) | WS server, context, blueprint, kanban, chat, journey | ✅ Shipped (2026-07-25, rooms track R4) |
+| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, **LiveKit**, tldraw | ✅ Shipped (2026-07-26, rooms R5) — **AV never run** |
 | Phase 6 — Idea Hub + Hardening (M9–10) | Ideas, FRs, alumni, perf/security pass, **P1 launch** | 🔲 Not started |
 | Phase 7 — P2 + Pilot (M11–12) | Assignments, exports, follows, AI FRs, polish | 🔲 Not started |
+
+The rooms run on their own track (R2–R6 above, plus the "rooms build plan" Phase 0–8), which is why this table and the prose disagreed for a while. Two live deviations from the original design, both deliberate:
+
+- **LiveKit replaced Daily.co** (ADR-012) and has **never been run against a real server**. This is the largest gap before a beta.
+- **Workspace and Live Space are separate routes** (`/rooms/:id` and `/world?map=`) with separate sockets. Leaving the world tears down Phaser, the WebSocket and LiveKit. Unifying them is scoped but not scheduled.
 
 ## Phase 0 Checklist (current phase — next actions)
 

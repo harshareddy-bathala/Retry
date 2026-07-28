@@ -19,7 +19,7 @@ Run: `pnpm test` (unit), `pnpm test:int` (spins up docker compose test services 
 
 - **Test services, not routes, for logic.** Routes get one happy-path + one auth-failure integration test each; the branching logic lives in services and is tested there.
 - **Real database in integration tests.** Never mock Drizzle. Each test file gets a truncated schema (fast `TRUNCATE ... CASCADE` between tests). Mocking the DB tests your mocks.
-- **Mock only true externals:** Anthropic API, Daily.co, GitHub clone, SMTP. Each has a fake in `apps/api/src/test/fakes/`. The Anthropic fake returns a canned structured grade.
+- **Mock only true externals:** Anthropic API, GitHub clone, SMTP. Each has a fake in `apps/api/src/test/fakes/`. The Anthropic fake returns a canned structured grade. LiveKit is **not** mocked — tokens are signed locally, so `apps/room-server/test/livekit.test.ts` decodes the real JWT and asserts its grants.
 - Zod schemas don't need direct tests — they're exercised via route integration tests.
 - No snapshot tests except WS event payload shapes.
 

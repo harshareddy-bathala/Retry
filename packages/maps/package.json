@@ -26,7 +26,8 @@
     "assets:build": "tsx scripts/build-assets.ts",
     "assets:check": "tsx scripts/check-assets.ts",
     "tiled": "tsx scripts/build-tiled.ts",
-    "preview": "tsx scripts/preview-map.ts"
+    "preview": "tsx scripts/preview-map.ts",
+    "preview:all": "tsx scripts/preview-all.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"

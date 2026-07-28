@@ -1,13 +1,13 @@
 # Authoring rooms
 
-The five room templates in `packages/maps/maps/` are **hand-authored source**.
-They were produced once by `scripts/seed-maps.ts` to give every room a furnished
-first pass; from here on you edit them in [Tiled](https://www.mapeditor.org/) and
-the JSON is the truth. Nothing regenerates them.
+The five room templates in `packages/maps/maps/` are **the only source of
+truth**. There is no generator and nothing regenerates them: you either edit
+them in [Tiled](https://www.mapeditor.org/) or mutate them in place with
+`packages/maps/src/tiled.ts`, and then you look at the render.
 
 | Template | Room |
 |---|---|
-| `commons.json` | The atrium everyone arrives in. Six door slots along the north wall. |
+| `commons.json` | The atrium everyone arrives in. Twelve door slots along the north wall. |
 | `studio_a.json` | The default project room — PC desks facing a whiteboard. |
 | `classroom.json` | Desk rows and a blackboard, for crits and study groups. |
 | `lounge.json` | Coffee bar, sofas, a fireplace. |
@@ -30,7 +30,29 @@ After every edit:
 ```bash
 pnpm --filter @retry/maps validate     # the map contract — run this before committing
 pnpm --filter @retry/maps preview lounge out.png 2   # render a map to PNG to eyeball it
+pnpm --filter @retry/maps preview:all  # all five to generated/preview/*.png
 ```
+
+## Editing a map without Tiled
+
+Nobody edits a 300-entry flat gid array by hand, and there is no generator to
+fall back on. `packages/maps/src/tiled.ts` is the middle path: it performs
+**surgical mutations on the committed file** and writes it back in Tiled's own
+format, with a stable diff.
+
+```ts
+const map = loadMap('lounge');
+addTileset(map, 'shadows');                        // appends; never renumbers
+fillRect(map, 'ground', 2, 2, 6, 4, woodTile);
+stamp(map, 11, 5, sofa);                           // objects + above + collision
+addObject(map, 'zones', { name: 'bar', zone: 'quiet', x: 32, y: 96, width: 160, height: 64 });
+save(map, 'lounge');
+```
+
+It **never regenerates a map from scratch.** That distinction is the whole
+point: a script that can rebuild a map will eventually be run, and will
+silently eat every hand edit. If you find yourself wanting one, author the
+tiles instead.
 
 ## The layer contract
 
@@ -134,19 +156,16 @@ front of them reads as floating.
 4. Add it to `TEMPLATES` in `apps/web/src/features/rooms/game/RoomScene.ts`.
 5. `pnpm --filter @retry/maps validate` and `pnpm -r test`.
 
-## The tile catalogue
+## Finding a tile in 5,470 numbered objects
 
-`packages/maps/tiles.catalog.ts` names floors, wall styles and ~65 furniture
-blocks by sheet coordinate, because the pack ships 5,470 objects numbered rather
-than named. It is what the seeder drew from, and the place to record any prop you
-find worth reusing. Two tools help:
+There is no catalogue. The pack numbers its objects rather than naming them, so
+the only reliable method is to render and look:
 
 ```bash
-npx tsx scripts/preview-sheet.ts generated/tilesets/<sheet>.png out.png 0 16 2
-npx tsx scripts/preview-blocks.ts out.png    # contact sheet of the catalogue
-npx tsx scripts/preview-walls.ts walls 23 0 13 out.png   # wall row-pair candidates
+pnpm --filter @retry/maps preview conference out.png 2
 ```
 
-`preview-blocks` is worth running after any catalogue edit — it caught a
-"conference table" that was two shelf strips, and several beds catalogued as
-tables, before either reached a map.
+Judge every choice from a rendered map, never from a sheet preview. The pack's
+grid is actively misleading — earlier passes shipped a "conference table" that
+was two shelf strips, audience chairs that were backpacks, and a "round table"
+that was a crate stacked on a sofa arm. All three looked correct in the sheet.
