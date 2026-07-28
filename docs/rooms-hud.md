@@ -141,9 +141,32 @@ world and scale with camera zoom, and both would be wrong in DOM. AV bubbles are
 DOM, because a `<video>` cannot reach a Phaser texture without a per-frame GPU
 copy, and the bubble must host the video the instant a track arrives.
 
-The pixel offsets shared across that boundary live in one place, `overlay-metrics.ts`.
-They used to be duplicated in `BubbleOverlay.tsx` and `RoomScene.ts` — two
-files, two coordinate systems, one implicit contract.
+The pixel offsets shared across that boundary live in one place,
+`overlay-metrics.ts`. They used to be duplicated in `BubbleOverlay.tsx` and
+`RoomScene.ts` — two files, two coordinate systems, and an implicit agreement
+that nothing enforced. It imports nothing, because both Phaser and React read
+it and a dependency either way would be a cycle.
+
+### The rAF loops write; they do not read
+
+`BubbleOverlay` and `Minimap` both run a per-frame loop, and neither may read
+layout or recompute anything that only changes per room.
+
+The bubble loop reads nothing at all: the outer element is a zero-size anchor
+carrying the translate, and the inner element centres itself with a static
+`translate(-50%, -100%)`, so there is no size to measure. A zone change animates
+as `scale`, not `width`/`height` — the latter dirties layout, which turned the
+old loop's `offsetWidth` read into a real forced reflow for the 200ms of every
+proximity crossing. Two students walking in and out of range measured **76
+layouts over 8 seconds; it is now 0** (`Performance.getMetrics` over CDP).
+
+The minimap paints the collision grid **once per room** into an offscreen
+canvas; per frame it is one `drawImage` plus the dots. It used to repaint every
+blocked cell with its own `fillRect` — up to 880 for the Commons — and call
+`getContext('2d')` on every tick, sixty times a second, to draw something that
+changes once per door. Palette values come from `getComputedStyle` once per
+rebuild rather than per frame, and the loop skips entirely while the tab is
+hidden.
 
 ---
 

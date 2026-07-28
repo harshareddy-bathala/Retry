@@ -24,6 +24,14 @@ import type {
 } from '@retry/protocol';
 import { avatarScreenPositions, avatarTilePositions, minimapWorld } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
+import {
+  BUBBLE_OFFSET_Y,
+  FEET_BOX,
+  FEET_OFFSET_Y,
+  OVERLAY_ANCHOR_Y,
+  SHADOW,
+  TAG_OFFSET_Y,
+} from '../overlay-metrics.js';
 import { roomSocket } from '../net/room-socket.js';
 import {
   ensureAvatarTexture,
@@ -67,13 +75,9 @@ const DOOR_FPS = 14;
 /** How close (in tiles, Chebyshev) a person must be for a door to swing open. */
 const DOOR_OPEN_RANGE = 2;
 
-/**
- * Contact shadow under every avatar. Without one a 32x64 sprite reads as a
- * sticker floating over the floor rather than a person standing on it — the
- * pack's own furniture is drawn with shadows, so characters need them to sit
- * in the same world.
- */
-const SHADOW = { radiusX: 8, radiusY: 3, alpha: 0.28, offsetY: 22 } as const;
+// A contact shadow goes under every avatar: without one a 32x64 sprite reads
+// as a sticker floating over the floor rather than a person standing on it.
+// Its geometry lives in overlay-metrics.ts with the rest of the pixel contract.
 
 /** How faded a remote avatar goes while the socket is down. */
 const STALE_REMOTE_ALPHA = 0.45;
@@ -120,22 +124,10 @@ const MAX_ZOOM = 4;
 
 // Wire positions are the avatar's collision anchor (feet-box centre), in TILE
 // units — the sprite centre would sit inside wall tiles when standing against
-// them, and the server validates collision on the wire position. Pack frames
-// are 32x64 (head above the occupied tile), so the feet sit 24px below the
-// sprite centre; the feet box itself hugs the frame's bottom.
-const FEET_OFFSET_Y = 24;
-const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
-/** Name tags float just above the head, which is 32px above the centre. */
-const TAG_OFFSET_Y = 44;
-/** Emote and typing bubbles float above the name tag, clear of it. */
-const BUBBLE_OFFSET_Y = TAG_OFFSET_Y + 14;
-/**
- * Top of everything the scene draws above an avatar (the name tag's upper
- * edge). This — not the head — is the anchor published to the React overlay,
- * so the overlay's clearance is a small constant instead of a number that has
- * to grow with camera zoom to stay clear of the tag.
- */
-const OVERLAY_ANCHOR_Y = TAG_OFFSET_Y + 8;
+// them, and the server validates collision on the wire position.
+//
+// The geometry itself lives in overlay-metrics.ts because the DOM overlay
+// needs the same numbers to glue its bubbles to these sprites.
 
 // Send cadence and remote smoothing (rooms build plan Phase 2).
 const MOVE_SEND_INTERVAL_MS = 50;
