@@ -1,4 +1,5 @@
 import type { Zone } from '@retry/protocol';
+import type { ZoneKind } from '@retry/maps';
 
 // Server-side proximity engine (rooms build plan Phase 3, SRS Appendix 11.4).
 // Distances are Euclidean, in TILE units, over server-authoritative positions.
@@ -20,14 +21,59 @@ export type PairChange = { mapId: string; a: string; b: string; zone: Zone };
 
 type PairState = { zone: Zone; pending: { zone: Zone; since: number } | null };
 
-type Position = { userId: string; x: number; y: number };
+/**
+ * A user's position, plus the server-side zone they are standing in.
+ *
+ * The zone travels WITH the position rather than being looked up in here,
+ * because this module deliberately knows nothing about maps — which is what
+ * makes the hysteresis and debounce rules testable with plain numbers.
+ */
+type Position = {
+  userId: string;
+  x: number;
+  y: number;
+  zone?: ZoneKind | null;
+  /** Which booth — two people in DIFFERENT booths are out, not close. */
+  zoneName?: string | null;
+};
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-/** The zone a pair at `distance` should be in, given its committed zone. */
-function targetZone(current: Zone, distance: number): Zone {
+/**
+ * The zone a pair should be in, before hysteresis and debounce.
+ *
+ * Map zones override distance entirely, and their precedence is the whole
+ * design:
+ *
+ *   quiet      wins over everything. Someone who walked into the quiet corner
+ *              asked not to be in a call, and no stage and no booth overrides
+ *              a person's own choice.
+ *   spotlight  beats distance in the other direction: a presenter on the stage
+ *              is `close` to the entire map. Without this, demo day does not
+ *              work at all — proximity audio makes a presenter five tiles from
+ *              the back row inaudible to it.
+ *   booth      is mutual and exclusive. Two people in the SAME booth are
+ *              close; a booth occupant and anyone outside it are out, however
+ *              near they stand. That is what makes a booth a room.
+ *
+ * Distance, with the hysteresis that stops a boundary-straddler strobing, is
+ * what happens when no zone has an opinion.
+ */
+function targetZone(
+  current: Zone,
+  distance: number,
+  a?: ZoneKind | null,
+  b?: ZoneKind | null,
+  aName?: string | null,
+  bName?: string | null,
+): Zone {
+  if (a === 'quiet' || b === 'quiet') return 'out';
+  if (a === 'spotlight' || b === 'spotlight') return 'close';
+  if (a === 'booth' || b === 'booth') {
+    return a === 'booth' && b === 'booth' && aName === bName ? 'close' : 'out';
+  }
   if (distance <= CLOSE_TILES) return 'close';
   if (current === 'close' && distance <= CLOSE_TILES + EXIT_HYSTERESIS_TILES) return 'close';
   if (distance <= NEAR_TILES) return 'near';
@@ -79,7 +125,15 @@ export class ProximityEngine {
         pairs.set(key, state);
       }
       const distance = Math.hypot(moved.x - other.x, moved.y - other.y);
-      if (advance(state, targetZone(state.zone, distance), now)) {
+      const target = targetZone(
+        state.zone,
+        distance,
+        moved.zone,
+        other.zone,
+        moved.zoneName,
+        other.zoneName,
+      );
+      if (advance(state, target, now)) {
         changes.push({ mapId, a: movedUserId, b: other.userId, zone: state.zone });
         if (state.zone === 'out') pairs.delete(key);
       }

@@ -115,6 +115,32 @@ Two anti-flicker guards, which are the single most common failure in Gather-like
 
 Zones are map-instance-scoped. Pairs never form across maps.
 
+### Map zones override distance
+
+A map may declare a `zones` object layer (`packages/maps`, `docs/authoring-maps.md`).
+Three of its kinds are enforced here, and they replace the distance rule
+entirely rather than adjusting it:
+
+| Zone | Effect on a pair |
+|---|---|
+| `quiet` | Either occupant → `out`, at any distance. |
+| `spotlight` | Either occupant → `close`, at any distance, across the whole map. |
+| `booth` | Same booth → `close`. Different booths, or one in and one out → `out`. |
+
+**Precedence is quiet → spotlight → booth → distance.** Someone standing in the
+quiet corner asked not to be in a call, and no stage and no booth overrides a
+person's own choice. `spotlight` exists because plain proximity audio cannot do
+a demo at all: a presenter five tiles from the back row is inaudible to it.
+
+The hysteresis and debounce still apply on top, so walking onto a stage is a
+debounced transition like any other. The `proximity` message is unchanged —
+it has only ever carried the outcome, never the reason — so **no protocol
+change was needed for any of this**.
+
+`ProximityEngine` itself knows nothing about maps: the zone travels with the
+position, resolved by `RoomHub.positionsIn` via `zoneAt`. That ignorance is what
+keeps the hysteresis and debounce rules testable with plain numbers.
+
 **Grouping is pairwise, not transitive.** There is one LiveKit room per *map*; who you hear is decided per pair by subscription, not by a shared call object. If A↔B and B↔C are close but A↔C is not, A and C do not hear each other.
 
 ---

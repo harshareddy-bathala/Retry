@@ -31,13 +31,15 @@ import {
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
 import type { AvGrant, AvProvider } from '../av/livekit.js';
-import { DEFAULT_SPRITE, EMOTE_KEYS, isAvatarSprite } from '@retry/maps';
+import { DEFAULT_SPRITE, EMOTE_KEYS, isAvatarSprite, type ZoneKind } from '@retry/maps';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
   STATIC_MAP_IDS,
   instantiate,
   isBlocked,
+  pickSpawn,
+  zoneAt,
   type WorldMap,
 } from '../world/maps.js';
 import type {
@@ -736,7 +738,17 @@ export class RoomHub {
       ? await this.store.lastPosition(room.id, session.userId)
       : (this.staticPositions.get(`${world.id}:${session.userId}`) ?? null);
     if (saved && !isBlocked(world, saved.x, saved.y)) return saved;
-    return { x: world.spawn.x, y: world.spawn.y, dir: 'down' };
+    // A first arrival picks a FREE entrance rather than always the default.
+    // Reading only `default` is why a busy room looked like a pile of people
+    // standing in each other: everyone lands on one tile and stays overlapped
+    // until they move. `pickSpawn` falls back to the default when every
+    // entrance is occupied, so a full room behaves exactly as it used to.
+    const occupied = [...(this.mapSessions.get(world.id)?.values() ?? [])].map((o) => ({
+      x: o.x,
+      y: o.y,
+    }));
+    const point = pickSpawn(world, occupied);
+    return { x: point.x, y: point.y, dir: 'down' };
   }
 
   /** Written on transition-out, leave and disconnect only — never per move. */
@@ -1386,12 +1398,18 @@ export class RoomHub {
     }
   }
 
-  private positionsIn(mapId: string): Array<{ userId: string; x: number; y: number }> {
-    return [...(this.mapSessions.get(mapId)?.values() ?? [])].map((s) => ({
-      userId: s.userId,
-      x: s.x,
-      y: s.y,
-    }));
+  private positionsIn(
+    mapId: string,
+  ): Array<{ userId: string; x: number; y: number; zone: ZoneKind | null; zoneName: string | null }> {
+    const sessions = [...(this.mapSessions.get(mapId)?.values() ?? [])];
+    const world = sessions[0]?.map ?? null;
+    return sessions.map((s) => {
+      // Resolved HERE rather than inside the proximity engine, which knows
+      // nothing about maps — that ignorance is what keeps its hysteresis and
+      // debounce rules testable with plain numbers.
+      const zone = world ? zoneAt(world, s.x, s.y) : null;
+      return { userId: s.userId, x: s.x, y: s.y, zone: zone?.kind ?? null, zoneName: zone?.name ?? null };
+    });
   }
 
   /** Fan changed pairs out to exactly the two clients each pair involves. */

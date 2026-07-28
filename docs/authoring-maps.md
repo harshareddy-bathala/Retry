@@ -5,13 +5,17 @@ truth**. There is no generator and nothing regenerates them: you either edit
 them in [Tiled](https://www.mapeditor.org/) or mutate them in place with
 `packages/maps/src/tiled.ts`, and then you look at the render.
 
-| Template | Room |
-|---|---|
-| `commons.json` | The atrium everyone arrives in. Twelve door slots along the north wall. |
-| `studio_a.json` | The default project room — PC desks facing a whiteboard. |
-| `classroom.json` | Desk rows and a blackboard, for crits and study groups. |
-| `lounge.json` | Coffee bar, sofas, a fireplace. |
-| `conference.json` | Projection screen, podium, big table — for rehearsing a demo. |
+| Template | Size | Shape | Room |
+|---|---|---|---|
+| `commons.json` | 44×20 | atrium + gallery | Everyone arrives here. Twelve door slots along the gallery's north wall. |
+| `studio_a.json` | 24×20 | T | The default project room — desk rows, a whiteboard, two booths in the alcove. |
+| `classroom.json` | 24×20 | L | Desks all facing the front, and a quiet reading corner in the wing. |
+| `lounge.json` | 24×20 | L | A bar run, three separate seating groups, a quiet snug. |
+| `conference.json` | 26×22 | T | Stage, screen, audience rows, and a green room behind. |
+
+**None of them is a rectangle, and that is deliberate.** A rectangle has no
+corner to be around, and under proximity audio a room with no corners is one
+conversation everybody is in. The alcoves are where the zones live.
 
 ## Setup
 
@@ -66,8 +70,9 @@ it. Layer **names matter**; order in the Tiled panel does not.
 | `objects` | tile | yes | Furniture drawn **behind** people: the base of anything you bump into, and wall-hung things. |
 | `objects_above` | tile | no | The parts you **walk behind** — monitor tops, shelf tops, wall caps. Drawn over every avatar. |
 | `collision` | tile | yes | Hidden. Any non-empty tile blocks movement. |
-| `spawns` | object | yes | A **point** object named `default` — where people appear. |
+| `spawns` | object | yes | **Point** objects. One must be named `default`; the rest are alternate entrances. |
 | `interactables` | object | yes | Rectangles with an `interactive` property. |
+| `zones` | object | no | Named regions that change who hears whom. |
 
 ### The rule that makes rooms feel 3D
 
@@ -84,8 +89,10 @@ standing against it, which is right.
 
 Rectangles on the `interactables` layer, with custom properties:
 
-- `interactive` (string) — one of `door`, `whiteboard`, `exit`, `seat`. Anything
-  else is a validation error.
+- `interactive` (string) — one of `door`, `whiteboard`, `exit`, `seat`, `board`,
+  `podium`. Anything else is a validation error.
+- `label` (string, optional) — the hint text. Without it the renderer falls back
+  to a generic string per kind.
 - `door_slot` (int) — **required on doors**, unique per map. A Commons door slot
   is anonymous in the map; which room owns it is assigned from the database at
   runtime, never baked in.
@@ -113,6 +120,92 @@ collision tile, and caught one overlapping a table the first time it ran.
 Match the model to the facing. The pack's side chairs at generic (4,11) and
 (5,11) have their backs on opposite sides, and a sitter with the backrest in
 front of them reads as floating.
+
+### Zones
+
+Rectangles on the optional `zones` layer, with a `zone` property. Two kinds are
+drawn by the client and mean nothing to the server; three change who hears whom
+and are enforced by the proximity engine.
+
+| `zone` | Enforced by | What it does |
+|---|---|---|
+| `whiteboard` | client | Camera hint: favour the board. |
+| `audience` | client | Camera hint: favour the stage. |
+| `spotlight` | server | Occupants are `close` to **the entire map**. |
+| `booth` | server | Occupants are `close` to each other and `out` to everyone else. |
+| `quiet` | server | Occupants are `out` to everyone, full stop. |
+
+Precedence, and it is the whole design: **quiet beats spotlight beats booth
+beats distance.** Someone who walked into the quiet corner asked not to be in a
+call, and no stage overrides a person's own choice. `spotlight` exists because
+plain proximity audio cannot do a demo at all — a presenter five tiles from the
+back row is inaudible to it.
+
+Two people in **different** booths are `out`, however close they stand. That is
+what makes a booth a room rather than a rug, and the validator rejects
+overlapping booths so a tile is never in two.
+
+### Spawns
+
+`default` is required; extra points are alternate entrances.
+
+A new arrival lands on `default` **unless four or more people are already
+standing within two tiles of it**, and only then takes the first free
+alternate. The obvious rule — "the first entrance nobody is on" — is wrong
+here: in a world where being near someone is being in a call with them, two
+people opening the same room together would land forty tiles apart and hear
+nothing. Landing on top of whoever is already there is correct; the pile it
+makes is cosmetic and resolves the moment anyone walks. The alternates are for
+the case they were needed for, which is a class of thirty arriving at once.
+
+Spawn points sit at tile **centres** (`x + 0.5`). Positions on the wire are the
+avatar's feet, so a spawn on a tile corner puts them on the seam between four
+tiles and which tile the server thinks you are in is floating-point luck.
+
+## Authoring with scripts
+
+`packages/maps/authoring/` holds one script per room plus `kit.ts`, the shared
+vocabulary — wall shells, floor materials, furniture placement, zones.
+
+```bash
+pnpm --filter @retry/maps author              # every room
+pnpm --filter @retry/maps author lounge       # one
+pnpm --filter @retry/maps preview:sheet walls3d 0 0 8 7 --scale 4
+```
+
+The scripts are **disposable**; the maps they write are the artefact. Re-running
+one is how you iterate on a room you are looking at, not how the maps are
+produced — open the JSON in Tiled afterwards and nudge a chair, and nothing
+will erase it unless someone re-runs the script on purpose.
+
+### The order inside a room script
+
+It is not arbitrary, and getting it wrong is not a crash:
+
+1. `blank` + `resize`
+2. `shell` for each rectangle, then `opening` through the shared walls
+3. `floor` for each region
+4. **`seal`** — anything with no floor becomes solid, which is what legalises a
+   non-rectangular room
+5. **`castShadows`** — derived from the collision layer as it stands *now*
+6. furniture, seats, zones, spawns
+7. `dropUnusedTilesets` + `save`
+
+Steps 4–6 are the ones that matter. Cast shadows *after* the furniture and every
+desk and bookshelf gets one too, which sounds better and looks far worse: the
+pack already draws each object's own contact shadow, and the floor becomes a
+field of grey smudges with a room somewhere underneath.
+
+### The wall kit
+
+`walls3d` is not a set of wall tiles. It is a nine-slice of a wall **solid**
+seen from slightly above, with a lit cap and a shaded face — which is what gives
+a room height instead of an outline. Of its six materials only `wood` and
+`plaster` read as walls; the rest come out as a coloured band round the floor.
+
+Every part of a wall goes on `objects`, **not** `objects_above`. The
+walk-behind layer is for things you can stand on the tile of; nobody stands
+inside a wall, so putting caps above the player buys nothing.
 
 ## Things that will bite you
 

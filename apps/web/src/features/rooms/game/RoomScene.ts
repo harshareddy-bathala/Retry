@@ -24,6 +24,7 @@ import type {
 } from '@retry/protocol';
 import { avatarScreenPositions, avatarTilePositions, minimapWorld } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
+import { toastStore } from '../hud/toast-store.js';
 import {
   BUBBLE_OFFSET_Y,
   FEET_BOX,
@@ -52,17 +53,22 @@ const TEMPLATES: Record<string, unknown> = {
 };
 
 /**
- * A map declares only the sheets it draws from, so the loader takes the union
- * across templates rather than every sheet the pack build produced. Sheets are
- * ~100-400 kB each and the full set is over a megabyte for maps that use three.
+ * The sheets ONE template draws from.
+ *
+ * This used to be the union across all five, and the union is the wrong set. A
+ * 24x20 studio that draws on four sheets was downloading and uploading to the
+ * GPU every sheet any room uses — including the museum's 512x3904 — before it
+ * could show anything. Loading per template is a texture upload the visitor to
+ * a small room never pays for, and it matters more now than it did: the rooms
+ * gained walls3d and shadows, so the union grew.
+ *
+ * The cost is that entering a room through a Commons door may have sheets to
+ * fetch. That is what the 200ms door fade is for — see `ensureTilesets`.
  */
-const REQUIRED_TILESETS: string[] = [
-  ...new Set(
-    Object.values(TEMPLATES).flatMap((map) =>
-      ((map as { tilesets?: Array<{ name: string }> }).tilesets ?? []).map((t) => t.name),
-    ),
-  ),
-];
+function tilesetsFor(template: string): string[] {
+  const map = TEMPLATES[template] as { tilesets?: Array<{ name: string }> } | undefined;
+  return (map?.tilesets ?? []).map((t) => t.name);
+}
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
@@ -249,11 +255,9 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, data] of Object.entries(TEMPLATES)) {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
-    for (const key of REQUIRED_TILESETS) {
-      const url = TILESET_URLS[key];
-      if (!url) throw new Error(`map declares tileset "${key}" — run pnpm assets:build`);
-      this.load.image(tilesKey(key), url);
-    }
+    // Tilesets are NOT loaded here. They are per-template and fetched on the
+    // way into a world (`ensureTilesets`), because the union of five rooms'
+    // sheets is several megabytes of texture for a room that draws on four.
     for (const [key, sheet] of Object.entries(ANIMATED)) {
       this.load.spritesheet(animKey(key), sheet.url, {
         frameWidth: sheet.frameWidth,
@@ -662,9 +666,18 @@ export class RoomScene extends Phaser.Scene {
       return;
     }
     if (this.currentTemplate === null) {
-      // First world build: no fade, just appear.
-      this.buildWorld(msg.template);
-      this.applySnapshot(msg);
+      // First world build. Tilesets are no longer in `preload`, so the canvas
+      // now exists BEFORE the room it will draw does — a short dark rectangle
+      // where there used to be no canvas at all. Fading in makes that read as
+      // arriving somewhere rather than as a stall. (It is also strictly less
+      // waiting than before: preload used to block on every sheet of all five
+      // maps, and this fetches one map's.)
+      this.cameras.main.fadeOut(0, 23, 21, 18);
+      this.ensureTilesets(msg.template, () => {
+        this.buildWorld(msg.template);
+        this.applySnapshot(msg);
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+      });
       return;
     }
     this.fading = true;
@@ -673,13 +686,69 @@ export class RoomScene extends Phaser.Scene {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       const pending = this.pendingSnapshot;
       this.pendingSnapshot = null;
-      this.fading = false;
-      if (pending) {
+      if (!pending) {
+        this.fading = false;
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        return;
+      }
+      // Fetch under cover of the fade — the screen is already black, so a
+      // sheet that has to come off the wire costs the transition rather than
+      // showing a half-drawn room. `fading` stays true until the world exists,
+      // so a snapshot arriving mid-fetch queues instead of racing it.
+      this.ensureTilesets(pending.template, () => {
+        this.fading = false;
         this.buildWorld(pending.template);
         this.applySnapshot(pending);
-      }
-      this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        // A snapshot that landed while we were fetching is now stale but its
+        // actors are not — apply it on top rather than dropping it.
+        const queued = this.pendingSnapshot;
+        if (queued && queued.template === pending.template) {
+          this.pendingSnapshot = null;
+          this.applySnapshot(queued);
+        }
+      });
     });
+  }
+
+  /**
+   * Makes sure every sheet a template declares is in the texture cache, then
+   * calls `done` — synchronously if there is nothing to fetch, which is the
+   * common case once a session has been in a room.
+   *
+   * Phaser's loader is normally a preload-time thing; driving it mid-scene is
+   * deliberate and needs the failure path spelled out, because a loader that
+   * never completes leaves `done` uncalled and the player looking at a black
+   * screen with a live socket and no way to know why.
+   */
+  private ensureTilesets(template: string, done: () => void): void {
+    const missing = tilesetsFor(template).filter((name) => !this.textures.exists(tilesKey(name)));
+    if (missing.length === 0) {
+      done();
+      return;
+    }
+    for (const name of missing) {
+      const url = TILESET_URLS[name];
+      if (!url) throw new Error(`map '${template}' declares tileset "${name}" — run pnpm assets:build`);
+      this.load.image(tilesKey(name), url);
+    }
+    const finish = (): void => {
+      this.load.off(Phaser.Loader.Events.COMPLETE, finish);
+      done();
+    };
+    this.load.once(Phaser.Loader.Events.COMPLETE, finish);
+    // A single failed sheet must not strand the world. Phaser fires COMPLETE
+    // after FILE_LOAD_ERROR anyway, so `buildWorld` still runs and throws a
+    // named error the ErrorBoundary can show — which beats a black rectangle.
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      toastStore.show({
+        id: `tileset-${file.key}`,
+        tone: 'warn',
+        dismissible: true,
+        body: "Some of this room's artwork did not load. Reload to try again.",
+      });
+    });
+    this.load.start();
   }
 
   private applySnapshot(msg: SnapshotMessage): void {

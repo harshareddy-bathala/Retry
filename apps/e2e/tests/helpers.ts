@@ -48,14 +48,37 @@ async function latestMessageBody(email: string): Promise<string> {
   }
 }
 
+/**
+ * Registration is rate limited to 5 per minute, and the drive creates one
+ * student per test on one worker — so the suite trips its own limit as soon as
+ * it grows past five tests, and reads as a product failure ("a phone-sized
+ * viewport gets a broken canvas") when it is a queue.
+ *
+ * Waiting is the correct response to a 429. Nothing else here retries, and
+ * nothing else should: this is the one call whose failure is about pacing
+ * rather than about the app.
+ */
+async function register(email: string, name: string): Promise<void> {
+  const deadline = Date.now() + 150_000;
+  for (;;) {
+    const res = await fetch(`${API}/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD, name }),
+    });
+    if (res.ok) return;
+    const body = await res.text();
+    if (res.status !== 429 || Date.now() > deadline) {
+      throw new Error(`POST ${API}/auth/register → ${res.status} ${body}`);
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+}
+
 /** Register, verify and onboard a student. Returns credentials for the UI login. */
 export async function createStudent(name: string): Promise<Student> {
   const email = uniqueEmail('drive');
-  await fetchJson(`${API}/auth/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: PASSWORD, name }),
-  });
+  await register(email, name);
 
   const body = await latestMessageBody(email);
   const token = /token=([A-Za-z0-9_-]+)/.exec(body)?.[1];

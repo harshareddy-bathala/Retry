@@ -2,9 +2,58 @@
 
 > Living status tracker. Update in the same PR as the work. `ROADMAP.md` is the plan; this is reality. AI assistants: read this to know what exists before writing code that depends on it.
 
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-28
 
 ## Current State
+
+**Rooms R7 — the world, rebuilt (2026-07-28).** Eight commits reworking
+`apps/web/src/features/rooms` and all five maps. The complaint that started it
+was "everything is broken in the UI", and rendering the old maps side by side
+showed the complaint was literal: the rooms had **no walls**. A wall tile was
+tiled across every other row of every map, so each room was a floor with blue
+and orange stripes through it and furniture scattered on top.
+
+*The shell.* Six competing window `keydown` listeners became one refcounted
+focus-layer stack, so typing in chat can no longer walk your avatar and Escape
+peels exactly one layer. Eight independently absolutely-positioned HUD floats
+became a CSS grid where the sidebar is a **column track** — opening a panel now
+moves the canvas, dock and minimap instead of burying them. Dragging the window
+across 1024px no longer tears down the socket (verified: zero new WebSockets
+across a narrow/widen cycle). Radix Dialog/Tooltip and lucide-react replaced
+emoji-as-icons and three overlays that behaved as modals without being them; a
+WCAG contrast failure at six sites is fixed and guarded by a token lint.
+Loading, error and empty states exist everywhere, including a 10s board timeout.
+
+*The maps.* The 1,218-line generator is deleted and replaced by
+`packages/maps/src/tiled.ts`, which mutates the committed file and **never
+regenerates one** — the generator's real damage was not that the rooms looked
+bad, it was that they could not be improved, because every hand edit was one
+`pnpm seed` away from being erased. All five rooms are re-authored from
+`walls3d`, a nine-slice of a wall *solid* that nothing had used: they now have a
+lit cap and a shaded face, so a room has height. Every room is L or T shaped,
+because a rectangle has no corner to be around and under proximity audio a room
+with no corners is one conversation everybody is in. Shadows are **derived** from
+the collision layer rather than placed, and cast before the furniture — casting
+after gives every desk one too, which sounds better and looks far worse.
+
+*The zones.* The alcoves carry a new `zones` layer the proximity engine honours:
+`spotlight` (heard by the whole map — plain proximity audio cannot do a demo at
+all, a presenter five tiles from the back row is inaudible to it), `booth`
+(close to each other, out to everyone else) and `quiet`. Precedence is quiet →
+spotlight → booth → distance: no stage overrides a person's own choice.
+
+*What the validator caught.* Widened first, on purpose, before any map moved. It
+found 48 tiles of walkable void outside an alcove, spawns inside a printer, and
+the one nobody would have found by reading: **a seat must be walkable**, because
+the server teleports an avatar onto it and validates that tile against
+collision. A chair that blocks movement is a chair nobody can sit in.
+
+*The Commons doors moved* (row 1, x = 4, 7 … 37). `reconcileDoors` self-heals at
+API boot; `room_members.last_position` does not, so everyone respawned once.
+
+*Verification.* 190 tests across the workspace, five maps valid, and a six-test
+browser drive including two new ones that assert the world **draws** — a black
+canvas with a live socket is the failure mode types cannot see.
 
 **Rooms R6 — beta polish (2026-07-27).** The track that turns "the rooms work" into "the rooms are shippable to a cohort". Four commits.
 

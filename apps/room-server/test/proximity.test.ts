@@ -141,3 +141,80 @@ describe('ProximityEngine', () => {
     expect(avgMs).toBeLessThan(5);
   });
 });
+
+// Map zones (rooms plan Phase 6b). These override distance entirely, so each
+// test puts the pair at a distance whose answer would be OBVIOUS without the
+// zone — otherwise it proves nothing.
+describe('map zones', () => {
+  type Actor = {
+    userId: string;
+    x: number;
+    y: number;
+    zone?: 'spotlight' | 'booth' | 'quiet' | null;
+    zoneName?: string | null;
+  };
+
+  /** Settle a pair to its committed zone: one update, then wait out the debounce. */
+  function committed(a: Actor, b: Actor): string {
+    const engine = new ProximityEngine();
+    engine.update(MAP, 'b', [a, b], 0);
+    const changes = engine.settle(DEBOUNCE_MS + 1);
+    return changes.at(-1)?.zone ?? 'out';
+  }
+
+  const far = { x: 40, y: 0 };
+  const touching = { x: 1, y: 0 };
+
+  it('spotlight is heard across the whole map', () => {
+    // 40 tiles apart is far outside NEAR_TILES: without the zone this is `out`.
+    expect(
+      committed({ userId: 'a', x: 0, y: 0, zone: 'spotlight' }, { userId: 'b', ...far }),
+    ).toBe('close');
+  });
+
+  it('quiet beats the spotlight, because it is the listener saying no', () => {
+    expect(
+      committed(
+        { userId: 'a', x: 0, y: 0, zone: 'spotlight' },
+        { userId: 'b', x: 1, y: 0, zone: 'quiet' },
+      ),
+    ).toBe('out');
+  });
+
+  it('quiet cuts a pair that is standing on top of each other', () => {
+    expect(
+      committed({ userId: 'a', x: 0, y: 0, zone: 'quiet' }, { userId: 'b', ...touching }),
+    ).toBe('out');
+  });
+
+  it('the same booth is close however big the booth is', () => {
+    expect(
+      committed(
+        { userId: 'a', x: 0, y: 0, zone: 'booth', zoneName: 'west' },
+        { userId: 'b', x: 3, y: 0, zone: 'booth', zoneName: 'west' },
+      ),
+    ).toBe('close');
+  });
+
+  it('different booths are out, however close the two people stand', () => {
+    // A tile apart, across a booth boundary — this is the case that makes a
+    // booth a room rather than a rug.
+    expect(
+      committed(
+        { userId: 'a', x: 0, y: 0, zone: 'booth', zoneName: 'west' },
+        { userId: 'b', x: 1, y: 0, zone: 'booth', zoneName: 'east' },
+      ),
+    ).toBe('out');
+  });
+
+  it('a booth occupant is out to someone standing right outside it', () => {
+    expect(
+      committed({ userId: 'a', x: 0, y: 0, zone: 'booth', zoneName: 'west' }, { userId: 'b', ...touching }),
+    ).toBe('out');
+  });
+
+  it('leaves ordinary distance alone when nobody is in a zone', () => {
+    expect(committed({ userId: 'a', x: 0, y: 0 }, { userId: 'b', ...touching })).toBe('close');
+    expect(committed({ userId: 'a', x: 0, y: 0 }, { userId: 'b', ...far })).toBe('out');
+  });
+});

@@ -193,3 +193,27 @@ effect's dependency array — so dragging a window narrower for one second
 disconnected you, and a slow drag across the boundary thrashed connect/disconnect
 dozens of times. `apps/e2e/tests/rooms.spec.ts` counts `WebSocket` constructions
 across a resize cycle and asserts zero.
+
+
+## Tilesets load per template, not up front
+
+`RoomScene.preload` no longer loads tilesets. It loads what every session needs
+— character layers, emote strips, animated objects — and the sheets a *map*
+draws from arrive in `ensureTilesets`, on the way into that world.
+
+The union of five rooms' sheets is several megabytes of texture for a room that
+draws on four, including the museum's 512×3904 for a 24×20 studio. It got worse
+when the rooms gained `walls3d` and `shadows`.
+
+Two consequences worth knowing before touching this:
+
+- **The canvas now exists before the room it will draw does.** `preload` used to
+  block the scene from starting; now the scene starts and the sheets follow. The
+  first build fades in from black so that reads as arriving somewhere rather
+  than as a stall. It is still strictly less waiting than before.
+- **`waitForWorld` is no longer sufficient in a test.** Waiting for the canvas
+  element does not mean the room is drawn. `apps/e2e/tests/maps.spec.ts` polls
+  the Phaser texture cache instead.
+
+A sheet that fails to load raises a toast and lets `buildWorld` throw a named
+error into the ErrorBoundary — which beats a black rectangle with a live socket.
