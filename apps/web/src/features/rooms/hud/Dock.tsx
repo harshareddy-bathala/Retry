@@ -1,4 +1,4 @@
-import { HelpCircle, UserRound } from 'lucide-react';
+import { HelpCircle, SlidersHorizontal, UserRound } from 'lucide-react';
 import { IconButton } from '../../../components/ui/icon-button.js';
 import { AVControls } from '../AVControls.js';
 import { EmoteBar } from '../EmoteBar.js';
@@ -37,6 +37,13 @@ export function Dock({ av, onToggleAv }: DockProps) {
 
       <SayBar />
       <EmoteBar />
+
+      <IconButton
+        label="Check mic and camera"
+        side="top"
+        onClick={() => roomEvents.emit('av:check')}
+        icon={<SlidersHorizontal size={18} aria-hidden />}
+      />
 
       <IconButton
         label="Change how you look"

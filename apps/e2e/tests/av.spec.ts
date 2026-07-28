@@ -58,15 +58,31 @@ async function student(browser: Browser, name: string): Promise<Page> {
 }
 
 /**
- * Make sure this page is publishing a microphone.
+ * Get this page publishing a microphone, through the front door.
  *
- * Written as "click it if it is off" rather than "click it" on purpose: the
- * default flips to muted, and a test that assumed either default would start
- * silently asserting nothing the day it changed.
+ * The pre-join dialog appears once per session and is a Radix modal, so it
+ * traps focus — the dock's mic button is not clickable behind it. Going through
+ * the dialog is also the real path a student takes, which is the better thing
+ * to be testing anyway.
+ *
+ * Written as "turn it on if it is off" rather than "click the toggle", because
+ * the default is now muted and a test that hardcoded either default would
+ * silently start asserting nothing the day it changed.
  */
-async function ensureMicOn(page: Page): Promise<void> {
-  const turnOn = page.getByRole('button', { name: /turn the microphone on/i });
-  if (await turnOn.isVisible().catch(() => false)) await turnOn.click();
+async function joinWithMic(page: Page): Promise<void> {
+  // WAIT for the dialog rather than probing for it. It opens on a 300ms poll
+  // after the creator closes, so `isVisible()` here is a coin flip — and losing
+  // that flip does not skip the dialog, it clicks the dock button underneath a
+  // modal overlay that is about to appear and swallow the pointer event.
+  // Every test in this file uses a fresh context, so sessionStorage is empty
+  // and the check is always offered.
+  const preJoin = page.getByRole('dialog', { name: /can they hear you/i });
+  await preJoin.waitFor({ timeout: 20_000 });
+
+  const mic = preJoin.getByRole('button', { name: /^mic$/i });
+  if ((await mic.getAttribute('aria-pressed')) !== 'true') await mic.click();
+  await preJoin.getByRole('button', { name: /join with these/i }).click();
+  await expect(preJoin).toBeHidden();
   await expect(page.getByRole('button', { name: /turn the microphone off/i })).toBeVisible();
 }
 
@@ -87,7 +103,7 @@ test.describe('proximity AV', () => {
     // anything — and for three weeks this line could not have passed at all.
     for (const page of [ana, ben]) {
       await expect.poll(async () => (await probe(page)).status, { timeout: 30_000 }).toBe('live');
-      await ensureMicOn(page);
+      await joinWithMic(page);
     }
 
     // Both spawned on the same tile, so proximity has them close and each
@@ -148,6 +164,7 @@ test.describe('proximity AV', () => {
     await waitForWorld(ana);
     await dismissCreator(ana);
     await expect.poll(async () => (await probe(ana)).status, { timeout: 30_000 }).toBe('live');
+    await joinWithMic(ana);
     const studio = (await probe(ana)).room;
     expect(studio).toBe('retry-studio_a');
 
@@ -162,5 +179,56 @@ test.describe('proximity AV', () => {
     await expect.poll(async () => (await probe(ana)).status, { timeout: 30_000 }).toBe('live');
 
     await ana.context().close();
+  });
+});
+
+// The pre-join check. Its whole value is that it appears at the right moment
+// and does not gate the world, so those are the assertions.
+test.describe('pre-join check', () => {
+  test('appears once, after the character creator, and never gates the socket', async ({
+    browser,
+  }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await login(page, await createStudent('Ana PreJoin'));
+
+    await page.goto('/world?map=studio_a');
+
+    // A brand-new account gets the character creator first. Both are modals,
+    // and two stacked would trap focus in the top one and make the bottom one
+    // undismissable — so the pre-join must NOT be up yet.
+    const creator = page.getByRole('dialog', { name: /build your character/i });
+    await creator.waitFor({ timeout: 30_000 });
+    await expect(page.getByRole('dialog', { name: /can they hear you/i })).toBeHidden();
+
+    await dismissCreator(page);
+
+    const preJoin = page.getByRole('dialog', { name: /can they hear you/i });
+    await preJoin.waitFor({ timeout: 20_000 });
+
+    // The socket is up BEHIND it. The dialog gates publishing, never the world:
+    // `useRoomSession` keeps its [userId, mapId] deps for exactly this reason.
+    await expect(page.getByText('Live', { exact: true })).toBeVisible();
+
+    // Joining muted must leave nothing published — the default this phase
+    // exists to establish. With nothing enabled there is exactly ONE button,
+    // because two adjacent controls both reading "Join muted" is what the
+    // first version of this dialog did.
+    await expect(preJoin.getByRole('button', { name: /^join muted$/i })).toHaveCount(1);
+    await preJoin.getByRole('button', { name: /^join muted$/i }).click();
+    await expect(preJoin).toBeHidden();
+    await expect(page.getByRole('button', { name: /turn the microphone on/i })).toBeVisible();
+
+    // Walking through a door must not ask again.
+    await page.goto('/world?map=commons');
+    await waitForWorld(page);
+    await page.waitForTimeout(1_500);
+    await expect(preJoin).toBeHidden();
+
+    // But it is one click away, which is what makes "once" acceptable.
+    await page.getByRole('button', { name: /check mic and camera/i }).click();
+    await expect(preJoin).toBeVisible();
+
+    await context.close();
   });
 });

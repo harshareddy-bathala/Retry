@@ -1,5 +1,12 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { createStudent, dismissCreator, login, waitForWorld, walk } from './helpers.js';
+import {
+  createStudent,
+  dismissCreator,
+  dismissPreJoin,
+  login,
+  waitForWorld,
+  walk,
+} from './helpers.js';
 
 // The golden path, with two students in one world.
 //
@@ -53,6 +60,7 @@ test.describe('rooms', () => {
       await page.goto(`/world?map=${roomId}`);
       await waitForWorld(page);
       await dismissCreator(page);
+      await dismissPreJoin(page);
     }
 
     // Presence: each sees the other by name in the strip.
@@ -128,6 +136,7 @@ test.describe('rooms', () => {
     await page.goto('/world');
     await waitForWorld(page);
     await dismissCreator(page);
+    await dismissPreJoin(page);
 
     // Count sockets from here on. A surviving session opens none.
     await page.evaluate(() => {

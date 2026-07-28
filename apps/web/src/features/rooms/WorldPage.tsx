@@ -20,6 +20,7 @@ import { useInputLayer, useInputRoot } from './input/useInputLayer.js';
 import { Minimap } from './Minimap.js';
 import { loadAvState, saveAvState, type AvState } from './av-state.js';
 import { avManager } from './av/av-manager.js';
+import { PreJoinDialog } from './av/PreJoinDialog.js';
 import { KnockLayer } from './KnockLayer.js';
 import { useRoomPanels } from './panels/use-room-panels.js';
 import { roomEvents } from './event-bus.js';
@@ -99,6 +100,75 @@ function useConnectionToast(): void {
   );
 }
 
+const PRE_JOIN_KEY = 'retry.rooms.prejoin';
+
+/**
+ * Has the pre-join check been offered yet in this browsing session?
+ *
+ * `sessionStorage`, and the choice of storage IS the definition of "session":
+ * it survives a reload and every client-side navigation, and it is cleared when
+ * the tab closes. That is exactly the behaviour wanted — a student who walks
+ * through four doors in ten minutes is asked once, a student who hits refresh
+ * is not asked again, and a student who comes back tomorrow (headset unplugged,
+ * laptop somewhere else, roommate in the room) is.
+ *
+ * A module-level boolean was the first attempt and is subtly wrong: a page
+ * reload resets it, so refreshing re-prompts. localStorage is wrong in the
+ * other direction — asked once, never again, forever, on a check whose entire
+ * value is catching a setup that changed since last time.
+ */
+function preJoinOffered(): boolean {
+  try {
+    return sessionStorage.getItem(PRE_JOIN_KEY) === 'yes';
+  } catch {
+    // Storage blocked (private mode, embedded webview): offer it, every time.
+    // Asking twice is a smaller failure than never asking.
+    return false;
+  }
+}
+
+function markPreJoinOffered(): void {
+  try {
+    sessionStorage.setItem(PRE_JOIN_KEY, 'yes');
+  } catch {
+    // Nothing to do — see above.
+  }
+}
+
+/**
+ * Open the pre-join check once, and only once the character creator is done
+ * with the screen.
+ *
+ * The creator opens by itself on a first-ever entry (driven by the server's
+ * `avatarState.chosen`, which is the only place that question can be answered),
+ * so on a brand-new account both modals want the same moment. Two stacked
+ * dialogs is a trap: Radix traps focus in the topmost, and the one underneath
+ * is the one that cannot be dismissed.
+ */
+function usePreJoin(ready: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(false);
+  const creatorOpen = useRef(false);
+
+  useEffect(() => roomEvents.on('creator:state', ({ open: o }) => {
+    creatorOpen.current = o;
+  }), []);
+
+  useEffect(() => {
+    if (!ready || preJoinOffered()) return;
+    // Poll rather than react: the creator may never open at all (a returning
+    // student), in which case there is no state change to listen for.
+    const timer = setInterval(() => {
+      if (creatorOpen.current || preJoinOffered()) return;
+      markPreJoinOffered();
+      setOpen(true);
+      clearInterval(timer);
+    }, 300);
+    return () => clearInterval(timer);
+  }, [ready]);
+
+  return [open, setOpen];
+}
+
 // The Live Space, full bleed (W2).
 //
 // This route deliberately renders OUTSIDE AppShell: the app shell wraps its
@@ -147,7 +217,12 @@ export default function WorldPage() {
   useEffect(
     () =>
       roomEvents.on('net:status', (status) => {
-        if (status === 'open') roomSocket.send({ t: 'media', ...avRef.current });
+        // Only the two booleans. `AvState` also carries device ids now, and
+        // spreading it would put a stable per-device fingerprint on the wire
+        // for a server that has no use for one.
+        if (status === 'open') {
+          roomSocket.send({ t: 'media', audio: avRef.current.audio, video: avRef.current.video });
+        }
       }),
     [],
   );
@@ -200,9 +275,14 @@ export default function WorldPage() {
   const onToggleAv = (next: AvState): void => {
     setAv(next);
     saveAvState(next);
-    roomSocket.send({ t: 'media', ...next });
+    roomSocket.send({ t: 'media', audio: next.audio, video: next.video });
     avManager.setLocal(next);
   };
+
+  // Offered once the world is actually up — asking "can they hear you?" over a
+  // blank canvas would be asking about a room nobody has arrived in yet.
+  const [preJoinOpen, setPreJoinOpen] = usePreJoin(fit === 'ok' && placeName !== null);
+  useEffect(() => roomEvents.on('av:check', () => setPreJoinOpen(true)), [setPreJoinOpen]);
 
   if (!user) return null;
 
@@ -293,6 +373,15 @@ export default function WorldPage() {
             {/* Nothing modal belongs over a world that is not being drawn —
                 you cannot build a character you cannot see walking. */}
             {fit === 'ok' && <CharacterCreator />}
+            {/* Publishing is gated here; the SOCKET never is. `useRoomSession`
+                keeps its [userId, mapId] deps precisely so this dialog cannot
+                delay or tear down the world behind it. */}
+            <PreJoinDialog
+              open={preJoinOpen}
+              onOpenChange={setPreJoinOpen}
+              av={av}
+              onJoin={onToggleAv}
+            />
             {active === 'whiteboard' && roomId && (
               <Suspense
                 fallback={

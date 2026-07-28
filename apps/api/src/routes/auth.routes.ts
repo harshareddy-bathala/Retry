@@ -37,11 +37,22 @@ export function authRoutes(
   deps: { service: AuthService; guards: AuthGuards; env: Env },
 ): void {
   const { service, guards, env } = deps;
-  // Auth endpoints are the brute-force surface: 5/min/IP (SECURITY.md §5).
-  // Disabled under test: integration suites share one app instance, and the
-  // in-memory counter would otherwise 429 legitimate fixtures mid-file.
+  // Auth endpoints are the brute-force surface: 5/min/IP in production
+  // (SECURITY.md §5).
+  //
+  // Off under test — integration suites share one app instance and the
+  // in-memory counter would 429 legitimate fixtures mid-file — and loosened in
+  // development, where the only client is localhost and the browser drive
+  // registers a fresh student per test. At nine tests the drive queued behind
+  // its own limit and reported it as "a phone-sized viewport gets a broken
+  // canvas", which is a lie about the product caused by a defence that is
+  // defending nothing: an attacker who can reach a dev API on 127.0.0.1 has
+  // already won.
+  //
+  // Production is unchanged, and is the only place the number matters.
+  const registerLimit = { max: env.NODE_ENV === 'development' ? 100 : 5, timeWindow: '1 minute' };
   const authRateLimit = {
-    rateLimit: env.NODE_ENV === 'test' ? false : { max: 5, timeWindow: '1 minute' },
+    rateLimit: env.NODE_ENV === 'test' ? false : registerLimit,
   };
 
   app.post('/auth/register', { config: authRateLimit }, async (request, reply) => {

@@ -131,6 +131,29 @@ export async function waitForWorld(page: Page): Promise<void> {
   await page.getByText('Live', { exact: true }).waitFor({ timeout: 30_000 });
 }
 
+/**
+ * Dismiss the mic/camera check, offered once per session on entering the world.
+ *
+ * Every spec that walks into the world needs this for the same reason
+ * `dismissCreator` exists: it is a real modal, so everything it covers is
+ * unclickable until it is answered — and a Radix overlay swallows the pointer
+ * event rather than failing loudly, which reads as "the HUD button is broken".
+ *
+ * "Join muted" is also the honest answer for the default `edge` project, which
+ * deliberately has no camera and no microphone at all.
+ */
+export async function dismissPreJoin(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: /can they hear you/i });
+  try {
+    await dialog.waitFor({ timeout: 10_000 });
+  } catch {
+    // Already answered this session — sessionStorage survives navigation.
+    return;
+  }
+  await dialog.getByRole('button', { name: /^join muted$/i }).click();
+  await dialog.waitFor({ state: 'hidden', timeout: 10_000 });
+}
+
 /** Dismiss the character creator, which opens on a student's first-ever entry. */
 export async function dismissCreator(page: Page): Promise<void> {
   const save = page.getByRole('button', { name: /that's me/i });

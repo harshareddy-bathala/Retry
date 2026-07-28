@@ -88,6 +88,8 @@ export function CharacterCreator() {
     [],
   );
   useEffect(() => roomEvents.on('creator:open', () => setOpen(true)), []);
+  // Announce open/closed so the pre-join check can queue behind this one.
+  useEffect(() => roomEvents.emit('creator:state', { open }), [open]);
 
   const urls = useMemo(() => selectionUrls(selection), [selection]);
 

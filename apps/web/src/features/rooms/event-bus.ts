@@ -25,6 +25,14 @@ export type RoomEventMap = {
   'input:canvas-keys': { enabled: boolean };
   // Reopen the character creator from the HUD (a look is editable, not a vow).
   'creator:open': undefined;
+  // Whether the character creator is currently up. The pre-join check waits for
+  // this to go false before opening: both are modals, and two modals stacked on
+  // a first-ever entry is a trap rather than a welcome. Emitted by
+  // CharacterCreator and read by WorldPage; nothing else needs it.
+  'creator:state': { open: boolean };
+  // Reopen the mic/camera check from the dock. It is offered once per session
+  // automatically, which is only acceptable BECAUSE it is one click away after.
+  'av:check': undefined;
   // A rename repaints the name tag; it must not rebuild the world.
   'self:rename': { displayName: string };
   // Show me where someone is: the camera leaves the player, pans to them, and

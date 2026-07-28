@@ -71,23 +71,72 @@ class AvManager {
     avStore.setStatus('off');
   }
 
-  /** Mic/cam toggles — state carries unchanged across every map transition. */
+  /** Mic/cam toggles and device choice — carried across every map transition. */
   setLocal(next: AvState): void {
+    const previous = this.local;
     this.local = next;
     const room = this.room;
     if (room) {
       void room.localParticipant
         .setMicrophoneEnabled(next.audio)
-        .catch((err: unknown) =>
-          reportWarning('rooms: microphone unavailable; continuing without it', err),
-        );
+        .then(() => {
+          // Recovering from a denial has to CLEAR it. Otherwise the status line
+          // keeps saying the mic is blocked after the student has fixed it.
+          if (next.audio && avStore.getStatus() === 'denied') avStore.setStatus('live');
+        })
+        .catch((err: unknown) => {
+          // This branch used to only warn to Sentry, so a student who joined
+          // muted and later unmuted into a permission refusal got silence and
+          // no explanation — the exact failure av-store.ts calls the worst one
+          // in the product. Only `switchRoom` ever set this.
+          if (next.audio) avStore.setStatus('denied');
+          reportWarning('rooms: microphone unavailable; continuing without it', err);
+        });
       void room.localParticipant.setCameraEnabled(next.video).catch((err: unknown) =>
         // No camera permission is a fully supported state: audio (or nothing)
         // continues and bubbles fall back to initials — never a black rectangle.
         reportWarning('rooms: camera unavailable; continuing without video', err),
       );
+      this.applyDevices(previous);
     }
     this.resumeAudio();
+  }
+
+  /**
+   * Push changed device choices at LiveKit.
+   *
+   * Only the ones that actually changed: `switchActiveDevice` republishes the
+   * track, which is an audible click on audio and a visible flicker on video,
+   * and `setLocal` is called on every mic toggle.
+   */
+  private applyDevices(previous: AvState): void {
+    const room = this.room;
+    if (!room) return;
+    const next = this.local;
+    const switchTo = (kind: MediaDeviceKind, id: string | undefined): void => {
+      if (!id) return;
+      void room.switchActiveDevice(kind, id).catch((err: unknown) =>
+        reportWarning(`rooms: could not switch ${kind}`, err),
+      );
+    };
+    if (next.micId !== previous.micId) switchTo('audioinput', next.micId);
+    if (next.camId !== previous.camId) switchTo('videoinput', next.camId);
+    if (next.speakerId !== previous.speakerId) switchTo('audiooutput', next.speakerId);
+  }
+
+  /**
+   * Create and resume the AudioContext from inside a user gesture.
+   *
+   * Otherwise it is built lazily on the first REMOTE track, which can be long
+   * after any click — and a context created outside a gesture starts
+   * `suspended` under autoplay policy, so the first person to speak to you is
+   * inaudible until something else happens to resume it. The pre-join dialog is
+   * a gesture and calls this.
+   */
+  primeAudio(): AudioContext {
+    const ctx = (this.audioCtx ??= new AudioContext());
+    this.resumeAudio();
+    return ctx;
   }
 
   private onMessage(msg: ServerMessage): void {
@@ -145,6 +194,9 @@ class AvManager {
         });
         await room.localParticipant.setCameraEnabled(this.local.video).catch(() => undefined);
         if (!micOk && this.local.audio) avStore.setStatus('denied');
+        // Device choice does not survive a reconnect on its own: a new Room
+        // means new tracks, published with the browser default.
+        this.applyDevices({ audio: false, video: false });
         // Peers already close/near are subscribed as LiveKit reports their
         // publications; anyone already present is handled here.
         for (const participant of room.remoteParticipants.values()) {

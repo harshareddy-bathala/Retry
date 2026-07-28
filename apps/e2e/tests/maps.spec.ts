@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { createStudent, dismissCreator, login, waitForWorld } from './helpers.js';
+import {
+  createStudent,
+  dismissCreator,
+  dismissPreJoin,
+  login,
+  waitForWorld,
+} from './helpers.js';
 
 // The maps, driven (rooms plan Phase 6).
 //
@@ -53,6 +59,7 @@ test.describe('maps', () => {
     await page.goto('/world?map=commons');
     await dismissCreator(page);
     await waitForWorld(page);
+    await dismissPreJoin(page);
     await waitForTiles(page, 'museum');
 
     // The Commons draws on museum; it must NOT have paid for the classroom or
@@ -74,6 +81,7 @@ test.describe('maps', () => {
     await page.goto('/world?map=commons');
     await dismissCreator(page);
     await waitForWorld(page);
+    await dismissPreJoin(page);
     await waitForTiles(page, 'museum');
 
     // studio_a draws on `classroom`, which the Commons does not — so this
