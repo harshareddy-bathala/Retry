@@ -23,6 +23,12 @@ import {
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAP_NAMES = ['studio_a', 'classroom', 'lounge', 'conference', 'commons'];
 
+// The round-trip tests read the REAL maps on purpose — that is the property.
+// Everything below them must not, because a test that asserts studio_a is 20
+// tiles wide fails the day somebody makes the room bigger, which is not a bug
+// and is exactly the edit this module exists to make easy. So the mutation
+// tests derive their expectations from whatever the map currently is.
+
 // Anything that resolves a gid needs the licensed pack's manifest. CI builds
 // without it, so those tests announce themselves as skipped rather than
 // silently passing on a file that was never read.
@@ -132,7 +138,7 @@ describe('objects', () => {
 
   it('creates a missing object layer on demand', () => {
     const map = loadMap('studio_a');
-    expect(map.layers.some((l) => l.name === 'zones')).toBe(false);
+    map.layers = map.layers.filter((l) => l.name !== 'zones');
     addObject(map, 'zones', { name: 'quiet corner', x: 1, y: 1, w: 3, h: 3 });
     const zones = map.layers.find((l) => l.name === 'zones');
     expect(zones?.type).toBe('objectgroup');
@@ -150,12 +156,14 @@ describe('resize', () => {
   it('keeps content at the same tile coordinates when growing', () => {
     const map = loadMap('studio_a');
     const before = getTile(map, 'ground', 5, 5);
-    resize(map, map.width + 4, map.height + 3);
-    expect(map.width).toBe(24);
-    expect(map.height).toBe(18);
+    const w = map.width + 4;
+    const h = map.height + 3;
+    resize(map, w, h);
+    expect(map.width).toBe(w);
+    expect(map.height).toBe(h);
     expect(getTile(map, 'ground', 5, 5)).toBe(before);
-    expect(getTile(map, 'ground', 23, 17)).toBe(0);
-    expect(tileLayer(map, 'ground').data).toHaveLength(24 * 18);
+    expect(getTile(map, 'ground', w - 1, h - 1)).toBe(0);
+    expect(tileLayer(map, 'ground').data).toHaveLength(w * h);
   });
 
   it('shifts objects with the tiles', () => {
@@ -169,23 +177,28 @@ describe('resize', () => {
 
   it('refuses to crop rather than losing tiles silently', () => {
     const map = loadMap('studio_a');
-    expect(() => resize(map, 10, 10)).toThrow(/would crop/);
+    expect(() => resize(map, 8, 8)).toThrow(/would crop/);
   });
 
   it('resizes every tile layer, so tileLayer() stays consistent', () => {
     const map = loadMap('studio_a');
-    resize(map, 24, 18);
+    const w = map.width + 2;
+    const h = map.height + 2;
+    resize(map, w, h);
     for (const name of ['ground', 'ground_overlay', 'objects', 'objects_above', 'collision'] as const) {
-      expect(tileLayer(map, name).data).toHaveLength(24 * 18);
+      expect(tileLayer(map, name).data).toHaveLength(w * h);
     }
   });
 });
 
 describe('tilesets', () => {
+  // A sheet no room draws from, so these stay true however the rooms change.
+  const SPARE = 'tvstudio';
+
   withPack('appends above every existing range and never renumbers', () => {
     const map = loadMap('studio_a');
     const before = map.tilesets.map((t) => ({ name: t.name, firstgid: t.firstgid }));
-    const added = addTileset(map, 'shadows');
+    const added = addTileset(map, SPARE);
     const top = Math.max(...before.map((t) => t.firstgid));
     expect(added.firstgid).toBeGreaterThan(top);
     for (const t of before) {
@@ -195,33 +208,33 @@ describe('tilesets', () => {
 
   withPack('is idempotent', () => {
     const map = loadMap('studio_a');
-    const a = addTileset(map, 'shadows');
+    const a = addTileset(map, SPARE);
     const count = map.tilesets.length;
-    const b = addTileset(map, 'shadows');
+    const b = addTileset(map, SPARE);
     expect(b.firstgid).toBe(a.firstgid);
     expect(map.tilesets).toHaveLength(count);
   });
 
   withPack('resolves gids by column and row, not linear index', () => {
     const map = loadMap('studio_a');
-    const ref = addTileset(map, 'shadows');
-    // shadows is 16 columns; (2,1) must be a full row past (2,0).
-    expect(gidFor(map, 'shadows', 2, 0)).toBe(ref.firstgid + 2);
-    expect(gidFor(map, 'shadows', 2, 1)).toBe(ref.firstgid + 16 + 2);
+    const ref = addTileset(map, SPARE);
+    // tvstudio is 16 columns; (2,1) must be a full row past (2,0).
+    expect(gidFor(map, SPARE, 2, 0)).toBe(ref.firstgid + 2);
+    expect(gidFor(map, SPARE, 2, 1)).toBe(ref.firstgid + 16 + 2);
   });
 
   withPack('rejects a tile outside the sheet', () => {
     const map = loadMap('studio_a');
-    expect(() => gidFor(map, 'shadows', 99, 0)).toThrow(/outside the sheet/);
-    expect(() => gidFor(map, 'shadows', 0, 999)).toThrow(/outside the sheet/);
+    expect(() => gidFor(map, SPARE, 99, 0)).toThrow(/outside the sheet/);
+    expect(() => gidFor(map, SPARE, 0, 999)).toThrow(/outside the sheet/);
   });
 
   withPack('block lifts a rectangle in reading order', () => {
     const map = loadMap('studio_a');
-    const grid = block(map, 'shadows', 1, 1, 2, 2);
+    const grid = block(map, SPARE, 1, 1, 2, 2);
     expect(grid).toHaveLength(2);
-    expect(grid[0]).toEqual([gidFor(map, 'shadows', 1, 1), gidFor(map, 'shadows', 2, 1)]);
-    expect(grid[1]).toEqual([gidFor(map, 'shadows', 1, 2), gidFor(map, 'shadows', 2, 2)]);
+    expect(grid[0]).toEqual([gidFor(map, SPARE, 1, 1), gidFor(map, SPARE, 2, 1)]);
+    expect(grid[1]).toEqual([gidFor(map, SPARE, 1, 2), gidFor(map, SPARE, 2, 2)]);
   });
 
   it('names an unknown tileset instead of failing on undefined', () => {

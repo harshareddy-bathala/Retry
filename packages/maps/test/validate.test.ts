@@ -212,6 +212,9 @@ describe('validateMap: non-rectangular maps', () => {
 
   it('fails an unknown zone kind and a zero-area zone', () => {
     const map = load();
+    // studio_a now ships a `zones` layer of its own, and validateMap reads the
+    // FIRST one — so these tests replace it rather than adding a second.
+    map.layers = map.layers.filter((l) => l.name !== 'zones');
     map.layers.push({
       type: 'objectgroup',
       name: 'zones',
@@ -238,6 +241,7 @@ describe('validateMap: non-rectangular maps', () => {
       properties: [{ name: 'zone', value: 'booth' }],
     });
     const overlapping = load();
+    overlapping.layers = overlapping.layers.filter((l) => l.name !== 'zones');
     overlapping.layers.push({
       type: 'objectgroup',
       name: 'zones',
@@ -247,6 +251,7 @@ describe('validateMap: non-rectangular maps', () => {
 
     // Sharing an edge is not sharing a tile — booths line a wall side by side.
     const adjacent = load();
+    adjacent.layers = adjacent.layers.filter((l) => l.name !== 'zones');
     adjacent.layers.push({
       type: 'objectgroup',
       name: 'zones',

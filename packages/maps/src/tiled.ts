@@ -266,6 +266,31 @@ export function addTileset(map: AuthoredMap, key: string): TilesetRef {
   return ref;
 }
 
+/**
+ * Removes tilesets no tile references.
+ *
+ * Safe in a way that reordering is not: dropping an entry leaves every other
+ * firstgid exactly where it was, so the gid space simply grows a hole. The
+ * point is weight — a declared sheet is downloaded and uploaded to the GPU
+ * whether or not a single tile uses it, and the museum sheet alone is
+ * 512x3904. A room that was reworked and no longer uses its old theme should
+ * stop paying for it.
+ */
+export function dropUnusedTilesets(map: AuthoredMap): string[] {
+  const used = new Set<string>();
+  for (const layer of map.layers) {
+    if (layer.type !== 'tilelayer') continue;
+    for (const gid of layer.data) {
+      if (gid === 0) continue;
+      const owner = map.tilesets.find((t) => gid >= t.firstgid && gid < t.firstgid + t.tilecount);
+      if (owner) used.add(owner.name);
+    }
+  }
+  const dropped = map.tilesets.filter((t) => !used.has(t.name)).map((t) => t.name);
+  map.tilesets = map.tilesets.filter((t) => used.has(t.name));
+  return dropped;
+}
+
 /** The gid for a tile at (col, row) of a sheet. Adds the sheet if needed. */
 export function gidFor(map: AuthoredMap, key: string, col: number, row: number): number {
   const ref = addTileset(map, key);

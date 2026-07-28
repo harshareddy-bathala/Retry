@@ -19,7 +19,7 @@
   "scripts": {
     "validate": "tsx scripts/validate-maps.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src scripts test art",
+    "lint": "eslint src scripts test art authoring",
     "test": "vitest run",
     "test:watch": "vitest",
     "art": "pnpm assets:build && tsx scripts/validate-maps.ts",
@@ -27,7 +27,9 @@
     "assets:check": "tsx scripts/check-assets.ts",
     "tiled": "tsx scripts/build-tiled.ts",
     "preview": "tsx scripts/preview-map.ts",
-    "preview:all": "tsx scripts/preview-all.ts"
+    "preview:all": "tsx scripts/preview-all.ts",
+    "preview:sheet": "tsx scripts/preview-sheet.ts",
+    "author": "tsx authoring/author.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"
