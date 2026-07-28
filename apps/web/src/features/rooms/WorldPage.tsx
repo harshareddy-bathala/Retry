@@ -4,6 +4,8 @@ import { DEFAULT_SPRITE } from '@retry/maps';
 import { ART_SOURCE } from '@retry/maps/generated/tilesets';
 import { useAuth } from '../auth/AuthContext.js';
 import { getAccessToken } from '../../lib/api.js';
+import { Button, buttonClass } from '../../components/ui/button.js';
+import { ErrorBoundary } from '../../components/ui/error-boundary.js';
 import { CharacterCreator } from './CharacterCreator.js';
 import { DesktopOnlyGate, useWorldFit } from './DesktopOnlyGate.js';
 import { Dock } from './hud/Dock.js';
@@ -243,10 +245,32 @@ export default function WorldPage() {
         stage={
           <>
             {fit === 'ok' && (
-              <>
+              // A boundary around the CANVAS specifically, not the page. A
+              // throw inside Phaser's create() used to blank the entire app;
+              // now the socket, the panels and the way out all survive it.
+              <ErrorBoundary
+                what="The world"
+                fallback={(retry) => (
+                  <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                    <p className="text-sm text-ink">The map didn&apos;t draw.</p>
+                    <p className="max-w-sm text-xs text-ink-muted">
+                      Everything else in this room still works — the chat, the board and the
+                      whiteboard are all on its Workspace page.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" size="sm" onClick={retry}>
+                        Try again
+                      </Button>
+                      <Link to={leaveTo} className={buttonClass('secondary', 'sm')}>
+                        Open the Workspace
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              >
                 <RoomCanvas userId={user.id} displayName={user.name} selfAudio={av.audio} />
                 {minimapOpen && <Minimap selfUserId={user.id} />}
-              </>
+              </ErrorBoundary>
             )}
             <ToastRegion />
             <KnockLayer />

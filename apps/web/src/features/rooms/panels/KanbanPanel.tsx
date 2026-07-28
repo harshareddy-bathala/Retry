@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
 import type { KanbanCard, KanbanColumnKey } from '@retry/protocol';
 import { roomSocket } from '../net/room-socket.js';
-import type { Board } from './use-kanban-board.js';
+import { ErrorState, SkeletonList } from '../../../components/ui/states.js';
+import type { BoardState } from './use-kanban-board.js';
 
-type KanbanPanelProps = { board: Board | null };
+type KanbanPanelProps = { state: BoardState };
 
 // Kanban (FR-ROOM-18..20): mutations go over the world socket; the server
 // persists, then broadcasts — this panel only ever renders server state.
@@ -12,14 +13,27 @@ type KanbanPanelProps = { board: Board | null };
 // never fight over a reindex. The board itself is tracked by useKanbanBoard
 // above this component, because the snapshot arrives on room entry rather
 // than on panel open.
-export function KanbanPanel({ board }: KanbanPanelProps) {
+export function KanbanPanel({ state }: KanbanPanelProps) {
   const [draft, setDraft] = useState<Partial<Record<KanbanColumnKey, string>>>({});
   const [renaming, setRenaming] = useState<KanbanColumnKey | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  const { board, status, retry } = state;
 
-  if (!board) {
-    return <p className="px-3 py-4 text-xs text-ink-muted">Loading board…</p>;
+  // The board arrives once, unprompted, from a fire-and-forget push on the
+  // server whose only failure path is a logged warning. So "still loading" had
+  // to become a state that can END: this used to read "Loading board…" forever.
+  if (status === 'timeout') {
+    return (
+      <div className="p-3">
+        <ErrorState
+          title="The board didn't arrive."
+          detail="Nothing has been lost — ask the room for it again."
+          onRetry={retry}
+        />
+      </div>
+    );
   }
+  if (!board) return <SkeletonList rows={3} className="p-3" />;
 
   const cardsIn = (key: KanbanColumnKey): KanbanCard[] =>
     [...board.cards.values()]

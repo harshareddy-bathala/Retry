@@ -46,7 +46,7 @@ export function WorkspacePanels({ roomId, selfUserId }: { roomId: string; selfUs
 
       <div className="flex h-[26rem] flex-col overflow-hidden rounded-panel border border-edge bg-surface">
         {tab === 'chat' && <ChatPanel key={roomId} roomId={roomId} selfUserId={selfUserId} />}
-        {tab === 'board' && <KanbanPanel key={roomId} board={board} />}
+        {tab === 'board' && <KanbanPanel key={roomId} state={board} />}
         {tab === 'whiteboard' && (
           <div className="flex flex-1 items-center justify-center px-4 text-center">
             <div>

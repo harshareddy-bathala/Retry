@@ -10,6 +10,7 @@ import type {
   RoomSummary,
   RoomVisibility,
 } from '@retry/types';
+import { EmptyState, ErrorState, SkeletonList } from '../../components/ui/states.js';
 import { api, ApiError } from '../../lib/api.js';
 import { useAuth } from '../auth/AuthContext.js';
 import { cn } from '../../lib/cn.js';
@@ -60,21 +61,45 @@ export default function RoomsPage() {
 
       <CreateRoomForm />
 
-      <section className="flex flex-col gap-2">
-        <h3 className="font-mono text-[11px] uppercase text-ink-muted">My rooms</h3>
-        {rooms.data?.mine.length === 0 && (
-          <p className="text-sm text-ink-muted">No rooms yet — create one above.</p>
-        )}
-        {rooms.data?.mine.map((room) => <RoomCard key={room.id} room={room} mine />)}
-      </section>
+      {/* Loading and failed both used to render as EMPTY: the two headings
+          appeared with nothing under either, so a room list that could not be
+          fetched was indistinguishable from having no rooms. `rooms.isError`
+          was never read at all. */}
+      {rooms.isError ? (
+        <ErrorState
+          title="Couldn't load your rooms."
+          detail={
+            rooms.error instanceof ApiError ? rooms.error.message : 'The server did not answer.'
+          }
+          onRetry={() => void rooms.refetch()}
+        />
+      ) : rooms.isPending ? (
+        <SkeletonList rows={3} />
+      ) : (
+        <>
+          <section className="flex flex-col gap-2">
+            <h3 className="font-mono text-[11px] uppercase text-ink-muted">My rooms</h3>
+            {rooms.data.mine.length === 0 && (
+              <EmptyState title="No rooms yet — create one above." />
+            )}
+            {rooms.data.mine.map((room) => <RoomCard key={room.id} room={room} mine />)}
+          </section>
 
-      <section className="flex flex-col gap-2">
-        <h3 className="font-mono text-[11px] uppercase text-ink-muted">Discover public rooms</h3>
-        {rooms.data?.discover.length === 0 && (
-          <p className="text-sm text-ink-muted">Nothing public yet.</p>
-        )}
-        {rooms.data?.discover.map((room) => <RoomCard key={room.id} room={room} mine={false} />)}
-      </section>
+          <section className="flex flex-col gap-2">
+            <h3 className="font-mono text-[11px] uppercase text-ink-muted">
+              Discover public rooms
+            </h3>
+            {rooms.data.discover.length === 0 && (
+              <EmptyState title="Nothing public yet.">
+                Public rooms get a door in the Commons that anyone can walk through.
+              </EmptyState>
+            )}
+            {rooms.data.discover.map((room) => (
+              <RoomCard key={room.id} room={room} mine={false} />
+            ))}
+          </section>
+        </>
+      )}
     </div>
   );
 }

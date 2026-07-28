@@ -1,7 +1,7 @@
 import { ChatPanel } from '../panels/ChatPanel.js';
 import { KanbanPanel } from '../panels/KanbanPanel.js';
 import { PresencePanel } from '../panels/PresencePanel.js';
-import type { Board } from '../panels/use-kanban-board.js';
+import type { BoardState } from '../panels/use-kanban-board.js';
 import { hudStore, type PanelKind } from './hud-store.js';
 
 const TITLE: Record<PanelKind, string> = {
@@ -15,7 +15,7 @@ type SidebarProps = {
   active: PanelKind | null;
   roomId: string | null;
   selfUserId: string;
-  board: Board | null;
+  board: BoardState;
 };
 
 /**
@@ -51,7 +51,7 @@ export function Sidebar({ active, roomId, selfUserId, board }: SidebarProps) {
           // The Live Space has an avatar, so it has a "nearby" to speak to.
           <ChatPanel key={roomId} roomId={roomId} selfUserId={selfUserId} canSpeakNearby />
         )}
-        {active === 'kanban' && <KanbanPanel key={roomId} board={board} />}
+        {active === 'kanban' && <KanbanPanel key={roomId} state={board} />}
         {active === 'presence' && <PresencePanel key={roomId} roomId={roomId} />}
       </div>
     </aside>

@@ -9,6 +9,7 @@ import type {
   RoomVisibility,
 } from '@retry/types';
 import { Button } from '../../components/ui/button.js';
+import { ErrorState, Skeleton, SkeletonList } from '../../components/ui/states.js';
 import { Dialog } from '../../components/ui/dialog.js';
 import { api, ApiError, getAccessToken } from '../../lib/api.js';
 import { cn } from '../../lib/cn.js';
@@ -105,7 +106,17 @@ export default function RoomDetailPage() {
       </div>
     );
   }
-  if (!room.data || !user) return null;
+  // `return null` for a pending query is a blank page. It is also how the
+  // Workspace looked for the whole first second of every visit.
+  if (!user) return null;
+  if (!room.data) {
+    return (
+      <div className="flex flex-col gap-4">
+        <Skeleton className="h-8 w-64" />
+        <SkeletonList rows={2} />
+      </div>
+    );
+  }
 
   const detail = room.data.room;
   const isOwner = detail.ownerId === user.id;
@@ -167,14 +178,25 @@ export default function RoomDetailPage() {
               }
               lastEdit={workspace?.lastEdit ?? {}}
             />
-            <MemberList
-              members={members}
-              presentIds={presentIds}
-              selfId={user.id}
-              isOwner={isOwner}
-              roomId={roomId}
-              onChanged={refresh}
-            />
+            {/* A failed roster fetch used to render as an empty bordered list
+                — the room simply appeared to have no members in it. */}
+            {roster.isError ? (
+              <ErrorState
+                title="Couldn't load who's in this room."
+                onRetry={() => void roster.refetch()}
+              />
+            ) : roster.isPending ? (
+              <SkeletonList rows={2} />
+            ) : (
+              <MemberList
+                members={members}
+                presentIds={presentIds}
+                selfId={user.id}
+                isOwner={isOwner}
+                roomId={roomId}
+                onChanged={refresh}
+              />
+            )}
             {isOwner && <InviteForm roomId={roomId} onInvited={refresh} />}
           </div>
         </div>

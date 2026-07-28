@@ -5,6 +5,7 @@ import type { ChatHistoryResponse, RoomMessageDto } from '@retry/types';
 import { api, ApiError } from '../../../lib/api.js';
 import { cn } from '../../../lib/cn.js';
 import { roomEvents } from '../event-bus.js';
+import { ErrorState, Skeleton } from '../../../components/ui/states.js';
 import { roomSocket } from '../net/room-socket.js';
 
 type ChatPanelProps = {
@@ -173,7 +174,27 @@ export function ChatPanel({ roomId, selfUserId, canSpeakNearby = false }: ChatPa
             Load older messages
           </button>
         )}
-        {messages.length === 0 && !memberBlocked && (
+        {/* Loading, failed and genuinely empty are three different things.
+            This used to render "No messages yet. Say hi!" during the initial
+            fetch — so every single chat open flashed it — and again, forever,
+            on any failure that was not a 403. */}
+        {history.isPending && !memberBlocked && (
+          <div role="status" className="flex flex-col gap-2 py-1">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        )}
+        {history.isError && !memberBlocked && (
+          <ErrorState
+            title="Couldn't load the older messages."
+            detail="Anything said from now on will still show up."
+            onRetry={() => void history.refetch()}
+            className="mb-2"
+          />
+        )}
+        {!history.isPending && !history.isError && messages.length === 0 && !memberBlocked && (
           <p className="text-xs text-ink-muted">No messages yet. Say hi!</p>
         )}
         {messages.map((m) => (
