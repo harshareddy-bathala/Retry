@@ -1,22 +1,21 @@
-# Art assets — one-time setup (required)
+# Art assets — one-time setup
 
 The world's art is **LimeZu "Modern Interiors"**, a paid pixel-art pack. Its licence
-lets us use and edit it in this project but **not redistribute it**, and this repository
-is public — so the pack is not in git, and neither is anything generated from it.
+lets us use and edit it in this project but **not redistribute it**.
 
-**The pack is required to run the app.** There is no placeholder art: a clone without
-the pack still builds and passes tests, but the Rooms world shows a setup screen
-instead of rendering. Every developer needs their own copy.
+**This repository is private, and the pack is committed to it** (`assets/`). A clone
+gets the art with it, so there is nothing to buy or download to run the world.
 
-It costs about **$8** (it was $1.20 at launch; check the page).
+> **Before this repository is ever made public**, `assets/` has to be removed from git
+> history first — not just deleted in a new commit. Publishing those sheets is
+> distribution, which the licence forbids. This is the one thing in this document that
+> is not reversible after the fact.
 
 ## Setup
 
-1. Buy and download the **full** pack from <https://limezu.itch.io/moderninteriors>.
-   Get the Windows/generic download, not the RPG Maker one.
-2. Extract it into `assets/` at the repository root so the path
-   `assets/moderninteriors-win/LICENSE.txt` exists.
-3. Run the asset build:
+1. Clone the repository. The pack arrives with it, at
+   `assets/moderninteriors-win/` (its `LICENSE.txt` is the marker the build checks).
+2. Run the asset build:
 
    ```bash
    pnpm --filter @retry/maps assets:build
@@ -31,38 +30,46 @@ It costs about **$8** (it was $1.20 at launch; check the page).
      coverage: 83 sheets in use, 5470 single objects available to draw on
    ```
 
-4. Before a browser drive, `pnpm --filter @retry/maps assets:check` confirms the
+3. Before a browser drive, `pnpm --filter @retry/maps assets:check` confirms the
    licensed art is what's on disk (exits 1 otherwise).
 
-`assets/` and `packages/maps/generated/` are both gitignored. Nothing you download and
-nothing the build produces from it can be committed.
+`packages/maps/generated/` stays gitignored — it is regenerable from the pack, and
+committing it would put two copies of the same pixels in git.
 
 ## Without the pack
 
-`pnpm -r build` and every test suite still pass: the asset build emits typed stubs
-(`source: 'absent'`, empty tileset and character catalogues) so imports resolve. The
-Rooms routes detect the stub and render a screen pointing here. The API and room
+The stub path still exists, for a checkout where `assets/` is missing or stripped:
+`pnpm -r build` and every test suite pass anyway, because the asset build emits typed
+stubs (`source: 'absent'`, empty tileset and character catalogues) so imports resolve.
+The Rooms routes detect the stub and render a screen pointing here. The API and room
 server are unaffected — they read map geometry, never pixels.
 
-This is also what CI uses: `pnpm -r build` must pass on a machine that has never seen
-the pack, and CI can never render the world. That is deliberate; do not "fix" it by
-committing pack-derived files or fetching the pack in CI — both distribute art the
-licence says we cannot.
+CI is no longer that case: it clones the pack along with everything else, so
+`assets:build` there produces real art. The stub path is a fallback now, not the
+tested-by-default path — if you rely on it, exercise it deliberately.
 
-## Two licences live in that download — this matters
+## Two licences ship in that download — this matters
 
-The archive contains **both** versions:
+The original archive contains **both** versions, under one root:
 
 | Directory | Licence |
 |---|---|
-| `assets/moderninteriors-win/` | Full version. Commercial use allowed. **Use this.** |
-| `assets/Modern_Interiors_Free_v2.2/` | Free version. **Non-commercial only.** |
+| `assets/moderninteriors-win/` | Full version. Commercial use allowed. **This is what is committed.** |
+| `assets/Modern_Interiors_Free_v2.2/` | Free version. **Non-commercial only.** Deleted, never committed. |
 
 Building from the free version would put non-commercially-licensed art into a product
-serving 5,000 students. `assets.config.ts` names the full pack explicitly, the build
-refuses to read from the free directory, and it verifies `LICENSE.txt` says
-`MODERN INTERIORS FULL VERSION LICENSE` before it copies a single file. Do not work
-around that check.
+serving 5,000 students. It was deleted before the pack was committed, precisely so it
+could not end up in this repository's history — but the guard that stops the build
+reading it is still in place and should stay there: `assets.config.ts` names the full
+pack explicitly via `PACK_DIR`, lists the free directory in `FORBIDDEN_DIRS`, and the
+build verifies `LICENSE.txt` says `MODERN INTERIORS FULL VERSION LICENSE` before it
+copies a single file. Do not work around that check, and do not re-extract the free
+version into `assets/`.
+
+`assets/Modern_Interiors_RPG_Maker_Version/` is also present in the download and in
+this commit. It is the RPG Maker port — a different engine's format, referenced by
+nothing in this codebase. It is ~11 MB of dead weight and can be deleted whenever
+someone wants to.
 
 ## What we take, and how to take more
 

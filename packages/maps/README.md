@@ -10,8 +10,9 @@ disagree about where a wall is.
 
 ## You need the art pack
 
-Nothing here renders without it, and it cannot be committed. One-time setup:
-[`docs/assets-setup.md`](../../docs/assets-setup.md). Then:
+Nothing here renders without it. It ships in this (private) repository under
+`assets/`, so a clone already has it — background and the one rule that comes with
+it: [`docs/assets-setup.md`](../../docs/assets-setup.md). Then:
 
 ```bash
 pnpm --filter @retry/maps assets:build   # pack → generated/ (gitignored)

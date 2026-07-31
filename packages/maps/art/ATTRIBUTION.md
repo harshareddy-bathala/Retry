@@ -25,16 +25,23 @@ Licence, verbatim, from `assets/moderninteriors-win/LICENSE.txt`:
 ### What that means for this repository
 
 Shipping a compiled app with the sprites baked in is **using** the asset, which is
-allowed. Publishing the sheets in a public git repository, where anyone can download
-them, is **distributing** it, which is not. So:
+allowed. Publishing the sheets where anyone can download them is **distributing** it,
+which is not. The line this repository draws:
 
-- `assets/` (the pack) and `packages/maps/generated/` (anything built from it) are
-  gitignored. Neither may ever be committed.
-- Every developer obtains their own copy — see `docs/assets-setup.md`.
-- Deploys need the pack on the build machine; it is not fetched from this repo.
+- **This repository is private**, and `assets/` (the pack) is committed to it. A
+  private repository is not publication; the pack is not downloadable by anyone
+  outside the team.
+- **If this repository is ever made public, `assets/` must be purged from git history
+  before that happens** — deleting it in a new commit is not enough, since the blobs
+  stay reachable. Flipping visibility without doing that redistributes the pack.
+- `packages/maps/generated/` (anything built from the pack) stays gitignored — it is
+  regenerable, so committing it would only duplicate the same pixels.
+- Deploys get the pack from this repo now, rather than needing it staged separately on
+  the build machine.
 
-The download also contains `Modern_Interiors_Free_v2.2/`, which carries a **different,
-non-commercial** licence. The build refuses to read from it.
+The original download also contains `Modern_Interiors_Free_v2.2/`, which carries a
+**different, non-commercial** licence. It was deleted rather than committed, and the
+build still refuses to read from that path.
 
 ## The placeholder art
 
