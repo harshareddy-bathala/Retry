@@ -29,11 +29,13 @@ import { encodePng } from '../art/png.js';
 //
 //   pnpm assets:build
 //
-// The pack is gitignored (its licence forbids redistribution) and REQUIRED to
-// run the app — there is no placeholder art. When the pack is absent — a fresh
-// clone, or CI — this emits typed stubs (`source: 'absent'`, empty catalogues)
-// so `pnpm -r build` and the test suites still pass; the web app detects the
-// stub at runtime and shows how to get the pack instead of a world.
+// The pack is committed under assets/ (this repository is private; its licence
+// forbids redistribution, so see docs/assets-setup.md before making it public)
+// and is REQUIRED to run the app — there is no placeholder art. When the pack
+// is absent anyway — a checkout with assets/ stripped — this emits typed stubs
+// (`source: 'absent'`, empty catalogues) so `pnpm -r build` and the test suites
+// still pass; the web app detects the stub at runtime and shows how to get the
+// pack instead of a world.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(here, '..');

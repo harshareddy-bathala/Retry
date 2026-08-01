@@ -4,3 +4,11 @@
 *.jpg binary
 *.ico binary
 *.woff2 binary
+
+# The committed art pack (assets/). `text=auto` above only *guesses* at binary
+# content, and a wrong guess rewrites bytes inside a sprite sheet. Every binary
+# format the pack ships is named here so nothing is left to the heuristic.
+*.gif binary
+*.ase binary
+*.aseprite binary
+*.zip binary
