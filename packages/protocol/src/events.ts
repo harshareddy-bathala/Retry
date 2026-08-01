@@ -85,11 +85,45 @@ export const leaveMessageSchema = z.object({
 });
 export type LeaveMessage = z.infer<typeof leaveMessageSchema>;
 
+/**
+ * Who hears a message.
+ *
+ * `room` is the room's record: persisted, delivered to every member and every
+ * Workspace watcher, and readable in history tomorrow.
+ *
+ * `nearby` is SPEECH: delivered only to the people the proximity engine says
+ * are close or near, rendered as a bubble over the speaker's head, and never
+ * written down. That is deliberate — a room where everything said in passing
+ * becomes permanent record is a room people are careful in, and it also keeps
+ * faith with the SRS's "no attendance history" stance. A nearby message can be
+ * missed. So can a sentence in a corridor.
+ */
+export const chatScopeSchema = z.enum(['room', 'nearby']);
+export type ChatScope = z.infer<typeof chatScopeSchema>;
+
 export const chatMessageSchema = z.object({
   t: z.literal('chat'),
   body: z.string().min(1).max(2000),
+  /** Absent means 'room' — the behaviour every existing client already has. */
+  scope: chatScopeSchema.optional(),
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+// An emote is a thought bubble over your head for a few seconds. The key is
+// whitelisted server-side against the built catalogue, exactly as `sprite` is:
+// a client may not invent one.
+export const emoteMessageSchema = z.object({
+  t: z.literal('emote'),
+  key: z.string().min(1).max(32),
+});
+export type EmoteMessage = z.infer<typeof emoteMessageSchema>;
+
+// "I am writing something." Fires on keystrokes, so it is debounced on the
+// client AND rate-limited on the server; the server never trusts the former.
+export const typingMessageSchema = z.object({
+  t: z.literal('typing'),
+});
+export type TypingMessage = z.infer<typeof typingMessageSchema>;
 
 // Kanban (rooms build plan Phase 6, FR-ROOM-18..21). Mutations ride the same
 // socket; the server persists and broadcasts so every member stays in sync.
@@ -141,6 +175,14 @@ export const mediaMessageSchema = z.object({
   video: z.boolean(),
 });
 export type MediaMessage = z.infer<typeof mediaMessageSchema>;
+
+// Application-level liveness. A TCP socket can go half-open — the browser
+// still reports OPEN, sends succeed into a void, and nothing ever arrives —
+// which the client used to render as a permanently healthy "Live" world.
+// The RFC 6455 ping frame does not help here: browsers neither expose it nor
+// let a page respond to one, so liveness has to ride the same JSON channel.
+export const pingMessageSchema = z.object({ t: z.literal('ping') });
+export type PingMessage = z.infer<typeof pingMessageSchema>;
 
 // ---------------------------------------------------------------------------
 // Workspace (R4): the half of a room that works when nobody else is online
@@ -241,6 +283,9 @@ export const clientMessageSchema = z.discriminatedUnion('t', [
   contextUpdateMessageSchema,
   blueprintUpdateMessageSchema,
   avatarMessageSchema,
+  pingMessageSchema,
+  emoteMessageSchema,
+  typingMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -363,13 +408,35 @@ export type MediaStateMessage = z.infer<typeof mediaStateMessageSchema>;
 // what the server persisted; there is no local echo).
 export const chatBroadcastMessageSchema = z.object({
   t: z.literal('chatMessage'),
+  /** Nearby speech is not persisted, so its id is only unique for this session. */
   id: z.string().min(1),
   userId: z.string().min(1),
   displayName: z.string().min(1),
   body: z.string().min(1),
   createdAt: z.string().min(1),
+  /** Absent means 'room'; older clients that ignore it see today's behaviour. */
+  scope: chatScopeSchema.optional(),
 });
 export type ChatBroadcastMessage = z.infer<typeof chatBroadcastMessageSchema>;
+
+// Somebody's emote, fanned out to their map. Purely presentational and never
+// stored: it exists for a few seconds above a head and then it is gone.
+export const actorEmoteMessageSchema = z.object({
+  t: z.literal('actorEmote'),
+  userId: z.string().min(1),
+  key: z.string().min(1),
+});
+export type ActorEmoteMessage = z.infer<typeof actorEmoteMessageSchema>;
+
+// Somebody is writing. Sent to the room CHANNEL, not the map, so a Workspace
+// with no avatar sees it in the chat panel while the Live Space draws a
+// thought bubble over the same person's head.
+export const actorTypingMessageSchema = z.object({
+  t: z.literal('actorTyping'),
+  userId: z.string().min(1),
+  displayName: z.string().min(1),
+});
+export type ActorTypingMessage = z.infer<typeof actorTypingMessageSchema>;
 
 export const kanbanCardSchema = z.object({
   id: z.string().min(1),
@@ -507,7 +574,14 @@ export const evictedMessageSchema = z.object({
 export type EvictedMessage = z.infer<typeof evictedMessageSchema>;
 export type EvictReason = EvictedMessage['reason'];
 
+// The answer to `ping`. Carries nothing: its arrival IS the payload.
+export const pongMessageSchema = z.object({ t: z.literal('pong') });
+export type PongMessage = z.infer<typeof pongMessageSchema>;
+
 export const serverMessageSchema = z.discriminatedUnion('t', [
+  pongMessageSchema,
+  actorEmoteMessageSchema,
+  actorTypingMessageSchema,
   snapshotMessageSchema,
   actorJoinMessageSchema,
   actorMoveMessageSchema,

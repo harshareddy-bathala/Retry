@@ -21,10 +21,14 @@ Full requirements: `retry_srs.md`
 retry/
 ├── apps/
 │   ├── web/                  # React frontend (Vite)
-│   └── api/                  # Fastify backend (API + Room server + Workers)
+│   ├── api/                  # Fastify REST API + BullMQ workers          :4000
+│   ├── room-server/          # The live world: /ws + /whiteboard          :4100
+│   └── e2e/                  # Playwright drive + WS load scripts (not in CI)
 ├── packages/
 │   ├── db/                   # Drizzle schema, migrations, seed
-│   ├── types/                # Shared TypeScript types (no runtime code)
+│   ├── protocol/             # THE WIRE CONTRACT — Zod schemas for every WS event
+│   ├── maps/                 # Tiled maps, the licensed-art pipeline, the map validator
+│   ├── types/                # Shared REST/DTO types (no runtime code)
 │   └── config/               # Shared ESLint, Prettier, TS configs
 ├── .claude/
 │   └── skills/               # Claude skill files per domain
@@ -57,15 +61,15 @@ Read `TECH_STACK.md` for versions and reasons. Summary:
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18, TypeScript, Vite, TanStack Query v5, React Router v6 |
-| UI | Tailwind CSS v4, Radix UI primitives, Framer Motion |
+| UI | Tailwind CSS v4, Radix Dialog + Tooltip, lucide-react. **No animation library** |
 | Backend | Fastify v4, TypeScript, Zod |
 | ORM | Drizzle ORM |
 | Database | PostgreSQL 15 + pgvector extension |
-| Cache / Queue | Redis 7, BullMQ |
-| Room server | Fastify WebSocket plugin (ws) |
-| Whiteboard | tldraw v2 sync server (self-hosted) |
+| Cache / Queue | Redis 7, BullMQ — **queue and feed cache only, never rooms** |
+| Room server | `apps/room-server` — a **separate** Fastify + `ws` process on :4100 |
+| Whiteboard | tldraw v2 sync server (inside the room server) |
 | AI | Anthropic API — claude-sonnet-4-6 — **grading worker only** |
-| Video | Daily.co API (WebRTC) |
+| Video | Self-hosted LiveKit SFU (ADR-012). Not yet provisioned |
 | Canvas | Phaser.js 3 |
 | Auth | JWT (access 7d, refresh 30d) — jose library |
 | Infra | DigitalOcean Droplet, Managed PostgreSQL, Nginx |
@@ -83,7 +87,7 @@ Read `TECH_STACK.md` for versions and reasons. Summary:
 6. **RBAC is enforced at the middleware layer.** Never check roles inside business logic or route handlers. Use the `requireRole()` middleware.
 7. **Every database query goes through Drizzle.** No raw SQL except for recursive CTE lineage queries and pgvector similarity queries — those two are the only exceptions, and they live in `packages/db/src/queries/`.
 8. **No direct DOM manipulation in React.** Use refs only where absolutely necessary (Phaser canvas mount, tldraw container).
-9. **WebSocket events must match the schema in `WEBSOCKET_EVENTS.md` exactly.** No ad-hoc event names.
+9. **WebSocket events must match the Zod schemas in `packages/protocol/src/events.ts` exactly.** No ad-hoc event names, and no locally redefined message shapes — both the client and the room server import from `@retry/protocol` only. `WEBSOCKET_EVENTS.md` documents that contract; the schema is what enforces it.
 10. **No `console.log` in production code.** Use the logger (`apps/api/src/lib/logger.ts`). Frontend errors go to Sentry.
 
 ---
@@ -116,11 +120,13 @@ Draft → Published → Submitted → Graded
 
 ## Room Architecture (Critical)
 
-Rooms have two views:
-- **Workspace** (default on entry): Blueprint, Build Journey, Kanban — loaded from PostgreSQL via REST
-- **Live Space** (on demand): Phaser.js 2D canvas + Daily.co proximity video + tldraw whiteboard — loaded on user action
+Rooms have two views, on two routes, sharing one WebSocket protocol:
+- **Workspace** (`/rooms/:id`): Blueprint, Build Journey, Kanban. Room metadata over REST; live content over a `watch`-mode socket — no avatar, no proximity, no AV. This is also the accessible, canvas-free path.
+- **Live Space** (`/world?map=`): Phaser 2D canvas + server-side proximity + LiveKit audio/video + tldraw whiteboard. Full-bleed, outside `AppShell`, desktop only (≥1024 px, fine pointer).
 
-No attendance or session timestamps are stored. Live presence is ephemeral WebSocket state only. A room with no stored content (empty blueprint, empty kanban, empty chat) is never auto-deleted — only the owner can delete a room.
+The map is a **Tiled tilemap** (`packages/maps/maps/*.json`), loaded by both the client (rendering) and the room server (collision, spawns, interactables) — the two can never disagree about where a wall is. There is no procedural map generation; the JSON is the source of truth.
+
+No attendance or session timestamps are stored. Live presence is a single mutable cell (`room_members.presence_seen_at`), never an append-only history. A room with no stored content (empty blueprint, empty kanban, empty chat) is never auto-deleted — only the owner can delete a room.
 
 Rooms have zero FK relationship to posts. They are fully independent entities.
 
@@ -145,7 +151,9 @@ The AI never grades autonomously. Every grade requires explicit faculty approval
 
 ## What Has Not Been Built Yet
 
-Check `PROGRESS.md` for the current state. As of project start, nothing is built. Start with Phase 1 from `ROADMAP.md`.
+Check `PROGRESS.md` for the current state — and trust the prose there over the phase table, which lags.
+
+The one thing worth knowing up front: **AV runs locally but has never met a real network.** `docker compose up -d` starts a LiveKit dev server and `apps/e2e/tests/av.spec.ts` drives proximity subscription, screen share and the pre-join check against it. What is still unproven is the part local dev cannot prove — TURN on TCP/443, which ADR-012 flags as mandatory on Indian campus and mobile networks. `docs/livekit-vps.md` is the runbook.
 
 ---
 
@@ -155,7 +163,9 @@ Check `PROGRESS.md` for the current state. As of project start, nothing is built
 |------|--------------|
 | Working on any route | `ARCHITECTURE.md`, `API.md`, `CONVENTIONS.md` |
 | Database changes | `DATABASE.md`, `packages/db/src/schema.ts` |
-| Room server | `WEBSOCKET_EVENTS.md`, `ARCHITECTURE.md` |
+| Room server / any WS event | `packages/protocol/src/events.ts` (authoritative), `WEBSOCKET_EVENTS.md`, `ARCHITECTURE.md` |
+| Room UI / the HUD | `docs/rooms-hud.md`, `apps/web/src/features/rooms/hud/`, `input/input-layers.ts` |
+| Maps and world art | `docs/authoring-maps.md`, `docs/assets-setup.md`, `packages/maps/README.md` |
 | AI grading | `retry_srs.md` §4.6, `apps/api/src/workers/grading.worker.ts` |
 | Frontend component | `CONVENTIONS.md`, `.claude/skills/skill-frontend.md` |
 | Writing a test | `TESTING.md`, `.claude/skills/skill-testing.md` |

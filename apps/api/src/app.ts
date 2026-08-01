@@ -71,5 +71,19 @@ export async function buildApp({
     { prefix: '/api' },
   );
 
+  // Re-authoring the Commons moves its door slots, which strands any room
+  // still holding the old coordinates — it keeps a door nobody can see.
+  // Reconciling at boot makes that self-healing instead of a manual step
+  // somebody has to remember months after editing a map. Best-effort: a
+  // failure here must never stop the API from serving.
+  app.addHook('onReady', async () => {
+    try {
+      const stranded = await roomsService.reconcileDoors();
+      if (stranded > 0) app.log.info({ stranded }, 'reassigned stale Commons door slots');
+    } catch (err) {
+      app.log.warn({ err }, 'door reconciliation failed; doors may be stale');
+    }
+  });
+
   return app;
 }

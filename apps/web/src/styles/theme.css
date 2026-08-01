@@ -18,7 +18,19 @@
   --success: #7fb69b; /* patina — grades, positive states */
   --success-tint: rgba(127, 182, 155, 0.12);
   --danger: #d9776b;
+  --danger-ink: #1a0a07; /* text on danger — white on #d9776b fails WCAG */
   --danger-tint: rgba(217, 119, 107, 0.12);
+  --warn: #d9a05b; /* amber — reconnecting, degraded, "still working on it" */
+  --warn-tint: rgba(217, 160, 91, 0.12);
+
+  /*
+   * Live Space HUD geometry. These are grid TRACK sizes, not offsets: the
+   * sidebar is a column, so opening it moves the canvas, the dock and the
+   * minimap rather than covering them. See docs/rooms-hud.md.
+   */
+  --hud-rail-w: 3rem;
+  --hud-sidebar-w: min(20rem, 30vw);
+  --hud-gap: 0.75rem;
 }
 
 [data-theme='light'] {
@@ -34,7 +46,10 @@
   --success: #4f8068;
   --success-tint: #dceae2;
   --danger: #b0503f;
+  --danger-ink: #fdf6f4;
   --danger-tint: #f2ddd6;
+  --warn: #a3651c;
+  --warn-tint: #f6e6cd;
 }
 
 @theme inline {
@@ -50,7 +65,26 @@
   --color-success: var(--success);
   --color-success-tint: var(--success-tint);
   --color-danger: var(--danger);
+  --color-danger-ink: var(--danger-ink);
   --color-danger-tint: var(--danger-tint);
+  --color-warn: var(--warn);
+  --color-warn-tint: var(--warn-tint);
+
+  /*
+   * The stacking order of the world, named. Every raw z-20/z-30/z-40 in the
+   * rooms was someone guessing, and the guesses collided: the knock toast sat
+   * at 20 and the panel rail at 30, so a knock at the door rendered UNDER the
+   * rail. Toasts outrank the sidebar here, deliberately.
+   */
+  --z-index-header: 10; /* the app shell's sticky header */
+  --z-index-popover: 30; /* dropdowns anchored to app chrome */
+
+  --z-index-world: 0; /* the Phaser canvas */
+  --z-index-overlay: 10; /* DOM AV bubbles glued to avatars */
+  --z-index-hud: 20; /* top bar, dock, rail, minimap */
+  --z-index-sidebar: 30; /* the open panel */
+  --z-index-toast: 40; /* toasts and knock cards — above the sidebar */
+  --z-index-modal: 50; /* creator, whiteboard, confirms */
 
   /* Type: Space Grotesk = display/headings, IBM Plex Sans = body, Plex Mono = data/meta */
   --font-display: 'Space Grotesk', system-ui, sans-serif;
@@ -67,4 +101,64 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * The Live Space HUD frame.
+ *
+ * Named grid areas rather than eight absolutely-positioned floats. The old
+ * layout put the AV controls at `left-1/2` and the say bar at `left-3` in a row
+ * ~660px wide, so at the 1024px minimum they overlapped and the controls — a
+ * later DOM sibling at the same z — swallowed the say bar's clicks. Opening a
+ * panel (`right-14 w-80`) buried the minimap (`right-3`, 132px) with no way to
+ * get it back.
+ *
+ * Making the sidebar a COLUMN TRACK removes the whole class of bug: when it
+ * opens, the stage narrows and everything in it moves. There is nothing to
+ * overlap and no z-index to arbitrate.
+ */
+.room-hud {
+  display: grid;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) 0px var(--hud-rail-w);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'top   top     top'
+    'stage sidebar rail'
+    'dock  sidebar rail';
+  /* Track widths animate; the ResizeObserver on the canvas keeps Phaser in
+     step frame by frame, which is why the canvas may live in a moving track. */
+  transition: grid-template-columns 180ms ease;
+}
+
+.room-hud[data-sidebar='open'] {
+  grid-template-columns: minmax(0, 1fr) var(--hud-sidebar-w) var(--hud-rail-w);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-hud {
+    transition: none;
+  }
+}
+
+.room-hud > [data-hud='top'] {
+  grid-area: top;
+}
+.room-hud > [data-hud='stage'] {
+  grid-area: stage;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+.room-hud > [data-hud='dock'] {
+  grid-area: dock;
+  min-width: 0;
+}
+.room-hud > [data-hud='sidebar'] {
+  grid-area: sidebar;
+  overflow: hidden;
+  min-width: 0;
+}
+.room-hud > [data-hud='rail'] {
+  grid-area: rail;
 }

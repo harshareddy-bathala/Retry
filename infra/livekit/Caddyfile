@@ -1,0 +1,28 @@
+# Caddy in front of LiveKit. Two jobs: terminate TLS for the signalling
+# WebSocket, and keep the certificate renewed so the TURN/TLS relay on 443
+# never expires out from under a student mid-call.
+#
+# Copy to /etc/caddy/Caddyfile and replace <LIVEKIT_HOSTNAME> and <ADMIN_EMAIL>.
+
+{
+	email <ADMIN_EMAIL>
+}
+
+<LIVEKIT_HOSTNAME> {
+	# Signalling. LiveKit listens on 7880 and upgrades to WebSocket itself;
+	# reverse_proxy passes the upgrade through without special configuration.
+	reverse_proxy 127.0.0.1:7880
+
+	# LiveKit's embedded TURN/TLS relay reads the certificate from disk rather
+	# than talking to Caddy, so hand it a copy whenever Caddy renews. Without
+	# this the relay serves a stale cert and mobile-data users — the ones who
+	# NEED the relay — get a TLS error instead of a call.
+	#
+	# Caddy stores certs under /data; the paths below match the docker volume
+	# in docker-compose.yml. `livekit-certs.sh` copies and reloads.
+
+	log {
+		output file /var/log/caddy/livekit.log
+		level INFO
+	}
+}

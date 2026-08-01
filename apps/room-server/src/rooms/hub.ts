@@ -6,6 +6,7 @@ import {
   type BlueprintUpdateMessage,
   type AvatarMessage,
   type ChatMessage,
+  type EmoteMessage,
   type ContextUpdateMessage,
   type Dir,
   type DoorInfo,
@@ -30,13 +31,15 @@ import {
 } from '@retry/protocol';
 import type { AuthedUser } from '../lib/auth.js';
 import type { AvGrant, AvProvider } from '../av/livekit.js';
-import { DEFAULT_SPRITE, isAvatarSprite } from '@retry/maps';
+import { DEFAULT_SPRITE, EMOTE_KEYS, isAvatarSprite, type ZoneKind } from '@retry/maps';
 import {
   COMMONS_DOOR_SLOTS,
   COMMONS_MAP_ID,
   STATIC_MAP_IDS,
   instantiate,
   isBlocked,
+  pickSpawn,
+  zoneAt,
   type WorldMap,
 } from '../world/maps.js';
 import type {
@@ -50,6 +53,18 @@ import { ProximityEngine, type PairChange } from './proximity.js';
 
 const MOVES_PER_SECOND = 20;
 const MAX_STEP_TILES = 2;
+/**
+ * Minimum gap between emotes from one connection. Slow enough that a bubble
+ * cannot be used as a strobe, fast enough that a quick "yes" then "nice" still
+ * reads as two reactions rather than one being swallowed.
+ */
+const EMOTE_INTERVAL_MS = 1_500;
+/**
+ * Minimum gap between typing notices. The client debounces too, but this is
+ * the number that matters: a keystroke-per-frame client cannot be talked out
+ * of flooding, only refused.
+ */
+const TYPING_INTERVAL_MS = 2_000;
 // Settles pending proximity transitions when actors stop moving mid-debounce.
 const PROXIMITY_TICK_MS = 100;
 export const KNOCK_TIMEOUT_MS = 60_000;
@@ -81,6 +96,9 @@ const WATCHER_EVENTS: ReadonlySet<ServerMessage['t']> = new Set([
   'journeyEntry',
   'actorJoin',
   'actorLeave',
+  // A Workspace has no avatar to draw a bubble over, but it does have the chat
+  // panel, and "Ana is typing…" is exactly as useful there.
+  'actorTyping',
 ]);
 
 const STAGE_LABEL: Record<ProjectStage, string> = {
@@ -125,6 +143,12 @@ type Session = {
    * orthogonal to standing in a map — a member can do either, both, or neither.
    */
   watching: string | null;
+  /**
+   * Last send time per rate-limited message kind ('emote', 'typing'). Kept per
+   * SESSION rather than per user: the limit protects the fan-out, and a second
+   * tab is a second fan-out.
+   */
+  lastSentAt: Map<string, number>;
   /** Last AV grant, so a resync re-sends it without minting a new token. */
   avGrant: { mapId: string; grant: AvGrant } | null;
   /** First avToken timestamp — participant-time accounting (SRS §3.4). */
@@ -304,6 +328,7 @@ export class RoomHub {
       granted: new Set(),
       busy: false,
       watching: null,
+      lastSentAt: new Map(),
       avGrant: null,
       avStartedAt: null,
     };
@@ -351,6 +376,11 @@ export class RoomHub {
       return;
     }
     switch (parsed.message.t) {
+      case 'ping':
+        // Cheapest possible handler, and deliberately before everything else:
+        // liveness must keep answering even while a join is in flight.
+        this.send(session, { t: 'pong' });
+        break;
       case 'join':
         this.runExclusive(session, parsed.message, (msg) => this.onJoin(session, msg));
         break;
@@ -377,6 +407,12 @@ export class RoomHub {
         void this.onChat(session, parsed.message).catch((err: unknown) => {
           session.log.error({ err }, 'chat handler failed');
         });
+        break;
+      case 'emote':
+        this.onEmote(session, parsed.message);
+        break;
+      case 'typing':
+        this.onTyping(session);
         break;
       case 'kanbanCreate':
       case 'kanbanUpdate':
@@ -702,7 +738,17 @@ export class RoomHub {
       ? await this.store.lastPosition(room.id, session.userId)
       : (this.staticPositions.get(`${world.id}:${session.userId}`) ?? null);
     if (saved && !isBlocked(world, saved.x, saved.y)) return saved;
-    return { x: world.spawn.x, y: world.spawn.y, dir: 'down' };
+    // A first arrival picks a FREE entrance rather than always the default.
+    // Reading only `default` is why a busy room looked like a pile of people
+    // standing in each other: everyone lands on one tile and stays overlapped
+    // until they move. `pickSpawn` falls back to the default when every
+    // entrance is occupied, so a full room behaves exactly as it used to.
+    const occupied = [...(this.mapSessions.get(world.id)?.values() ?? [])].map((o) => ({
+      x: o.x,
+      y: o.y,
+    }));
+    const point = pickSpawn(world, occupied);
+    return { x: point.x, y: point.y, dir: 'down' };
   }
 
   /** Written on transition-out, leave and disconnect only — never per move. */
@@ -1085,15 +1131,25 @@ export class RoomHub {
   }
 
   private async onChat(session: Session, msg: ChatMessage): Promise<void> {
+    // Plain text only (FR-ROOM-35): sanitise on write — control chars out,
+    // whitespace trimmed; the client renders as text nodes (NFR-SEC-04).
+    const body = sanitizeText(msg.body);
+    if (body.length === 0) return;
+
+    // Speech needs an avatar, not a room. The Commons keeps no chat log, so it
+    // is refused a room-scoped message — but it is the atrium where people
+    // actually run into each other, and a hub where you cannot say hello is
+    // not a hub. So the scope decides the requirement, not the map.
+    if (msg.scope === 'nearby') {
+      this.sayNearby(session, body);
+      return;
+    }
+
     const roomId = this.roomIdOf(session);
     if (!roomId) {
       session.log.debug('chat dropped: not inside a room instance');
       return;
     }
-    // Plain text only (FR-ROOM-35): sanitise on write — control chars out,
-    // whitespace trimmed; the client renders as text nodes (NFR-SEC-04).
-    const body = sanitizeText(msg.body);
-    if (body.length === 0) return;
     const record = await this.store.appendMessage(roomId, session.userId, body);
     this.touchRoom(roomId);
     this.broadcast(roomId, {
@@ -1103,7 +1159,93 @@ export class RoomHub {
       displayName: session.displayName,
       body: record.body,
       createdAt: record.createdAt.toISOString(),
+      scope: 'room',
     });
+  }
+
+  /**
+   * Speech: delivered only to the people the proximity engine already says are
+   * close or near, and never persisted. Reuses the SAME zone state that drives
+   * the audio bubbles, so what you can hear and what you can read agree with
+   * each other by construction rather than by two rules that have to be kept
+   * in step.
+   *
+   * A watcher (Workspace, no avatar) is on nobody's proximity list and hears
+   * nothing — which is right: they are not in the room, they are reading it.
+   */
+  private sayNearby(session: Session, body: string): void {
+    const map = session.map;
+    if (!map) return;
+    const sessions = this.mapSessions.get(map.id);
+    if (!sessions) return;
+    const msg: ServerMessage = {
+      t: 'chatMessage',
+      // Session-scoped: nothing persists this, and the client only needs it as
+      // a React key for the few seconds the bubble is up.
+      id: `nearby-${session.userId}-${Date.now()}`,
+      userId: session.userId,
+      displayName: session.displayName,
+      body,
+      createdAt: new Date().toISOString(),
+      scope: 'nearby',
+    };
+    // The speaker always sees their own words.
+    this.send(session, msg);
+    for (const { userId } of this.proximity.zonesFor(map.id, session.userId)) {
+      const peer = sessions.get(userId);
+      if (peer) this.send(peer, msg);
+    }
+  }
+
+  /**
+   * An emote: a bubble over a head for a few seconds. The key is whitelisted
+   * against the built catalogue — the same hole `sprite` had, where any client
+   * could broadcast any string and every other client would try to render it.
+   */
+  private onEmote(session: Session, msg: EmoteMessage): void {
+    const mapId = session.map?.id;
+    if (!mapId) return;
+    if (!EMOTE_KEYS.includes(msg.key)) {
+      session.log.warn({ key: msg.key }, 'dropped emote: unknown key');
+      return;
+    }
+    if (!this.allow(session, 'emote', EMOTE_INTERVAL_MS)) return;
+    this.broadcast(mapId, { t: 'actorEmote', userId: session.userId, key: msg.key });
+  }
+
+  /**
+   * "Someone is typing." Broadcast to the ROOM channel rather than the map, so
+   * a Workspace with no avatar sees it in the chat panel too.
+   *
+   * Rate-limited here and not only on the client: this fires on keystrokes,
+   * and a client that debounces badly — or does not debounce at all — would
+   * otherwise turn every message into a hundred broadcasts to every member.
+   */
+  private onTyping(session: Session): void {
+    // Wherever you are, not only inside a room. The Commons is a corridor and
+    // keeps no chat log, but you can still SPEAK to the people standing next
+    // to you there — so "Ana is typing" has to work there too, or the atrium
+    // is the one place where someone answers you out of nowhere.
+    const channel = this.roomIdOf(session) ?? session.map?.id;
+    if (!channel) return;
+    if (!this.allow(session, 'typing', TYPING_INTERVAL_MS)) return;
+    this.broadcast(
+      channel,
+      { t: 'actorTyping', userId: session.userId, displayName: session.displayName },
+      session.userId,
+    );
+  }
+
+  /**
+   * Per-session, per-kind minimum interval. Silent drop, like the move cap:
+   * an error reply would itself be a channel worth flooding.
+   */
+  private allow(session: Session, kind: string, intervalMs: number): boolean {
+    const now = Date.now();
+    const last = session.lastSentAt.get(kind) ?? 0;
+    if (now - last < intervalMs) return false;
+    session.lastSentAt.set(kind, now);
+    return true;
   }
 
   private async onKanban(
@@ -1256,12 +1398,18 @@ export class RoomHub {
     }
   }
 
-  private positionsIn(mapId: string): Array<{ userId: string; x: number; y: number }> {
-    return [...(this.mapSessions.get(mapId)?.values() ?? [])].map((s) => ({
-      userId: s.userId,
-      x: s.x,
-      y: s.y,
-    }));
+  private positionsIn(
+    mapId: string,
+  ): Array<{ userId: string; x: number; y: number; zone: ZoneKind | null; zoneName: string | null }> {
+    const sessions = [...(this.mapSessions.get(mapId)?.values() ?? [])];
+    const world = sessions[0]?.map ?? null;
+    return sessions.map((s) => {
+      // Resolved HERE rather than inside the proximity engine, which knows
+      // nothing about maps — that ignorance is what keeps its hysteresis and
+      // debounce rules testable with plain numbers.
+      const zone = world ? zoneAt(world, s.x, s.y) : null;
+      return { userId: s.userId, x: s.x, y: s.y, zone: zone?.kind ?? null, zoneName: zone?.name ?? null };
+    });
   }
 
   /** Fan changed pairs out to exactly the two clients each pair involves. */

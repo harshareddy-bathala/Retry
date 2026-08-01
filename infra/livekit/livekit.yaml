@@ -1,0 +1,47 @@
+# LiveKit SFU — Retry rooms proximity AV (ADR-012).
+#
+# Copy to /etc/livekit/livekit.yaml on the VPS and replace the three
+# <PLACEHOLDER> values. Everything else is deliberate; see docs/livekit-vps.md
+# for why, and infra/livekit/README.md for the five commands that use this.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  # The container runs with --network host, so LiveKit sees the real interface
+  # and can advertise the public IP for ICE without being told it.
+  use_external_ip: true
+
+keys:
+  # Generate with:  docker run --rm livekit/livekit-server generate-keys
+  # The SECRET goes only in apps/room-server/.env — never apps/api, never the
+  # client, never this file's git history.
+  <API_KEY>: <API_SECRET>
+
+turn:
+  # NOT an optimisation. NTTF campus networks and a meaningful share of Indian
+  # mobile carriers block arbitrary outbound UDP; without a TCP/443 relay those
+  # students get a call that silently never connects, and report it as "the app
+  # is broken". Test from a phone on mobile data before any beta invite.
+  enabled: true
+  domain: <LIVEKIT_HOSTNAME>
+  tls_port: 443
+  # Caddy terminates TLS and hands LiveKit the cert files; see Caddyfile.
+  cert_file: /etc/livekit/tls/cert.pem
+  key_file: /etc/livekit/tls/key.pem
+
+room:
+  # Rooms are created implicitly on first join and vanish when empty — LiveKit
+  # holds no state we care about, which is why there is nothing to back up.
+  empty_timeout: 300
+  # Our own access policy is the gate (members / open / knock / invite_only),
+  # enforced in the room server before a token is ever minted.
+  max_participants: 0
+
+# No recording anywhere: tokens deny roomRecord (FR-ROOM-32) and no egress
+# service is deployed. Do not add one without revisiting SECURITY.md.
+
+logging:
+  level: info

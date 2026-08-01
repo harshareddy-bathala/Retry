@@ -40,7 +40,7 @@
 ## 5. Realtime & Third-Party
 
 - **WS auth**: one-time 30 s ticket from `POST /rooms/:id/ws-ticket`; JWTs never in URLs (they leak via logs/referrers). Membership re-verified on connect; removal from a room force-closes the socket.
-- **Daily.co (NFR-SEC-02)**: meeting tokens are scoped per-room, per-user, per-session, short-lived (2 h), minted server-side only. Removing a member revokes their token and ejects them via Daily REST API. No recordings — disabled at Daily domain level (FR-ROOM-32).
+- **LiveKit (NFR-SEC-02, ADR-012)**: access tokens are scoped per-map, per-user, short-lived (2 h) and signed **locally** in the room server — the API secret never leaves that process and no REST round-trip exists to fail. The grant allows `roomJoin` + publish + subscribe and denies `roomRecord` (FR-ROOM-32 — nothing is ever recorded), `canPublishData` and every admin capability. Removing a member is enforced on **our** side, not the SFU's: `POST /internal/evict` moves them to the Commons, which drops them out of that map's LiveKit room. Their old token stays valid for its TTL, which is why the token is scoped to a single map rather than to the world.
 - **Grading worker repo clones**: `git clone --depth 1` into a tmp dir, 200 MB size cap, 60 s clone timeout, deleted after analysis. Cloned code is **data, never executed** — Tree-sitter parses it; no `npm install`, no running student code. The Anthropic prompt treats repo content as untrusted (prompt-injection from a README must not change grading-tool behavior — the worker has no tools, single structured completion only).
 - Rate limits (`@fastify/rate-limit`, Redis-backed): auth endpoints 5/min/IP; writes 30/min/user; reads 300/min/user; WS `avatar:move` 15/s/connection (server-side).
 

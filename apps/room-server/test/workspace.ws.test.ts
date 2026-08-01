@@ -4,6 +4,7 @@ import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
+import { instantiate } from '../src/world/maps.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 
 // R4: the Workspace — a room that works when nobody else is online. `watch`
@@ -226,8 +227,12 @@ describe('workspace watch mode', () => {
     const bob = await join(BOB);
     const carol = await join(CAROL); // a second body, so the move has a witness
 
-    bob.send({ t: 'move', x: 10.6, y: 7.5, dir: 'right', moving: true });
-    bob.send({ t: 'move', x: 10.9, y: 7.5, dir: 'right', moving: false });
+    // Two small steps east of wherever the map puts people, rather than of
+    // where it used to put them.
+    const spawn = instantiate('studio_a', 'studio_a')?.spawn;
+    if (!spawn) throw new Error('studio_a failed to instantiate');
+    bob.send({ t: 'move', x: spawn.x + 0.1, y: spawn.y, dir: 'right', moving: true });
+    bob.send({ t: 'move', x: spawn.x + 0.4, y: spawn.y, dir: 'right', moving: false });
     await until(() => ofType(carol, 'actorMove').length > 0);
     await new Promise((r) => setTimeout(r, 200));
 

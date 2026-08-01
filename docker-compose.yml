@@ -29,5 +29,29 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # The SFU for proximity audio/video (ADR-012).
+  #
+  # AV was coded, unit-tested and shipped OFF for three weeks because there was
+  # nowhere to point it. This is that somewhere. `--dev` is a real LiveKit
+  # server with a fixed key/secret and no config file — the production recipe
+  # (TLS, TURN on 443, a 10,000-port UDP range) lives in infra/livekit/ and
+  # docs/livekit-vps.md, and none of it is needed to exercise the code.
+  #
+  # `--bind 0.0.0.0` is NOT optional: LiveKit binds its signal server to
+  # 127.0.0.1 by default, which inside a container means unreachable from the
+  # host however the ports are published.
+  #
+  # `--node-ip 127.0.0.1` makes it advertise an address the browser can reach.
+  # Without it, dev mode offers ICE candidates on the container's internal
+  # address (172.x) and media silently never flows — which from the UI looks
+  # exactly like a muted microphone.
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    ports:
+      - "7880:7880"      # signal (HTTP + WebSocket)
+      - "7881:7881"      # TCP fallback when UDP is blocked
+      - "7882:7882/udp"  # single-port UDP mux; --dev sets rtc.udp_port here
+
 volumes:
   pgdata:

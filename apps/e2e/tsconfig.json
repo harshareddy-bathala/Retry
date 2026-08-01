@@ -1,0 +1,9 @@
+{
+  "extends": "@retry/config/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["tests", "load", "playwright.config.ts"]
+}

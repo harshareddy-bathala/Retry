@@ -4,6 +4,7 @@ import { SignJWT } from 'jose';
 import type { FastifyInstance } from 'fastify';
 import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
+import { COMMONS_DOOR_SLOTS } from '../src/world/maps.js';
 import { InMemoryRoomStore } from '../src/world/store.js';
 
 // R3: membership changes made by the API process reaching the live world, plus
@@ -35,8 +36,10 @@ beforeAll(async () => {
       name: 'Open Lab',
       visibility: 'public',
       accessPolicy: 'open',
-      doorX: 2,
-      doorY: 1,
+      // The first door the Commons actually has. Hardcoding 2,1 tied this
+      // test to where the door wall used to start.
+      doorX: COMMONS_DOOR_SLOTS[0]?.x ?? 0,
+      doorY: COMMONS_DOOR_SLOTS[0]?.y ?? 0,
       mapTemplate: 'studio_a',
     },
     [OWNER, MEMBER],

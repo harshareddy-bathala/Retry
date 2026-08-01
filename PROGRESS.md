@@ -2,9 +2,115 @@
 
 > Living status tracker. Update in the same PR as the work. `ROADMAP.md` is the plan; this is reality. AI assistants: read this to know what exists before writing code that depends on it.
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-28
 
 ## Current State
+
+**Rooms R8 — AV, run for the first time (2026-07-28).** The line above this
+entry said "AV has never run" for three weeks. It does now.
+
+*The whole of turning it on* was a `livekit-server --dev` service in
+`docker-compose.yml` and three env lines. `env.ts` already treated "all three
+set" as the switch and the `avToken` schema already accepted `ws://localhost`,
+so **no application code changed** to go from never-run to running. Two flags in
+the compose file are load-bearing: `--bind 0.0.0.0` (LiveKit binds its signal
+server to 127.0.0.1, which in a container is unreachable) and `--node-ip
+127.0.0.1` (otherwise it advertises a 172.x address in its ICE candidates —
+signalling succeeds, tracks report subscribed, and no packet ever arrives, which
+from the UI is indistinguishable from a muted mic).
+
+*The mechanic is confirmed.* `av.spec.ts` asserts what the whole AV design rests
+on and nothing had ever checked: walking away **drops** the subscription rather
+than muting it. That is invisible from the DOM — subscribed and muted render the
+same bubble, initials and silence — so it reads the LiveKit room through a
+dev-only probe, and counts inbound RTP bytes, because `isSubscribed` alone would
+pass with a broken ICE path.
+
+*Mic and camera now default OFF.* They defaulted on, which was harmless for
+exactly as long as no server existed; the day one did, that default meant every
+student who opened a room began broadcasting having agreed to nothing. A
+pre-join check ("Can they hear you?") with a live level meter is offered once
+per session, answering the failure `AVControls.tsx` has named in a comment since
+it was written: a silent room is indistinguishable from a broken one.
+
+*Screen share bypasses proximity*, deliberately and as the only exception: a
+demo is for the room, and a five-tile radius means the back row watches someone
+gesture at a screen they cannot see. Their audio still follows proximity.
+Spatial audio is written, driven and **off behind a runtime flag**, because the
+open question is not whether it works but whether it earns its CPU.
+
+*Three bugs found by reading, and four by driving.* `setLocal` never reported a
+mic denial (only `switchRoom` did), so unmuting into a refusal was silent. The
+AudioContext was built on the first remote track, long after any gesture, so it
+could start suspended. And `livekit-check.ts` crashed on its own **success**
+path — the expected 401 leaves a socket that `close()` throws on — which nobody
+had found because there had never been a server to run it against.
+
+**Rooms R7 — the world, rebuilt (2026-07-28).** Eight commits reworking
+`apps/web/src/features/rooms` and all five maps. The complaint that started it
+was "everything is broken in the UI", and rendering the old maps side by side
+showed the complaint was literal: the rooms had **no walls**. A wall tile was
+tiled across every other row of every map, so each room was a floor with blue
+and orange stripes through it and furniture scattered on top.
+
+*The shell.* Six competing window `keydown` listeners became one refcounted
+focus-layer stack, so typing in chat can no longer walk your avatar and Escape
+peels exactly one layer. Eight independently absolutely-positioned HUD floats
+became a CSS grid where the sidebar is a **column track** — opening a panel now
+moves the canvas, dock and minimap instead of burying them. Dragging the window
+across 1024px no longer tears down the socket (verified: zero new WebSockets
+across a narrow/widen cycle). Radix Dialog/Tooltip and lucide-react replaced
+emoji-as-icons and three overlays that behaved as modals without being them; a
+WCAG contrast failure at six sites is fixed and guarded by a token lint.
+Loading, error and empty states exist everywhere, including a 10s board timeout.
+
+*The maps.* The 1,218-line generator is deleted and replaced by
+`packages/maps/src/tiled.ts`, which mutates the committed file and **never
+regenerates one** — the generator's real damage was not that the rooms looked
+bad, it was that they could not be improved, because every hand edit was one
+`pnpm seed` away from being erased. All five rooms are re-authored from
+`walls3d`, a nine-slice of a wall *solid* that nothing had used: they now have a
+lit cap and a shaded face, so a room has height. Every room is L or T shaped,
+because a rectangle has no corner to be around and under proximity audio a room
+with no corners is one conversation everybody is in. Shadows are **derived** from
+the collision layer rather than placed, and cast before the furniture — casting
+after gives every desk one too, which sounds better and looks far worse.
+
+*The zones.* The alcoves carry a new `zones` layer the proximity engine honours:
+`spotlight` (heard by the whole map — plain proximity audio cannot do a demo at
+all, a presenter five tiles from the back row is inaudible to it), `booth`
+(close to each other, out to everyone else) and `quiet`. Precedence is quiet →
+spotlight → booth → distance: no stage overrides a person's own choice.
+
+*What the validator caught.* Widened first, on purpose, before any map moved. It
+found 48 tiles of walkable void outside an alcove, spawns inside a printer, and
+the one nobody would have found by reading: **a seat must be walkable**, because
+the server teleports an avatar onto it and validates that tile against
+collision. A chair that blocks movement is a chair nobody can sit in.
+
+*The Commons doors moved* (row 1, x = 4, 7 … 37). `reconcileDoors` self-heals at
+API boot; `room_members.last_position` does not, so everyone respawned once.
+
+*Verification.* 190 tests across the workspace, five maps valid, and a six-test
+browser drive including two new ones that assert the world **draws** — a black
+canvas with a live socket is the failure mode types cannot see.
+
+**Rooms R6 — beta polish (2026-07-27).** The track that turns "the rooms work" into "the rooms are shippable to a cohort". Four commits.
+
+*Correctness.* One structural defect behind several symptoms: the EventBus broadcasts but never replays, so anything subscribing late holds a stale view — which is why the presence strip could sit on "RECONNECTING…" while the world was plainly working. Socket status is now READ from the socket (`getStatus`/`subscribe`, the pattern `av-store.ts` already used). A half-open socket read as a healthy world, so there is now an application-level `ping`/`pong` (RFC 6455's own ping frame is unreachable from a page) with four unanswered beats treated as death. Build-plan Phase 8.1 is finished: remote avatars freeze and dim rather than vanishing, local movement keeps working, a non-blocking banner says so, and after five attempts the client stops and offers **Rejoin** — retrying forever is worse than stopping. The composited-character cache never evicted (~393 KB each, cleared only on scene shutdown) and is now LRU-capped at 40 with the live cast pinned. **The seventh public room could not be created at all**: every Commons door slot was taken and creation 409'd. A door is a shortcut into a room, not the room's licence to exist — public rooms are now created doorless when the wall is full, listed and enterable from the Rooms tab, and pick up a door the moment one frees. `NO_FREE_DOOR_SLOT` is gone from the error codes.
+
+*Maps.* Rendered all five rooms and looked at them, which had not been done side by side before. Three carried defects nobody had seen. The Commons and the conference room were laid on floor blocks that look flat in a sheet preview and tile into a lattice of offset rectangles across a room (the 3×2 unit has a lit edge and the seeder repeats the unit) — both are now single interior tiles. The lounge's herringbone tiled correctly and was still wrong: at room scale it was the loudest thing in the building. `tableRound` pointed at a **crate stacked on a sofa arm** and had been rendering in four rooms as an unidentifiable slab. Conference seating was lattice-backed chairs picked without regard to facing, so half had their backs where the sitter's face should be. The Commons went from 28×12 with six doors and a bare middle to **40×16 with twelve doors** and a seating island in the centre — twelve at a three-tile pitch, not sixteen, because the door *sprite* is one tile wide and sixteen reads as one continuous row of doors with colliding plaques. Re-authoring moved the slots, which would have stranded every existing public room on coordinates the room server maps BY COORDINATE; the API now reconciles at boot, so this is self-healing rather than a step somebody has to remember. The classroom's perfect 3×3 desk grid is staggered and wall decoration is scattered from a seeded PRNG.
+
+*Gather feel.* Emotes (eight, from the pack's thought-bubble atlas, which had been catalogued and unused since the art landed — a 10×10 grid whose columns are frames, so the build crops chosen pairs into a strip); the typing indicator the last handover deliberately deferred, broadcast to the room **channel** so one event drives a bubble over an avatar and "Ana is typing…" in a Workspace that has no avatar; **proximity speech** — `chat` gains `scope: room|nearby`, where nearby is delivered only to the peers the proximity engine already says are close, appears over the speaker's head for six seconds, and is **never persisted**. It reuses the same zone state that drives the audio bubbles, so what you can hear and what you can read agree by construction. Sitting is deliberately *not* protocol: a seat is a map interactable and sitting sends an ordinary `move`, so sittable chairs carry no collision and the validator rejects a seat on a collision tile (it caught one on its first run). Plus a minimap drawn from the collision grid, click-a-name-to-pan, and a Say bar on Enter so speech works in the Commons, which has no chat panel.
+
+*Before students.* The desktop gate (build plan Phase 8.4, SRS §10) — under 1024px or a coarse pointer gets a sentence and a link to the Workspace instead of a canvas with no keyboard. The accessibility story is now deliberate rather than accidental: the canvas says what it is and names the Workspace as the equivalent, in the aria label and the gate copy.
+
+*Verification.* 181 tests (100 room-server, 52 API, 18 maps, 12 protocol) plus a **committed browser drive** (`apps/e2e`, two students over system Edge — presence, nearby speech vs room chat, typing, Escape, walking, and the phone gate) and a load script: **50 sockets, p50 1.9 ms / p95 67.8 ms / p99 100.4 ms** against the 150 ms NFR-PERF-06 budget. Three real bugs came out of driving it rather than testing it: `typing` and nearby `chat` were both refused in the Commons because each checked "am I in a room?" before looking at what was being asked; `actorTyping` was missing from `WATCHER_EVENTS` so no Workspace ever saw it; and a Phaser game torn down before its first step left its canvas behind, stacked over the live one, so the world rendered as a black rectangle under StrictMode.
+
+**~~Still open: AV has never run.~~ It runs — see R8 above (2026-07-28).** Kept
+here rather than deleted, because it stood as the largest gap in this document
+for three weeks and the shape of the fix is the point: nothing was wrong with
+the code, there was simply nowhere to point it.
 
 **Renamed Foundry → Retry (2026-07-25, ADR-011).** One mechanical pass across 103 files: package scope `@foundry/*` → `@retry/*`, root package, spec filenames (`foundry_srs.md` → `retry_srs.md` and siblings, via `git mv` so history follows), env vars, CI, docker-compose, systemd/deploy paths in `DEPLOYMENT.md`, the `foundry_refresh` cookie, the `foundry.rooms.av` localStorage key, and every user-facing string. **No domain is hard-coded anywhere** — the domain is still unchosen (availability decides), so `API_BASE_URL`/`WEB_BASE_URL` remain env vars and the deploy docs say `<domain>`. The local database was renamed in place (`ALTER DATABASE foundry RENAME TO retry`, same for `foundry_test`, plus `ALTER ROLE`) — no volume wipe, all 10 dev accounts and 5 dev rooms intact. Verified: 7 workspaces typecheck + lint clean, 83 tests green (36 api incl. integration, 41 room-server, 6 maps), and a headless-Edge drive — login → Rooms tab → live world → walk — 9/9 checks. Developers need `pnpm install` (package scope changed) and will be logged out once (cookie name changed).
 
@@ -41,10 +147,15 @@
 | Phase 1 — Posts & Profiles (M2) | Post CRUD, teams, profiles, Latest feed | 🔲 Not started |
 | Phase 2 — Lineage, Social & Feed (M3) | Fork, CTE traversal, social, ranked feeds | 🔲 Not started |
 | Phase 3 — Grading Pipeline (M4–5) | Submit → AI → faculty approval → release | 🔲 Not started |
-| Phase 4 — Rooms: Workspace (M6–7) | WS server, context, blueprint, kanban, chat, journey | 🔲 Not started |
-| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, Daily.co, tldraw | 🔲 Not started |
+| Phase 4 — Rooms: Workspace (M6–7) | WS server, context, blueprint, kanban, chat, journey | ✅ Shipped (2026-07-25, rooms track R4) |
+| Phase 5 — Rooms: Live Space (M8) | Phaser, proximity, **LiveKit**, tldraw | ✅ Shipped (2026-07-26, rooms R5); AV exercised locally 2026-07-28 (R8) — **VPS still unprovisioned** |
 | Phase 6 — Idea Hub + Hardening (M9–10) | Ideas, FRs, alumni, perf/security pass, **P1 launch** | 🔲 Not started |
 | Phase 7 — P2 + Pilot (M11–12) | Assignments, exports, follows, AI FRs, polish | 🔲 Not started |
+
+The rooms run on their own track (R2–R6 above, plus the "rooms build plan" Phase 0–8), which is why this table and the prose disagreed for a while. Two live deviations from the original design, both deliberate:
+
+- **LiveKit replaced Daily.co** (ADR-012) and now runs locally via `docker compose` (R8). The remaining gap is the NETWORK, not the code: TURN on TCP/443 is mandatory on Indian campus and mobile networks and has never been exercised. `docs/livekit-vps.md` is the runbook; `infra/livekit/setup.sh` runs it.
+- **Workspace and Live Space are separate routes** (`/rooms/:id` and `/world?map=`) with separate sockets. Leaving the world tears down Phaser, the WebSocket and LiveKit. Unifying them is scoped but not scheduled.
 
 ## Phase 0 Checklist (current phase — next actions)
 

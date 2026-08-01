@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { roomEvents } from './event-bus.js';
+import { useInputLayer } from './input/useInputLayer.js';
 import { roomSocket } from './net/room-socket.js';
 
 // Knock UX (rooms build plan Phase 4).
@@ -92,6 +93,21 @@ export function KnockLayer() {
     [],
   );
 
+  // While waiting at someone's door, Escape withdraws the knock — it must not
+  // fall through and drop you out of the world with a request still pending on
+  // the other side. This layer does NOT capture keys: you can still walk away
+  // from the door while you wait.
+  useInputLayer(myKnock !== null, {
+    kind: 'hud',
+    name: 'knock-pending',
+    onEscape: () => {
+      if (!myKnock) return false;
+      roomSocket.send({ t: 'knockCancel', requestId: myKnock.requestId });
+      setMyKnock(null);
+      return true;
+    },
+  });
+
   const respond = (requestId: string, grant: boolean): void => {
     roomSocket.send({ t: 'knockRespond', requestId, grant });
     setIncoming((prev) => prev.filter((k) => k.requestId !== requestId));
@@ -106,10 +122,14 @@ export function KnockLayer() {
     ? Math.min(KNOCK_TIMEOUT_S, Math.max(0, KNOCK_TIMEOUT_S - Math.floor((now - myKnock.startedAt) / 1000)))
     : 0;
 
+  // Positioned by the HUD, not by itself. These cards used to sit at
+  // `absolute inset-0 z-20`, which put the incoming toasts UNDER the panel rail
+  // at z-30 — someone knocking while you had chat open was invisible. They now
+  // sit at z-toast, above the sidebar, in the stage that the sidebar shrinks.
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center">
+    <div className="pointer-events-none absolute inset-0 z-toast flex flex-col items-center">
       {myKnock && (
-        <div className="pointer-events-auto mt-6 flex items-center gap-4 rounded-panel border border-edge bg-surface px-5 py-3 shadow-lg">
+        <div className="pointer-events-auto mt-14 flex items-center gap-4 rounded-panel border border-edge bg-surface px-5 py-3 shadow-lg">
           <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-accent" />
           <div>
             <p className="font-display text-sm text-ink">Knocking on {myKnock.roomName}…</p>
@@ -125,7 +145,7 @@ export function KnockLayer() {
         </div>
       )}
       {notice && (
-        <div className="pointer-events-auto mt-6 rounded-panel border border-edge bg-surface px-5 py-2.5 shadow-lg">
+        <div className="pointer-events-auto mt-14 rounded-panel border border-edge bg-surface px-5 py-2.5 shadow-lg">
           <p className="text-sm text-ink">{notice}</p>
         </div>
       )}
@@ -142,7 +162,7 @@ export function KnockLayer() {
             <button
               type="button"
               onClick={() => respond(k.requestId, true)}
-              className="rounded-card bg-accent px-3 py-1 text-sm font-medium text-white hover:opacity-90"
+              className="rounded-card bg-accent px-3 py-1 text-sm font-medium text-accent-ink hover:opacity-90"
             >
               Grant
             </button>

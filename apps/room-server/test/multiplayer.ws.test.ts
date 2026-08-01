@@ -6,8 +6,22 @@ import { parseServerMessage, type ServerMessage } from '@retry/protocol';
 import { buildApp } from '../src/app.js';
 import { instantiate, isBlocked } from '../src/world/maps.js';
 
+/**
+ * studio_a's default spawn, READ FROM THE MAP rather than written down here.
+ *
+ * It used to be the literal 10.5, 7.5, and every one of these tests failed the
+ * day the studio was re-authored — as a protocol error, in nine different
+ * places, for a map edit. A test may depend on the map having a spawn; it must
+ * not depend on where.
+ */
+function studioSpawn(): { x: number; y: number } {
+  const map = instantiate('studio_a', 'studio_a');
+  if (!map) throw new Error('studio_a failed to instantiate');
+  return map.spawn;
+}
+
 const SECRET = 'test-secret-0123456789abcdef0123456789abcdef';
-const SPAWN = { x: 10.5, y: 7.5 }; // studio_a default spawn (336,240 px / 32)
+const SPAWN = studioSpawn();
 
 let app: FastifyInstance;
 let baseUrl: string;
@@ -151,26 +165,56 @@ describe('room-server multiplayer', () => {
   });
 
   it('rejects a legal-distance move into a collision tile and resyncs', async () => {
-    // The desk whose base blocks (14,6) in the seeded studio_a. Asserted from
-    // the map so re-authoring the room fails here with a readable message
-    // instead of a bare timeout further down.
-    const BLOCKED = { x: 14, y: 6 };
+    // The point of this test is one rule: a move can be a legal DISTANCE and
+    // still be refused because of where it lands. Nothing about it should
+    // depend on the furniture.
+    //
+    // It has now been broken twice by map edits — once naming a desk tile
+    // (14,6), once assuming a clear lane from the spawn to the north wall, and
+    // there is a whiteboard in the way of that. So rather than describe a
+    // route, it SEARCHES for one: a solid tile, and a clear tile within one
+    // legal step of both it and the spawn.
     const map = instantiate('studio_a', 'studio_a');
-    expect(map && isBlocked(map, BLOCKED.x, BLOCKED.y), 'studio_a no longer blocks (14,6)').toBe(true);
-    expect(map && isBlocked(map, BLOCKED.x - 1, BLOCKED.y)).toBe(false);
+    if (!map) throw new Error('studio_a failed to instantiate');
+    // The server's step limit is EUCLIDEAN (hub.ts MAX_STEP_TILES, via
+    // Math.hypot), not per-axis. Searching with a per-axis bound picks pairs
+    // 2.24 tiles apart, which the teleport check rejects before the collision
+    // check ever runs — and the test then fails for the wrong reason.
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean =>
+      Math.hypot(a.x - b.x, a.y - b.y) <= 2;
+
+    // One legal step from the spawn to open floor, then one more into a wall.
+    // The solid tile does NOT have to be near the spawn — requiring that found
+    // nothing, because the spawn is deliberately in the middle of the room.
+    let step: { x: number; y: number } | null = null;
+    let wall: { x: number; y: number } | null = null;
+    for (let sy = 1; sy < map.height - 1 && !wall; sy++) {
+      for (let sx = 1; sx < map.width - 1 && !wall; sx++) {
+        const from = { x: sx + 0.5, y: sy + 0.5 };
+        if (isBlocked(map, sx, sy) || !near(from, SPAWN)) continue;
+        for (let wy = 1; wy < map.height - 1 && !wall; wy++) {
+          for (let wx = 1; wx < map.width - 1 && !wall; wx++) {
+            const target = { x: wx + 0.5, y: wy + 0.5 };
+            if (!isBlocked(map, wx, wy) || !near(from, target)) continue;
+            step = from;
+            wall = target;
+          }
+        }
+      }
+    }
+    expect(wall, 'studio_a has no solid tile a legal step from open floor').not.toBeNull();
+    if (!step || !wall) throw new Error('unreachable');
 
     const b = await connectAndJoin('user-b');
-    // Walk legally from spawn (10.5,7.5) up a row and east along it…
-    b.send({ t: 'move', x: 10.5, y: 6.5, dir: 'up', moving: true });
-    b.send({ t: 'move', x: 12.5, y: 6.5, dir: 'right', moving: true });
-    b.send({ t: 'move', x: 13.5, y: 6.5, dir: 'right', moving: true });
+    b.send({ t: 'move', x: step.x, y: step.y, dir: 'up', moving: true });
+    await until(() => app.hub.actorsIn('studio_a').some((a) => a.userId === 'user-b'));
     const before = ofType(b, 'snapshot').length;
-    // …then step one tile into the desk: distance legal, target blocked.
-    b.send({ t: 'move', x: 14.5, y: 6.5, dir: 'right', moving: true });
+    b.send({ t: 'move', x: wall.x, y: wall.y, dir: 'up', moving: true });
     await until(() => ofType(b, 'snapshot').length === before + 1);
-    const resync = ofType(b, 'snapshot').at(-1);
-    // Authoritative position is the last legal one, not the desk.
-    expect(resync?.actors.find((x) => x.userId === 'user-b')).toMatchObject({ x: 13.5, y: 6.5 });
+    // Authoritative position is the last LEGAL one, not inside the wall.
+    expect(ofType(b, 'snapshot').at(-1)?.actors.find((x) => x.userId === 'user-b')).toMatchObject(
+      step,
+    );
   });
 
   it('caps move relays at 20/s per connection, dropping the excess silently', async () => {
@@ -199,6 +243,24 @@ describe('room-server multiplayer', () => {
     b.socket.close();
     await until(() => ofType(a, 'actorLeave').some((m) => m.userId === 'user-b'));
     await until(() => app.hub.sessionCount === 1);
+  });
+
+  it('answers ping with pong, before and during a join', async () => {
+    const client = connectRaw(`?token=${await tokenFor('pinger')}`);
+    await new Promise<void>((resolve, reject) => {
+      client.socket.once('open', () => resolve());
+      client.socket.once('error', reject);
+    });
+
+    // Liveness must not depend on having joined a map: the client starts its
+    // heartbeat the moment the socket opens.
+    client.send({ t: 'ping' });
+    await until(() => ofType(client, 'pong').length === 1);
+
+    client.send({ t: 'join', mapId: 'studio_a', displayName: 'pinger', sprite: 'maker' });
+    client.send({ t: 'ping' });
+    await until(() => ofType(client, 'pong').length === 2);
+    await until(() => ofType(client, 'snapshot').length === 1);
   });
 
   it('survives unparseable frames', async () => {

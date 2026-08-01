@@ -5,8 +5,27 @@
 
 export type PeerAv = {
   videoTrack: MediaStreamTrack | null;
+  /**
+   * A shared screen, kept separate from the camera on purpose.
+   *
+   * They are not interchangeable: a camera goes in a 72px circle and a screen
+   * does not. Reusing one field would mean either cropping someone's slides
+   * into a bubble or blowing their face up to fill the world.
+   */
+  screenTrack: MediaStreamTrack | null;
   speaking: boolean;
 };
+
+/**
+ * What the student needs to know about audio, in one word.
+ *
+ * A silent room is otherwise indistinguishable from a broken one — the single
+ * worst failure mode for a beta, because it teaches people the product does
+ * not work when in fact nobody has spoken. `off` is a supported state (no
+ * LiveKit server configured); `denied` is the browser refusing the mic;
+ * `failed` is a connection that should have worked and did not.
+ */
+export type AvStatus = 'off' | 'connecting' | 'live' | 'denied' | 'failed';
 
 type Listener = () => void;
 
@@ -14,6 +33,7 @@ class AvStoreImpl {
   private peers = new Map<string, PeerAv>();
   private view: ReadonlyMap<string, PeerAv> = new Map();
   private listeners = new Set<Listener>();
+  private status: AvStatus = 'off';
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -22,11 +42,40 @@ class AvStoreImpl {
 
   getSnapshot = (): ReadonlyMap<string, PeerAv> => this.view;
 
+  getStatus = (): AvStatus => this.status;
+
+  setStatus(next: AvStatus): void {
+    if (this.status === next) return;
+    this.status = next;
+    for (const listener of this.listeners) listener();
+  }
+
   setVideoTrack(userId: string, track: MediaStreamTrack | null): void {
     const current = this.peers.get(userId);
     if ((current?.videoTrack ?? null) === track) return;
-    this.peers.set(userId, { videoTrack: track, speaking: current?.speaking ?? false });
+    this.peers.set(userId, {
+      videoTrack: track,
+      screenTrack: current?.screenTrack ?? null,
+      speaking: current?.speaking ?? false,
+    });
     this.commit();
+  }
+
+  setScreenTrack(userId: string, track: MediaStreamTrack | null): void {
+    const current = this.peers.get(userId);
+    if ((current?.screenTrack ?? null) === track) return;
+    this.peers.set(userId, {
+      videoTrack: current?.videoTrack ?? null,
+      screenTrack: track,
+      speaking: current?.speaking ?? false,
+    });
+    this.commit();
+  }
+
+  /** Whoever is presenting, or null. At most one screen is shown at a time. */
+  getSharer(): string | null {
+    for (const [userId, peer] of this.peers) if (peer.screenTrack) return userId;
+    return null;
   }
 
   /** Active-speaker model: at most one speaking peer at a time. */
@@ -40,7 +89,7 @@ class AvStoreImpl {
       }
     }
     if (userId && !this.peers.has(userId)) {
-      this.peers.set(userId, { videoTrack: null, speaking: true });
+      this.peers.set(userId, { videoTrack: null, screenTrack: null, speaking: true });
       changed = true;
     }
     if (changed) this.commit();

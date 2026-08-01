@@ -48,7 +48,7 @@ Worker and tldraw sync run separately when needed: `pnpm --filter api worker`, `
 | Posts, lineage, feed, Idea Hub | member 2 |
 | Grading pipeline, worker, rubrics, faculty panel | member 3 |
 | Rooms: WS server, Workspace, Kanban, chat | member 4 |
-| Live Space: Phaser, proximity, Daily.co, tldraw | member 5 |
+| Live Space: Phaser, proximity, LiveKit, tldraw | member 5 |
 
 (Fill in real names; everyone reads everything — ownership means "default reviewer + keeps that doc updated".)
 

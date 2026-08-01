@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { MicOff } from 'lucide-react';
 import type { Zone } from '@retry/protocol';
 import { avatarScreenPositions } from './avatar-positions.js';
+import { BUBBLE_CLEARANCE_PX, BUBBLE_SIZE, SELF_BUBBLE_SIZE } from './overlay-metrics.js';
 import { avStore } from './av/av-store.js';
 import { roomEvents } from './event-bus.js';
 import { useRoomActors } from './useRoomActors.js';
@@ -12,16 +14,13 @@ type BubbleOverlayProps = {
 };
 
 // AV bubbles (rooms build plan Phases 3+5). Rendered as a DOM overlay
-// positioned from Phaser coordinates — NOT inside the canvas. A peer with a
-// live subscribed video track gets a real <video>; audio-only (or no-AV)
-// peers show initials with a speaking ring — never a black rectangle.
-// Sizes/opacity per plan: close → 72px full, near → 48px at 70%.
-const SIZE: Record<'close' | 'near', number> = { close: 72, near: 48 };
-const SELF_SIZE = 48;
-// Gap between a bubble's bottom edge and the anchor. RoomScene publishes the
-// top of the name tag, so everything the scene draws is already below this
-// point and the gap is cosmetic — it does not have to track camera zoom.
-const CLEARANCE_PX = 8;
+// positioned from Phaser coordinates — NOT inside the canvas, because a
+// <video> element cannot reach a Phaser texture without a per-frame GPU copy
+// and the bubble has to host one the instant a track arrives. A peer with a
+// live subscribed video track gets a real <video>; audio-only (or no-AV) peers
+// show initials with a speaking ring — never a black rectangle.
+//
+// Sizes and the clearance live in overlay-metrics.ts, shared with RoomScene.
 
 const PALETTE = ['#4f83cc', '#cc7a4f', '#5aa06c', '#a06ca0', '#c2544f', '#4fa3b8'];
 
@@ -84,22 +83,39 @@ export function BubbleOverlay({ selfUserId, selfDisplayName, selfAudio }: Bubble
 
   // Bubbles follow avatars via rAF + direct style writes — per-frame positions
   // never pass through React state.
+  //
+  // The loop writes and NEVER READS, which matters more than it looks.
+  //
+  // It used to read `el.offsetWidth`/`offsetHeight` every frame to centre each
+  // bubble. On its own that read was harmless: the loop only wrote `visibility`
+  // and `transform`, neither of which dirties layout, so there was nothing to
+  // flush. (Measured: zero layouts per second with one avatar on screen.)
+  //
+  // What made it expensive was the SIZE transition. A bubble changing proximity
+  // zone animated `width` and `height` for 200ms, and those do dirty layout —
+  // so for the length of every crossing the per-frame read became a genuine
+  // forced synchronous reflow. Two students walking in and out of each other's
+  // range measured 76 layouts over 8 seconds; this version measures 0.
+  //
+  // Both halves of the fix are structural. The OUTER element is a zero-size
+  // point carrying only the anchor translate, and the INNER element centres
+  // itself against it with a static `translate(-50%, -100%)` — so the loop has
+  // nothing to measure. And the size change animates as `scale` rather than
+  // `width`/`height`, so it composites instead of laying out.
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
+    const tick = (): void => {
+      raf = requestAnimationFrame(tick);
       for (const [userId, el] of bubbleRefs.current) {
         if (!el) continue;
         const pos = avatarScreenPositions.get(userId);
         if (!pos) {
-          el.style.visibility = 'hidden';
+          el.style.opacity = '0';
           continue;
         }
-        el.style.visibility = 'visible';
-        const x = pos.x - el.offsetWidth / 2;
-        const y = pos.y - CLEARANCE_PX - el.offsetHeight;
-        el.style.transform = `translate(${x}px, ${y}px)`;
+        el.style.opacity = '1';
+        el.style.transform = `translate3d(${pos.x}px, ${pos.y - BUBBLE_CLEARANCE_PX}px, 0)`;
       }
-      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -120,46 +136,62 @@ export function BubbleOverlay({ selfUserId, selfDisplayName, selfAudio }: Bubble
     const av = peerAv.get(userId);
     const speaking = av?.speaking ?? false;
     return (
+      // Outer: a zero-size anchor point. The rAF loop touches only this, and
+      // only its transform and opacity — both composited, neither laying out.
       <div
         key={userId}
         ref={(el) => {
           bubbleRefs.current.set(userId, el);
           if (!el) bubbleRefs.current.delete(userId);
         }}
-        className={`absolute left-0 top-0 flex items-center justify-center rounded-full border-2 font-display font-semibold text-white shadow-lg transition-[width,height,opacity] duration-200 ${
-          speaking ? 'border-emerald-400 ring-2 ring-emerald-400/60 animate-pulse' : 'border-white/80'
-        }`}
-        style={{
-          width: size,
-          height: size,
-          opacity,
-          backgroundColor: colorFor(userId),
-          fontSize: size * 0.32,
-          visibility: 'hidden',
-        }}
+        className="absolute left-0 top-0 h-0 w-0 will-change-transform"
+        style={{ opacity: 0 }}
       >
-        {av?.videoTrack ? (
-          // Clip the video to the circle without clipping the mute badge below.
-          <span className="absolute inset-0 overflow-hidden rounded-full">
-            <BubbleVideo track={av.videoTrack} />
-          </span>
-        ) : (
-          initials(name)
-        )}
-        {muted && (
-          <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px]">
-            🔇
-          </span>
-        )}
+        {/* Inner: centres itself on the anchor with a static transform, so its
+            size is the browser's problem rather than the loop's. A zone change
+            animates as `scale`, which composites; `width`/`height` did not. */}
+        <div
+          className={`absolute flex items-center justify-center rounded-full border-2 font-display font-semibold text-accent-ink shadow-lg transition-[transform,opacity] duration-200 ${
+            speaking ? 'border-success ring-2 ring-success/60 animate-pulse' : 'border-ink/60'
+          }`}
+          style={{
+            width: BUBBLE_SIZE.close,
+            height: BUBBLE_SIZE.close,
+            fontSize: BUBBLE_SIZE.close * 0.32,
+            opacity,
+            backgroundColor: colorFor(userId),
+            transform: `translate(-50%, -100%) scale(${size / BUBBLE_SIZE.close})`,
+          }}
+        >
+          {av?.videoTrack ? (
+            // Clip the video to the circle without clipping the mute badge.
+            <span className="absolute inset-0 overflow-hidden rounded-full">
+              <BubbleVideo track={av.videoTrack} />
+            </span>
+          ) : (
+            initials(name)
+          )}
+          {muted && (
+            <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-danger text-danger-ink">
+              <MicOff size={11} aria-hidden />
+            </span>
+          )}
+        </div>
       </div>
     );
   };
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {bubble(selfUserId, selfDisplayName, SELF_SIZE, 0.9, !selfAudio)}
+      {bubble(selfUserId, selfDisplayName, SELF_BUBBLE_SIZE, 0.9, !selfAudio)}
       {peers.map(({ actor, zone }) =>
-        bubble(actor.userId, actor.displayName, SIZE[zone], zone === 'close' ? 1 : 0.7, !actor.audio),
+        bubble(
+          actor.userId,
+          actor.displayName,
+          BUBBLE_SIZE[zone],
+          zone === 'close' ? 1 : 0.7,
+          !actor.audio,
+        ),
       )}
     </div>
   );

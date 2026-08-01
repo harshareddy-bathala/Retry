@@ -94,7 +94,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-20 mt-2 w-[22rem] rounded-panel border border-edge bg-surface shadow-lg">
+        <div className="absolute right-0 z-popover mt-2 w-[22rem] rounded-panel border border-edge bg-surface shadow-lg">
           {pending.length > 0 && (
             <div className="border-b border-edge">
               {pending.map((invite) => (

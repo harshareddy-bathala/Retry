@@ -6,6 +6,12 @@ import lounge from '@retry/maps/lounge.json';
 import conference from '@retry/maps/conference.json';
 import { TILESET_URLS } from '@retry/maps/generated/tilesets';
 import { ANIMATED } from '@retry/maps/generated/animated';
+import {
+  EMOTE_CHOICES,
+  EMOTE_FRAME_SIZE,
+  EMOTE_STRIP,
+  TYPING_FRAME,
+} from '@retry/maps/generated/emotes';
 import { DEFAULT_SPRITE } from '@retry/maps';
 import { TILE_SIZE, pixelToTile } from '@retry/protocol';
 import type {
@@ -16,10 +22,25 @@ import type {
   ServerMessage,
   SnapshotMessage,
 } from '@retry/protocol';
-import { avatarScreenPositions } from '../avatar-positions.js';
+import { avatarScreenPositions, avatarTilePositions, minimapWorld } from '../avatar-positions.js';
 import { roomEvents } from '../event-bus.js';
+import { toastStore } from '../hud/toast-store.js';
+import {
+  BUBBLE_OFFSET_Y,
+  FEET_BOX,
+  FEET_OFFSET_Y,
+  OVERLAY_ANCHOR_Y,
+  SHADOW,
+  TAG_OFFSET_Y,
+} from '../overlay-metrics.js';
 import { roomSocket } from '../net/room-socket.js';
-import { ensureAvatarTexture, frameFor, preloadCharacterLayers } from './compose-avatar.js';
+import {
+  ensureAvatarTexture,
+  frameFor,
+  preloadCharacterLayers,
+  pruneAvatarTextures,
+  resetAvatarTextureCache,
+} from './compose-avatar.js';
 
 // Every Tiled template ships in the bundle; the server's snapshot names which
 // one to render (mapId is the instance — a room uuid — template is the file).
@@ -32,17 +53,22 @@ const TEMPLATES: Record<string, unknown> = {
 };
 
 /**
- * A map declares only the sheets it draws from, so the loader takes the union
- * across templates rather than every sheet the pack build produced. Sheets are
- * ~100-400 kB each and the full set is over a megabyte for maps that use three.
+ * The sheets ONE template draws from.
+ *
+ * This used to be the union across all five, and the union is the wrong set. A
+ * 24x20 studio that draws on four sheets was downloading and uploading to the
+ * GPU every sheet any room uses — including the museum's 512x3904 — before it
+ * could show anything. Loading per template is a texture upload the visitor to
+ * a small room never pays for, and it matters more now than it did: the rooms
+ * gained walls3d and shadows, so the union grew.
+ *
+ * The cost is that entering a room through a Commons door may have sheets to
+ * fetch. That is what the 200ms door fade is for — see `ensureTilesets`.
  */
-const REQUIRED_TILESETS: string[] = [
-  ...new Set(
-    Object.values(TEMPLATES).flatMap((map) =>
-      ((map as { tilesets?: Array<{ name: string }> }).tilesets ?? []).map((t) => t.name),
-    ),
-  ),
-];
+function tilesetsFor(template: string): string[] {
+  const map = TEMPLATES[template] as { tilesets?: Array<{ name: string }> } | undefined;
+  return (map?.tilesets ?? []).map((t) => t.name);
+}
 
 /** Texture key per tileset — a map may draw on several sheets at once. */
 const tilesKey = (name: string): string => `tiles-${name}`;
@@ -55,13 +81,31 @@ const DOOR_FPS = 14;
 /** How close (in tiles, Chebyshev) a person must be for a door to swing open. */
 const DOOR_OPEN_RANGE = 2;
 
+// A contact shadow goes under every avatar: without one a 32x64 sprite reads
+// as a sticker floating over the floor rather than a person standing on it.
+// Its geometry lives in overlay-metrics.ts with the rest of the pixel contract.
+
+/** How faded a remote avatar goes while the socket is down. */
+const STALE_REMOTE_ALPHA = 0.45;
+
+// "Show me where they are": pan out, hold on them, pan back.
+const LOCATE_PAN_MS = 400;
+const LOCATE_HOLD_MS = 1_200;
+
+/** Texture key for the emote/typing strip. */
+const EMOTE_TEXTURE = 'emotes';
+/** How long a bubble stays up. Long enough to be seen across a room. */
+const EMOTE_HOLD_MS = 3_000;
 /**
- * Contact shadow under every avatar. Without one a 32x64 sprite reads as a
- * sticker floating over the floor rather than a person standing on it — the
- * pack's own furniture is drawn with shadows, so characters need them to sit
- * in the same world.
+ * How long a typing bubble survives without another `actorTyping`. The server
+ * re-broadcasts at most every 2s, so this has to outlast that gap or the
+ * bubble strobes while somebody writes a long message.
  */
-const SHADOW = { radiusX: 8, radiusY: 3, alpha: 0.28, offsetY: 22 } as const;
+const TYPING_HOLD_MS = 4_000;
+/** How long a line of nearby speech hangs over a head. */
+const SPEECH_HOLD_MS = 6_000;
+/** Longer than this is trimmed: the panel is where reading happens. */
+const SPEECH_MAX_CHARS = 60;
 
 // SRS movement speed: 4 tiles/second. Arcade physics integrates velocity with
 // delta time, so this is frame-rate independent by construction.
@@ -86,20 +130,10 @@ const MAX_ZOOM = 4;
 
 // Wire positions are the avatar's collision anchor (feet-box centre), in TILE
 // units — the sprite centre would sit inside wall tiles when standing against
-// them, and the server validates collision on the wire position. Pack frames
-// are 32x64 (head above the occupied tile), so the feet sit 24px below the
-// sprite centre; the feet box itself hugs the frame's bottom.
-const FEET_OFFSET_Y = 24;
-const FEET_BOX = { width: 18, height: 12, offsetX: 7, offsetY: 50 } as const;
-/** Name tags float just above the head, which is 32px above the centre. */
-const TAG_OFFSET_Y = 44;
-/**
- * Top of everything the scene draws above an avatar (the name tag's upper
- * edge). This — not the head — is the anchor published to the React overlay,
- * so the overlay's clearance is a small constant instead of a number that has
- * to grow with camera zoom to stay clear of the tag.
- */
-const OVERLAY_ANCHOR_Y = TAG_OFFSET_Y + 8;
+// them, and the server validates collision on the wire position.
+//
+// The geometry itself lives in overlay-metrics.ts because the DOM overlay
+// needs the same numbers to glue its bubbles to these sprites.
 
 // Send cadence and remote smoothing (rooms build plan Phase 2).
 const MOVE_SEND_INTERVAL_MS = 50;
@@ -139,8 +173,10 @@ type Remote = {
 };
 
 type Interactable = {
-  kind: 'whiteboard' | 'exit' | 'door';
+  kind: 'whiteboard' | 'exit' | 'door' | 'seat';
   doorSlot: number | null;
+  /** Seats only: which way a sitter looks. */
+  facing: Dir | null;
   tiles: Array<{ x: number; y: number }>;
   hint: Phaser.GameObjects.Container;
 };
@@ -186,6 +222,23 @@ export class RoomScene extends Phaser.Scene {
   private propSprites: Phaser.GameObjects.Sprite[] = [];
   private fading = false;
   private pendingSnapshot: SnapshotMessage | null = null;
+  /**
+   * Whether the socket is currently live. While it is not, remote avatars are
+   * stale by definition — they are dimmed and frozen rather than removed, so a
+   * dropped connection reads as "these people are out of date" instead of
+   * "everyone left" (build plan Phase 8.1). Local movement keeps working.
+   */
+  private connected = true;
+  /** Sitting on a seat tile: input is ignored until a movement key stands us up. */
+  private seated = false;
+  /**
+   * The bubble currently over each actor (self included), with the time it
+   * expires. One per person: a new emote replaces the old rather than stacking,
+   * and a typing bubble yields to an actual emote.
+   */
+  private bubbles = new Map<string, { sprite: Phaser.GameObjects.Sprite; until: number }>();
+  /** Nearby speech currently shown over each actor's head. */
+  private speech = new Map<string, { pill: Phaser.GameObjects.Container; until: number }>();
 
   constructor() {
     super('room');
@@ -202,11 +255,9 @@ export class RoomScene extends Phaser.Scene {
     for (const [key, data] of Object.entries(TEMPLATES)) {
       this.cache.tilemap.add(key, { format: Phaser.Tilemaps.Formats.TILED_JSON, data });
     }
-    for (const key of REQUIRED_TILESETS) {
-      const url = TILESET_URLS[key];
-      if (!url) throw new Error(`map declares tileset "${key}" — run pnpm assets:build`);
-      this.load.image(tilesKey(key), url);
-    }
+    // Tilesets are NOT loaded here. They are per-template and fetched on the
+    // way into a world (`ensureTilesets`), because the union of five rooms'
+    // sheets is several megabytes of texture for a room that draws on four.
     for (const [key, sheet] of Object.entries(ANIMATED)) {
       this.load.spritesheet(animKey(key), sheet.url, {
         frameWidth: sheet.frameWidth,
@@ -216,6 +267,13 @@ export class RoomScene extends Phaser.Scene {
     // Characters composite at runtime from these curated layer strips
     // (~240 KB for the whole catalogue) — there is no per-character asset.
     preloadCharacterLayers(this);
+    // Emote + typing bubbles: one strip, two frames each.
+    if (EMOTE_STRIP) {
+      this.load.spritesheet(EMOTE_TEXTURE, EMOTE_STRIP, {
+        frameWidth: EMOTE_FRAME_SIZE,
+        frameHeight: EMOTE_FRAME_SIZE,
+      });
+    }
   }
 
   create(): void {
@@ -293,22 +351,43 @@ export class RoomScene extends Phaser.Scene {
       this.nameTag = this.buildPill(displayName, 0xffffff, '#2d2926');
       this.nameTag.setVisible(visible);
     });
-    // While a panel holds focus, the scene surrenders the keyboard entirely —
-    // "typing in chat never moves the avatar" (Phase 6 acceptance).
-    const unsubscribePanel = roomEvents.on('panel:state', ({ open }) => {
-      keyboard.enabled = !open;
-      if (open && this.currentTemplate) {
+    // While any DOM layer above the canvas holds the keyboard, the scene
+    // surrenders it entirely — "typing in chat never moves the avatar"
+    // (Phase 6 acceptance). The stack decides; the scene just obeys.
+    const unsubscribePanel = roomEvents.on('input:canvas-keys', ({ enabled }) => {
+      keyboard.enabled = enabled;
+      if (!enabled && this.currentTemplate) {
         keyboard.resetKeys();
         this.playerBody.setVelocity(0, 0);
         this.wasMoving = false;
         this.sendMove(false);
       }
     });
+    const unsubscribeStatus = roomEvents.on('net:status', (status) => {
+      this.setConnected(status === 'open');
+    });
+    const unsubscribeLocate = roomEvents.on('camera:locate', ({ userId }) => {
+      this.locate(userId);
+    });
+    // The HUD picker and the number keys both come through here, so the scene
+    // has one path for "I emoted" regardless of how it was triggered.
+    const unsubscribeEmote = roomEvents.on('self:emote', ({ key }) => {
+      roomSocket.send({ t: 'emote', key });
+      // Optimistic: the server does not echo an emote to its sender, exactly
+      // like movement, so the local bubble is drawn here.
+      this.showBubble(this.userId, this.emoteFrame(key), EMOTE_HOLD_MS);
+    });
     const cleanup = (): void => {
       unsubscribe();
       unsubscribePanel();
       unsubscribeRename();
+      unsubscribeStatus();
+      unsubscribeLocate();
+      unsubscribeEmote();
       avatarScreenPositions.clear();
+      avatarTilePositions.clear();
+      minimapWorld.current = null;
+      resetAvatarTextureCache();
     };
     this.events.once(Phaser.Scenes.Events.DESTROY, cleanup);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, cleanup);
@@ -333,6 +412,65 @@ export class RoomScene extends Phaser.Scene {
     this.pillTexts = this.pillTexts.filter((t) => t.active);
     for (const text of this.pillTexts) {
       if (text.style.resolution !== resolution) text.setResolution(resolution);
+    }
+  }
+
+  /**
+   * Pan to someone, hold, then hand the camera back to the player. The pan is
+   * deliberately short and self-reversing: this answers "where are they?", it
+   * is not a follow mode, and a camera that stays away from your own avatar
+   * while you can still walk is disorienting.
+   */
+  private locate(userId: string): void {
+    const remote = this.remotes.get(userId);
+    if (!remote || !this.currentTemplate) return;
+    const camera = this.cameras.main;
+    camera.stopFollow();
+    camera.pan(remote.sprite.x, remote.sprite.y, LOCATE_PAN_MS, 'Sine.easeInOut');
+    // A ring under their feet, so the pan lands on something that says "here".
+    const ring = this.add
+      .ellipse(0, 0, SHADOW.radiusX * 4, SHADOW.radiusY * 4)
+      .setStrokeStyle(2, 0xd08a4f, 0.9)
+      .setDepth(DEPTH_UI);
+    this.tweens.add({
+      targets: ring,
+      scale: { from: 1, to: 1.6 },
+      alpha: { from: 1, to: 0 },
+      duration: LOCATE_HOLD_MS,
+      onUpdate: () => {
+        const live = this.remotes.get(userId);
+        if (live) ring.setPosition(live.sprite.x, live.sprite.y + SHADOW.offsetY);
+      },
+      onComplete: () => ring.destroy(),
+    });
+    this.time.delayedCall(LOCATE_PAN_MS + LOCATE_HOLD_MS, () => {
+      // The scene may have swapped maps mid-pan; startFollow on a stale camera
+      // is harmless, but re-checking keeps the intent obvious.
+      this.cameras.main.pan(
+        this.player.x,
+        this.player.y,
+        LOCATE_PAN_MS,
+        'Sine.easeInOut',
+        false,
+        (_camera, progress) => {
+          if (progress === 1) this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+        },
+      );
+    });
+  }
+
+  /** Dim (or restore) everyone else when the connection drops or returns. */
+  private setConnected(connected: boolean): void {
+    if (connected === this.connected) return;
+    this.connected = connected;
+    const alpha = connected ? 1 : STALE_REMOTE_ALPHA;
+    for (const remote of this.remotes.values()) {
+      remote.sprite.setAlpha(alpha);
+      remote.tag.setAlpha(alpha);
+      remote.shadow.setAlpha(connected ? SHADOW.alpha : SHADOW.alpha * STALE_REMOTE_ALPHA);
+      // Freeze the walk cycle: with no updates arriving, a looping walk is a
+      // sprite jogging on the spot and claiming to be live.
+      if (!connected) remote.moving = false;
     }
   }
 
@@ -402,8 +540,12 @@ export class RoomScene extends Phaser.Scene {
     const up = this.cursors.up.isDown || this.wasd.W.isDown;
     const down = this.cursors.down.isDown || this.wasd.S.isDown;
 
-    let vx = (right ? 1 : 0) - (left ? 1 : 0);
-    let vy = (down ? 1 : 0) - (up ? 1 : 0);
+    // Any movement key gets you out of a chair — hunting for the key that
+    // released you would be a puzzle, and E is already taken by "sit again".
+    if (this.seated && (left || right || up || down)) this.stand();
+
+    let vx = this.seated ? 0 : (right ? 1 : 0) - (left ? 1 : 0);
+    let vy = this.seated ? 0 : (down ? 1 : 0) - (up ? 1 : 0);
     if (vx !== 0 && vy !== 0) {
       // Normalise so diagonal movement is not faster than cardinal.
       vx *= Math.SQRT1_2;
@@ -436,6 +578,7 @@ export class RoomScene extends Phaser.Scene {
     this.placeShadow(this.playerShadow, this.player.x, this.player.y);
     this.nameTag.setPosition(Math.round(this.player.x), Math.round(this.player.y) - TAG_OFFSET_Y);
     this.updateRemotes(this.time.now);
+    this.updateBubbles(this.time.now);
     this.publishScreenPositions();
     this.updateInteractables();
     this.updateDoors();
@@ -475,6 +618,28 @@ export class RoomScene extends Phaser.Scene {
         break;
       case 'actorLeave':
         this.removeRemote(msg.userId);
+        this.pruneTextures();
+        break;
+      case 'actorEmote':
+        this.showBubble(msg.userId, this.emoteFrame(msg.key), EMOTE_HOLD_MS);
+        break;
+      case 'actorTyping':
+        // Never over-write a live emote with a typing bubble: the emote was a
+        // deliberate act and this is a side effect of writing.
+        if (!this.bubbles.has(msg.userId)) {
+          this.showBubble(msg.userId, TYPING_FRAME, TYPING_HOLD_MS);
+        } else {
+          this.extendBubble(msg.userId, TYPING_HOLD_MS);
+        }
+        break;
+      case 'chatMessage':
+        // Speech belongs in the world, not only in a panel: a line said nearby
+        // appears over the speaker's head, which is the whole point of saying
+        // it nearby rather than to the room.
+        if (msg.scope === 'nearby') {
+          this.clearBubble(msg.userId);
+          this.showSpeech(msg.userId, msg.body);
+        }
         break;
       case 'doors':
         this.doorsInfo = msg.doors;
@@ -501,9 +666,18 @@ export class RoomScene extends Phaser.Scene {
       return;
     }
     if (this.currentTemplate === null) {
-      // First world build: no fade, just appear.
-      this.buildWorld(msg.template);
-      this.applySnapshot(msg);
+      // First world build. Tilesets are no longer in `preload`, so the canvas
+      // now exists BEFORE the room it will draw does — a short dark rectangle
+      // where there used to be no canvas at all. Fading in makes that read as
+      // arriving somewhere rather than as a stall. (It is also strictly less
+      // waiting than before: preload used to block on every sheet of all five
+      // maps, and this fetches one map's.)
+      this.cameras.main.fadeOut(0, 23, 21, 18);
+      this.ensureTilesets(msg.template, () => {
+        this.buildWorld(msg.template);
+        this.applySnapshot(msg);
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+      });
       return;
     }
     this.fading = true;
@@ -512,13 +686,69 @@ export class RoomScene extends Phaser.Scene {
     this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
       const pending = this.pendingSnapshot;
       this.pendingSnapshot = null;
-      this.fading = false;
-      if (pending) {
+      if (!pending) {
+        this.fading = false;
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        return;
+      }
+      // Fetch under cover of the fade — the screen is already black, so a
+      // sheet that has to come off the wire costs the transition rather than
+      // showing a half-drawn room. `fading` stays true until the world exists,
+      // so a snapshot arriving mid-fetch queues instead of racing it.
+      this.ensureTilesets(pending.template, () => {
+        this.fading = false;
         this.buildWorld(pending.template);
         this.applySnapshot(pending);
-      }
-      this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        this.cameras.main.fadeIn(FADE_MS, 23, 21, 18);
+        // A snapshot that landed while we were fetching is now stale but its
+        // actors are not — apply it on top rather than dropping it.
+        const queued = this.pendingSnapshot;
+        if (queued && queued.template === pending.template) {
+          this.pendingSnapshot = null;
+          this.applySnapshot(queued);
+        }
+      });
     });
+  }
+
+  /**
+   * Makes sure every sheet a template declares is in the texture cache, then
+   * calls `done` — synchronously if there is nothing to fetch, which is the
+   * common case once a session has been in a room.
+   *
+   * Phaser's loader is normally a preload-time thing; driving it mid-scene is
+   * deliberate and needs the failure path spelled out, because a loader that
+   * never completes leaves `done` uncalled and the player looking at a black
+   * screen with a live socket and no way to know why.
+   */
+  private ensureTilesets(template: string, done: () => void): void {
+    const missing = tilesetsFor(template).filter((name) => !this.textures.exists(tilesKey(name)));
+    if (missing.length === 0) {
+      done();
+      return;
+    }
+    for (const name of missing) {
+      const url = TILESET_URLS[name];
+      if (!url) throw new Error(`map '${template}' declares tileset "${name}" — run pnpm assets:build`);
+      this.load.image(tilesKey(name), url);
+    }
+    const finish = (): void => {
+      this.load.off(Phaser.Loader.Events.COMPLETE, finish);
+      done();
+    };
+    this.load.once(Phaser.Loader.Events.COMPLETE, finish);
+    // A single failed sheet must not strand the world. Phaser fires COMPLETE
+    // after FILE_LOAD_ERROR anyway, so `buildWorld` still runs and throws a
+    // named error the ErrorBoundary can show — which beats a black rectangle.
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      toastStore.show({
+        id: `tileset-${file.key}`,
+        tone: 'warn',
+        dismissible: true,
+        body: "Some of this room's artwork did not load. Reload to try again.",
+      });
+    });
+    this.load.start();
   }
 
   private applySnapshot(msg: SnapshotMessage): void {
@@ -530,6 +760,16 @@ export class RoomScene extends Phaser.Scene {
         this.upsertRemote(actor);
       }
     }
+    // A map change replaces the whole cast, which is exactly when a session's
+    // texture cache is most likely to be holding characters nobody is wearing.
+    this.pruneTextures();
+  }
+
+  /** Evict composited characters nobody on this map is wearing any more. */
+  private pruneTextures(): void {
+    const inUse = new Set<string>([this.selfSprite]);
+    for (const remote of this.remotes.values()) inUse.add(remote.sprite_key);
+    pruneAvatarTextures(this, inUse);
   }
 
   private onActorMove(msg: ActorMoveMessage): void {
@@ -554,11 +794,14 @@ export class RoomScene extends Phaser.Scene {
     const x = actor.x * TILE_SIZE;
     const y = actor.y * TILE_SIZE - FEET_OFFSET_Y;
     const textureKey = ensureAvatarTexture(this, actor.sprite);
+    const alpha = this.connected ? 1 : STALE_REMOTE_ALPHA;
     const sprite = this.add
       .sprite(x, y, textureKey, frameFor('idle', actor.dir))
-      .setDepth(y + FEET_OFFSET_Y);
+      .setDepth(y + FEET_OFFSET_Y)
+      .setAlpha(alpha);
     const tag = this.buildPill(actor.displayName, 0xffffff, '#2d2926');
     tag.setPosition(x, y - TAG_OFFSET_Y);
+    tag.setAlpha(alpha);
     this.remotes.set(actor.userId, {
       sprite,
       tag,
@@ -583,6 +826,7 @@ export class RoomScene extends Phaser.Scene {
     remote.shadow.destroy();
     this.remotes.delete(userId);
     avatarScreenPositions.delete(userId);
+    avatarTilePositions.delete(userId);
   }
 
   /**
@@ -597,6 +841,12 @@ export class RoomScene extends Phaser.Scene {
       avatarScreenPositions.set(userId, {
         x: (worldX - camera.worldView.x) * camera.zoom,
         y: (worldY - OVERLAY_ANCHOR_Y - camera.worldView.y) * camera.zoom,
+      });
+      // Tile coordinates too, for the minimap — which draws the whole room and
+      // therefore cannot use a screen position that is mostly off screen.
+      avatarTilePositions.set(userId, {
+        x: worldX / TILE_SIZE,
+        y: (worldY + FEET_OFFSET_Y) / TILE_SIZE,
       });
     };
     write(this.userId, this.player.x, this.player.y);
@@ -639,6 +889,10 @@ export class RoomScene extends Phaser.Scene {
     this.mapLayers = [];
     for (const i of this.interactables) i.hint.destroy();
     this.interactables = [];
+    for (const userId of [...this.bubbles.keys()]) this.clearBubble(userId);
+    for (const userId of [...this.speech.keys()]) this.clearSpeech(userId);
+    // A chair does not follow you through a door.
+    this.seated = false;
     for (const p of this.propSprites) p.destroy();
     this.propSprites = [];
     this.clearDoorVisuals();
@@ -692,6 +946,7 @@ export class RoomScene extends Phaser.Scene {
     // avatar drift a little before the camera commits to following.
     this.cameras.main.setDeadzone(TILE_SIZE * 2, TILE_SIZE * 1.5);
 
+    this.publishMinimap(map, collision);
     this.collectInteractables(map);
     this.spawnProps(map);
     this.currentTemplate = template;
@@ -701,13 +956,42 @@ export class RoomScene extends Phaser.Scene {
     this.renderDoors();
   }
 
+  /**
+   * Hand the minimap the room's shape: dimensions plus a flattened collision
+   * grid. Published once per world build, not per frame — the geometry only
+   * changes at a door, and a 40x16 grid rebuilt sixty times a second would be
+   * the most expensive thing on screen for no reason at all.
+   */
+  private publishMinimap(
+    map: Phaser.Tilemaps.Tilemap,
+    collision: Phaser.Tilemaps.TilemapLayer,
+  ): void {
+    const blocked = new Uint8Array(map.width * map.height);
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const tile = collision.getTileAt(x, y);
+        if (tile && tile.index !== -1) blocked[y * map.width + x] = 1;
+      }
+    }
+    minimapWorld.current = { width: map.width, height: map.height, blocked };
+  }
+
   /** Read objects with an `interactive` custom property from the map. */
   private collectInteractables(map: Phaser.Tilemaps.Tilemap): void {
     for (const obj of map.getObjectLayer('interactables')?.objects ?? []) {
       const properties = (obj.properties ?? []) as Array<{ name: string; value: unknown }>;
       const kindProp = properties.find((p) => p.name === 'interactive')?.value;
-      if (kindProp !== 'whiteboard' && kindProp !== 'exit' && kindProp !== 'door') continue;
+      if (
+        kindProp !== 'whiteboard' &&
+        kindProp !== 'exit' &&
+        kindProp !== 'door' &&
+        kindProp !== 'seat'
+      ) {
+        continue;
+      }
       const slotProp = properties.find((p) => p.name === 'door_slot')?.value;
+      const facingProp = properties.find((p) => p.name === 'facing')?.value;
+      const facing = isDir(facingProp) ? facingProp : null;
 
       const x = obj.x ?? 0;
       const y = obj.y ?? 0;
@@ -719,7 +1003,10 @@ export class RoomScene extends Phaser.Scene {
           tiles.push({ x: tx, y: ty });
         }
       }
-      const label = kindProp === 'exit' ? 'E — to Commons' : 'Press E';
+      const label =
+        kindProp === 'exit' ? 'E — to Commons'
+        : kindProp === 'seat' ? 'E — sit'
+        : 'Press E';
       const hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
       hint.setPosition(x + width / 2, kindProp === 'door' ? y + height + 10 : y - 8);
       hint.setVisible(false);
@@ -727,22 +1014,34 @@ export class RoomScene extends Phaser.Scene {
       this.interactables.push({
         kind: kindProp,
         doorSlot: typeof slotProp === 'number' ? slotProp : null,
+        facing,
         tiles,
         hint,
       });
     }
   }
 
-  /** The interactable the player stands next to (Chebyshev distance ≤ 1). */
+  /**
+   * The interactable the player stands next to (Chebyshev distance ≤ 1), the
+   * genuinely NEAREST one rather than the first in map order — a chair you are
+   * standing on (distance 0) must win over a door one tile away, or sitting at
+   * a desk beside a doorway walks you into the next room instead.
+   */
   private nearestInteractable(): Interactable | null {
     const tileX = pixelToTile(this.player.x);
     const tileY = pixelToTile(this.player.y + FEET_OFFSET_Y);
+    let best: Interactable | null = null;
+    let bestDistance = Infinity;
     for (const i of this.interactables) {
-      if (i.tiles.some((t) => Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY)) <= 1)) {
-        return i;
+      for (const t of i.tiles) {
+        const distance = Math.max(Math.abs(t.x - tileX), Math.abs(t.y - tileY));
+        if (distance <= 1 && distance < bestDistance) {
+          best = i;
+          bestDistance = distance;
+        }
       }
     }
-    return null;
+    return best;
   }
 
   private updateInteractables(): void {
@@ -750,12 +1049,19 @@ export class RoomScene extends Phaser.Scene {
     for (const i of this.interactables) {
       // A door with no assigned room is just wall dressing — no hint, no action.
       const usable = i.kind !== 'door' || this.doorFor(i.doorSlot)?.room !== undefined;
-      i.hint.setVisible(i === near && usable);
+      // While seated, only the chair you are in offers anything; every other
+      // affordance within reach would be pressable without standing up.
+      const reachable = !this.seated || i.kind === 'seat';
+      i.hint.setVisible(i === near && usable && reachable);
     }
   }
 
   private activate(interactable: Interactable): void {
     switch (interactable.kind) {
+      case 'seat':
+        if (this.seated) this.stand();
+        else this.sit(interactable);
+        break;
       case 'whiteboard':
         roomEvents.emit('interact:whiteboard');
         break;
@@ -772,6 +1078,145 @@ export class RoomScene extends Phaser.Scene {
 
   private doorFor(slot: number | null): DoorInfo | undefined {
     return slot === null ? undefined : this.doorsInfo.find((d) => d.slot === slot);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Emote / typing bubbles
+  // ---------------------------------------------------------------------------
+
+  /** First frame of an emote key; the typing dots if the key is unknown. */
+  private emoteFrame(key: string): number {
+    return EMOTE_CHOICES.find((e) => e.key === key)?.frame ?? TYPING_FRAME;
+  }
+
+  /**
+   * Put a bubble over someone's head. Both frames of the pair are played as a
+   * two-frame loop — the pack draws emotes as a gentle bob, and a static one
+   * reads as a stuck UI element rather than a reaction.
+   */
+  private showBubble(userId: string, frame: number, holdMs: number): void {
+    if (!EMOTE_STRIP) return;
+    this.clearBubble(userId);
+    const sprite = this.add.sprite(0, 0, EMOTE_TEXTURE, frame).setDepth(DEPTH_HINT);
+    const key = `bubble-${frame}`;
+    if (!this.anims.exists(key)) {
+      this.anims.create({
+        key,
+        frames: [{ key: EMOTE_TEXTURE, frame }, { key: EMOTE_TEXTURE, frame: frame + 1 }],
+        frameRate: 3,
+        repeat: -1,
+      });
+    }
+    sprite.anims.play(key);
+    this.bubbles.set(userId, { sprite, until: this.time.now + holdMs });
+  }
+
+  /**
+   * A line of speech over someone's head. Long lines are trimmed rather than
+   * wrapped: this is a glance-at-it affordance and the full text is in the
+   * chat panel, where reading belongs.
+   */
+  private showSpeech(userId: string, body: string): void {
+    this.clearSpeech(userId);
+    const text = body.length > SPEECH_MAX_CHARS ? `${body.slice(0, SPEECH_MAX_CHARS - 1)}…` : body;
+    const pill = this.buildPill(text, 0xffffff, '#2d2926');
+    pill.setDepth(DEPTH_HINT);
+    this.speech.set(userId, { pill, until: this.time.now + SPEECH_HOLD_MS });
+  }
+
+  private clearSpeech(userId: string): void {
+    const existing = this.speech.get(userId);
+    if (!existing) return;
+    existing.pill.destroy();
+    this.speech.delete(userId);
+  }
+
+  private extendBubble(userId: string, holdMs: number): void {
+    const bubble = this.bubbles.get(userId);
+    if (bubble) bubble.until = this.time.now + holdMs;
+  }
+
+  private clearBubble(userId: string): void {
+    const bubble = this.bubbles.get(userId);
+    if (!bubble) return;
+    bubble.sprite.destroy();
+    this.bubbles.delete(userId);
+  }
+
+  /** Where an actor's head is, or null once they have left the map. */
+  private headOf(userId: string): { x: number; y: number } | null {
+    if (userId === this.userId) return { x: this.player.x, y: this.player.y };
+    const remote = this.remotes.get(userId);
+    return remote ? { x: remote.sprite.x, y: remote.sprite.y } : null;
+  }
+
+  /** Follow heads, and expire. Called every frame. */
+  private updateBubbles(now: number): void {
+    for (const [userId, bubble] of [...this.bubbles]) {
+      const at = this.headOf(userId);
+      if (now >= bubble.until || !at) {
+        this.clearBubble(userId);
+        continue;
+      }
+      bubble.sprite.setPosition(Math.round(at.x), Math.round(at.y) - BUBBLE_OFFSET_Y);
+    }
+    for (const [userId, said] of [...this.speech]) {
+      const at = this.headOf(userId);
+      if (now >= said.until || !at) {
+        this.clearSpeech(userId);
+        continue;
+      }
+      // Above the emote bubble when both are up — speech is the newer thing to
+      // read, and it should never sit on top of the name tag.
+      const lift = this.bubbles.has(userId) ? BUBBLE_OFFSET_Y + 22 : BUBBLE_OFFSET_Y;
+      said.pill.setPosition(Math.round(at.x), Math.round(at.y) - lift);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sitting
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Park the avatar on a seat tile, facing whichever way the map says.
+   *
+   * Entirely client-side: the server sees an ordinary position on a walkable
+   * tile and needs no new state, which is why the sittable chair blocks carry
+   * no collision. Nothing is persisted either — standing up is one keypress
+   * and a disconnect leaves nobody welded to a chair.
+   */
+  private sit(seat: Interactable): void {
+    const tile = seat.tiles[0];
+    if (!tile) return;
+    this.seated = true;
+    this.playerBody.setVelocity(0, 0);
+    // Feet centred on the seat tile; the sprite sits FEET_OFFSET_Y above it.
+    this.playerBody.reset(
+      tile.x * TILE_SIZE + TILE_SIZE / 2,
+      tile.y * TILE_SIZE + TILE_SIZE / 2 - FEET_OFFSET_Y,
+    );
+    this.facing = seat.facing ?? this.facing;
+    this.player.anims.play(`idle-${this.selfSprite}-${this.facing}`, true);
+    this.wasMoving = false;
+    this.sendMove(false);
+    this.setHintLabel(seat, 'E — stand');
+  }
+
+  private stand(): void {
+    if (!this.seated) return;
+    this.seated = false;
+    for (const i of this.interactables) {
+      if (i.kind === 'seat') this.setHintLabel(i, 'E — sit');
+    }
+  }
+
+  /** Swap a hint's text. Pills are baked at build time, so this rebuilds one. */
+  private setHintLabel(interactable: Interactable, label: string): void {
+    const { x, y } = interactable.hint;
+    const visible = interactable.hint.visible;
+    interactable.hint.destroy();
+    interactable.hint = this.buildPill(label, 0x2d2926, '#f5f3ee');
+    interactable.hint.setPosition(x, y).setDepth(DEPTH_HINT).setVisible(visible);
   }
 
   // ---------------------------------------------------------------------------
@@ -888,4 +1333,9 @@ export class RoomScene extends Phaser.Scene {
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+/** Narrow a Tiled custom property to a direction. */
+function isDir(value: unknown): value is Dir {
+  return value === 'up' || value === 'down' || value === 'left' || value === 'right';
 }

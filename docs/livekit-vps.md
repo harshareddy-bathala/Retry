@@ -1,9 +1,45 @@
 # Self-hosted LiveKit — deployment runbook
 
-> Rooms audio/video runs on a LiveKit SFU we operate (ADR-012). **Nothing here is provisioned yet.**
-> Until `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` are all set in
-> `apps/room-server/.env`, AV is off and rooms work exactly as they do today with placeholder
-> proximity bubbles. This document is the recipe for when you do provision it.
+> Rooms audio/video runs on a LiveKit SFU we operate (ADR-012). This document is the **production**
+> recipe. For local development you do not need any of it — see §0.
+>
+> **The recipe is executable.** Every config snippet below exists as a real file in
+> `infra/livekit/`, and `infra/livekit/setup.sh <hostname> <admin-email>` runs the whole of
+> sections 2–4 on a fresh VPS. Read this document for *why*; run that script for *how*. Once the
+> env vars are in place, `pnpm --filter @retry/e2e livekit:check` verifies what a script can and
+> names what it cannot.
+
+---
+
+## 0. Local development — start here
+
+`docker compose up -d` runs a real LiveKit server in dev mode. There is no config file, no TLS, no
+certificate and no TURN relay, and none of that is needed to exercise the code:
+
+```bash
+docker compose up -d                                  # includes the `livekit` service
+# apps/room-server/.env — these credentials are fixed by LiveKit, not secrets
+LIVEKIT_URL=ws://localhost:7880
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+```
+
+Two flags in `docker-compose.yml` are load-bearing and neither is obvious:
+
+- **`--bind 0.0.0.0`** — LiveKit binds its signal server to `127.0.0.1` by default, which inside a
+  container means unreachable from the host however the ports are published.
+- **`--node-ip 127.0.0.1`** — otherwise it advertises the container's internal address (172.x) in
+  its ICE candidates. Signalling succeeds, tracks report as subscribed, and not one packet arrives.
+  From the UI that is indistinguishable from a muted microphone.
+
+Verify with `pnpm --filter @retry/e2e livekit:check` (signalling + upgrade; it reports TURN/443 as
+*not applicable* rather than failed) and then
+`pnpm --filter @retry/e2e exec playwright test --project=edge-av`, which drives two browsers and
+asserts the proximity mechanic against real WebRTC — including inbound RTP bytes, because
+"subscribed" alone would still pass with ICE broken.
+
+**What local dev proves and does not.** It proves the code. It does not prove the network: a student
+on NTTF campus wifi still needs TURN on TCP/443, and nothing below §2 has been exercised.
 
 ---
 
@@ -81,6 +117,8 @@ docker run -d --restart unless-stopped --name livekit \
 
 ## 5. Wiring it to the room server
 
+Same three variables as §0, pointing at the real box instead of the container:
+
 ```bash
 # apps/room-server/.env (or /etc/retry/room-server.env in production)
 LIVEKIT_URL=wss://livekit.<domain>
@@ -98,12 +136,15 @@ peer's tracks only while proximity reports `close`/`near`.
 
 ## 6. Verifying it for real
 
-Once the server is up, the checks Phase 5 could never run:
+Checks 1–4 are now also run automatically against the dev container by
+`playwright test --project=edge-av`. Repeat them here anyway: the VPS is a different network, and
+that is the entire point of the box.
 
 1. **Audio connects in under a second** when two avatars walk within 2 tiles.
 2. **Bandwidth scales with proximity, not population.** Open `chrome://webrtc-internals` and confirm
    the number of inbound streams tracks the number of close/near peers — walking away must drop
-   subscriptions, not merely mute them.
+   subscriptions, not merely mute them. (`av.spec.ts` asserts exactly this, plus inbound byte
+   counts, so a broken ICE path cannot masquerade as a working one.)
 3. **The gain ramp is audible**, not a step: 1.0 close, 0.5 near, over 200 ms.
 4. **Permission denied is survivable**: refuse camera access and confirm bubbles fall back to
    initials with audio still working, never a black rectangle.

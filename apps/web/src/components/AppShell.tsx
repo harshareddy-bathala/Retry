@@ -17,7 +17,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-page">
-      <header className="sticky top-0 z-10 border-b border-edge bg-surface">
+      <header className="sticky top-0 z-header border-b border-edge bg-surface">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-4">
           <span className="font-display text-lg font-bold tracking-tight text-ink">Retry</span>
           <nav className="flex flex-1 items-center gap-1">
