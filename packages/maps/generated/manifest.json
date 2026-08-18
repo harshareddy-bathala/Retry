@@ -1,0 +1,288 @@
+{
+  "source": "limezu",
+  "generatedAt": "2026-07-31T15:12:46.727Z",
+  "tile": 32,
+  "charFrame": {
+    "width": 32,
+    "height": 64
+  },
+  "tilesets": [
+    {
+      "key": "floors",
+      "file": "tilesets/Room_Builder_Floors_32x32.png",
+      "width": 480,
+      "height": 1280,
+      "columns": 15,
+      "rows": 40,
+      "note": "floor materials, 3x2 tileable blocks"
+    },
+    {
+      "key": "walls",
+      "file": "tilesets/Room_Builder_Walls_32x32.png",
+      "width": 1024,
+      "height": 1280,
+      "columns": 32,
+      "rows": 40,
+      "note": "wall runs, 2 tiles tall: capped upper, skirted lower"
+    },
+    {
+      "key": "generic",
+      "file": "tilesets/1_Generic_32x32.png",
+      "width": 512,
+      "height": 2496,
+      "columns": 16,
+      "rows": 78,
+      "note": "doors, windows, stairs, rugs, plants, counters"
+    },
+    {
+      "key": "classroom",
+      "file": "tilesets/5_Classroom_and_library_32x32.png",
+      "width": 512,
+      "height": 1088,
+      "columns": 16,
+      "rows": 34,
+      "note": "desks, chalkboards, bookshelves, printers, a desktop PC — the project room"
+    },
+    {
+      "key": "conference",
+      "file": "tilesets/13_Conference_Hall_32x32.png",
+      "width": 512,
+      "height": 384,
+      "columns": 16,
+      "rows": 12,
+      "note": "conference tables, lectern, projection screen — the demo stage"
+    },
+    {
+      "key": "livingroom",
+      "file": "tilesets/2_LivingRoom_32x32.png",
+      "width": 512,
+      "height": 1440,
+      "columns": 16,
+      "rows": 45,
+      "note": "sofas, armchairs, coffee tables — the lounge"
+    },
+    {
+      "key": "kitchen",
+      "file": "tilesets/12_Kitchen_32x32.png",
+      "width": 512,
+      "height": 1568,
+      "columns": 16,
+      "rows": 49,
+      "note": "counters and a coffee machine; counters double as workbenches"
+    },
+    {
+      "key": "basement",
+      "file": "tilesets/14_Basement_32x32.png",
+      "width": 512,
+      "height": 1600,
+      "columns": 16,
+      "rows": 50,
+      "note": "server racks, wall screens, shelving — the workshop"
+    },
+    {
+      "key": "museum",
+      "file": "tilesets/22_Museum_32x32.png",
+      "width": 512,
+      "height": 3904,
+      "columns": 16,
+      "rows": 122,
+      "note": "reception, benches, display cases — the Commons, and the project gallery"
+    },
+    {
+      "key": "tvstudio",
+      "file": "tilesets/23_Television_and_Film_Studio_32x32.png",
+      "width": 512,
+      "height": 448,
+      "columns": 16,
+      "rows": 14,
+      "note": "monitor walls, studio lights, green screen — the demo stage"
+    },
+    {
+      "key": "walls3d",
+      "file": "tilesets/Room_Builder_3d_walls_32x32.png",
+      "width": 768,
+      "height": 1888,
+      "columns": 24,
+      "rows": 59,
+      "note": "2.5D wall faces — dark top, lit front — for walls seen from above"
+    },
+    {
+      "key": "shadows",
+      "file": "tilesets/Room_Builder_Floor_Shadows_32x32.png",
+      "width": 512,
+      "height": 160,
+      "columns": 16,
+      "rows": 5,
+      "note": "soft floor shadows cast by walls; an overlay layer, not a floor"
+    },
+    {
+      "key": "borders",
+      "file": "tilesets/Room_Builder_borders_32x32.png",
+      "width": 1440,
+      "height": 320,
+      "columns": 45,
+      "rows": 10,
+      "note": "skirting and trim where floor meets wall"
+    },
+    {
+      "key": "entryways",
+      "file": "tilesets/Room_Builder_Arched_Entryways_32x32.png",
+      "width": 320,
+      "height": 1040,
+      "columns": 10,
+      "rows": 32,
+      "note": "arched openings between rooms — doorways that are not doors"
+    },
+    {
+      "key": "connectors",
+      "file": "tilesets/Room_Builder_Floor_Connectors_32x32.png",
+      "width": 224,
+      "height": 1152,
+      "columns": 7,
+      "rows": 36,
+      "note": "clean seams where two floor materials meet"
+    }
+  ],
+  "characters": {
+    "body": [
+      "body_01",
+      "body_02",
+      "body_03",
+      "body_04",
+      "body_05",
+      "body_06",
+      "body_07",
+      "body_08",
+      "body_09"
+    ],
+    "eyes": [
+      "eyes_01",
+      "eyes_02",
+      "eyes_03",
+      "eyes_04",
+      "eyes_05",
+      "eyes_06",
+      "eyes_07"
+    ],
+    "outfit": [
+      "outfit_01",
+      "outfit_02",
+      "outfit_03",
+      "outfit_04",
+      "outfit_05",
+      "outfit_06",
+      "outfit_07",
+      "outfit_08",
+      "outfit_09",
+      "outfit_10",
+      "outfit_11",
+      "outfit_12",
+      "outfit_13",
+      "outfit_14",
+      "outfit_15",
+      "outfit_16",
+      "outfit_17",
+      "outfit_18",
+      "outfit_19",
+      "outfit_20"
+    ],
+    "hair": [
+      "hair_01_01",
+      "hair_02_02",
+      "hair_03_03",
+      "hair_04_04",
+      "hair_05_05",
+      "hair_06_06",
+      "hair_07_07",
+      "hair_08_01",
+      "hair_09_02",
+      "hair_10_03",
+      "hair_11_04",
+      "hair_12_05",
+      "hair_13_06",
+      "hair_14_07",
+      "hair_15_01",
+      "hair_16_02",
+      "hair_17_03",
+      "hair_18_04",
+      "hair_19_05",
+      "hair_20_06"
+    ],
+    "accessory": [
+      "acc_01",
+      "acc_02",
+      "acc_03",
+      "acc_04",
+      "acc_05",
+      "acc_08",
+      "acc_11",
+      "acc_12",
+      "acc_13",
+      "acc_15",
+      "acc_16",
+      "acc_19"
+    ]
+  },
+  "animations": [
+    {
+      "key": "door",
+      "file": "animated/door.png",
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 5,
+      "note": "5 frames: 0 shut, 4 wide open. The Commons doors."
+    },
+    {
+      "key": "doorLocked",
+      "file": "animated/doorLocked.png",
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 4,
+      "note": "the same door with a lock plate — knock / invite-only rooms"
+    },
+    {
+      "key": "coffee",
+      "file": "animated/coffee.png",
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 6,
+      "note": "coffee machine, brewing — the lounge bar"
+    },
+    {
+      "key": "server",
+      "file": "animated/server.png",
+      "frameWidth": 32,
+      "frameHeight": 96,
+      "frames": 3,
+      "note": "server rack with blinking lights — the studio"
+    },
+    {
+      "key": "cat",
+      "file": "animated/cat.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": 36,
+      "note": "a cat. Every good virtual space has one."
+    },
+    {
+      "key": "candle",
+      "file": "animated/candle.png",
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 3,
+      "note": "candle flame — the lounge"
+    },
+    {
+      "key": "sprout",
+      "file": "animated/sprout.png",
+      "frameWidth": 32,
+      "frameHeight": 64,
+      "frames": 4,
+      "note": "a small plant swaying — anywhere that needs life"
+    }
+  ],
+  "coverage": {
+    "used": 90,
+    "available": 5470
+  }
+}

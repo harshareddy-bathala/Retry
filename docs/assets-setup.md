@@ -1,25 +1,33 @@
-# Art assets — one-time setup
+# Art assets
 
 The world's art is **LimeZu "Modern Interiors"**, a paid pixel-art pack. Its licence
 lets us use and edit it in this project but **not redistribute it**.
 
-**This repository is private, and the pack is committed to it** (`assets/`). A clone
-gets the art with it, so there is nothing to buy or download to run the world.
+**This repository is private and tracks both the source pack** (`assets/`) **and its
+generated runtime output** (`packages/maps/generated/`). A clone gets everything it
+needs to run the world, with no separate art download or build step.
 
-> **Before this repository is ever made public**, `assets/` has to be removed from git
+> **Before this repository is ever made public**, both paths have to be removed from git
 > history first — not just deleted in a new commit. Publishing those sheets is
 > distribution, which the licence forbids. This is the one thing in this document that
 > is not reversible after the fact.
 
-## Setup
+## Verification
 
-1. Clone the repository. The pack arrives with it, at
-   `assets/moderninteriors-win/` (its `LICENSE.txt` is the marker the build checks).
-2. Run the asset build:
+Run this optional check before a browser drive:
 
-   ```bash
-   pnpm --filter @retry/maps assets:build
-   ```
+```bash
+pnpm --filter @retry/maps assets:check
+```
+
+## Regenerating assets
+
+The source pack arrives with the clone at `assets/moderninteriors-win/`. Only run the
+asset build after intentionally changing the art pipeline or source pack:
+
+```bash
+pnpm --filter @retry/maps assets:build
+```
 
    It prints what it took and how much of the pack is still untouched:
 
@@ -30,11 +38,8 @@ gets the art with it, so there is nothing to buy or download to run the world.
      coverage: 83 sheets in use, 5470 single objects available to draw on
    ```
 
-3. Before a browser drive, `pnpm --filter @retry/maps assets:check` confirms the
-   licensed art is what's on disk (exits 1 otherwise).
-
-`packages/maps/generated/` stays gitignored — it is regenerable from the pack, and
-committing it would put two copies of the same pixels in git.
+Review and commit all resulting `packages/maps/generated/` changes, then run
+`pnpm --filter @retry/maps assets:check` to confirm the licensed art is on disk.
 
 ## Without the pack
 
@@ -44,9 +49,8 @@ stubs (`source: 'absent'`, empty tileset and character catalogues) so imports re
 The Rooms routes detect the stub and render a screen pointing here. The API and room
 server are unaffected — they read map geometry, never pixels.
 
-CI is no longer that case: it clones the pack along with everything else, so
-`assets:build` there produces real art. The stub path is a fallback now, not the
-tested-by-default path — if you rely on it, exercise it deliberately.
+CI clones both asset paths, so it has real art. The stub path is a fallback now, not
+the tested-by-default path; exercise it deliberately if you rely on it.
 
 ## Two licences ship in that download — this matters
 

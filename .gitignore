@@ -20,14 +20,8 @@ playwright-report/
 test-results/
 
 # Licensed art (LimeZu "Modern Interiors", limezu.itch.io)
-# Its licence permits using and editing the assets in a project, but NOT
-# redistributing them. This repository is PRIVATE, so the pack is committed
-# here — see docs/assets-setup.md. If this repository is ever made public
-# again, `assets/` must be removed from history BEFORE that happens.
-#
-# `pnpm assets:build` output stays ignored: it is regenerable from the pack,
-# and committing it would mean two copies of the same pixels in git.
-packages/maps/generated/
+# This private repository tracks both the original source pack and generated runtime
+# assets. If it is ever made public, remove both from history first.
 
 # Local data
 uploads/

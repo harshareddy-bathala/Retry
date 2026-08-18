@@ -10,8 +10,7 @@ exists now, what to do first when you sit down, and what is deliberately left.
 
 ```bash
 pnpm install
-pnpm --filter @retry/maps assets:build     # the pack is REQUIRED
-pnpm --filter @retry/maps assets:check     # must print "licensed pack present and built"
+pnpm --filter @retry/maps assets:check     # generated art is committed; must pass
 pnpm --filter @retry/db migrate
 docker compose up -d                       # postgres, redis, mailpit
 pnpm dev
@@ -69,7 +68,7 @@ R6, in one line each:
 - `apps/e2e`: a committed two-browser drive and a 50-socket load script.
 
 Docs worth reading before you touch anything:
-`docs/assets-setup.md` (the pack, and why CI can never render),
+`docs/assets-setup.md` (the tracked source and generated art),
 `docs/authoring-maps.md` (the layer contract, seats, and the floor trap),
 `WEBSOCKET_EVENTS.md` §6 (the whole wire protocol),
 `packages/maps/README.md` (the pipeline).

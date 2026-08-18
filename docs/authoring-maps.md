@@ -19,9 +19,10 @@ conversation everybody is in. The alcoves are where the zones live.
 
 ## Setup
 
-You need the art pack built first (`docs/assets-setup.md`), then:
+The generated art is included in the private repository. Verify it, then:
 
 ```bash
+pnpm --filter @retry/maps assets:check
 pnpm --filter @retry/maps tiled
 ```
 
